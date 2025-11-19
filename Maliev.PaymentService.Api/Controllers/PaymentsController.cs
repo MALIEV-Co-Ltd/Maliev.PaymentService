@@ -41,53 +41,8 @@ public class PaymentsController : ControllerBase
 
     /// <summary>
     /// Process a payment through the gateway.
+    /// Requires Idempotency-Key header for duplicate detection.
     /// </summary>
-    /// <param name="request">The payment request containing amount, currency, customer details, and optional provider preference.</param>
-    /// <returns>A payment response with transaction details and payment URL for completion.</returns>
-    /// <remarks>
-    /// This endpoint initiates a payment transaction through the payment gateway. It supports idempotency through the Idempotency-Key header,
-    /// ensuring duplicate requests with the same key return the same result.
-    ///
-    /// **Required Headers:**
-    /// - `Authorization`: Bearer token for authentication
-    /// - `Idempotency-Key`: Unique identifier for this payment request (UUID recommended)
-    /// - `X-Correlation-Id` (optional): For distributed tracing across services
-    ///
-    /// **Payment Flow:**
-    /// 1. Request is validated for required fields and business rules
-    /// 2. Provider is automatically selected based on currency, health, and priority
-    /// 3. Payment is initiated with the selected provider
-    /// 4. Transaction is persisted to database
-    /// 5. Events are published for downstream processing
-    ///
-    /// **Status Codes:**
-    /// - `201 Created`: Payment successfully created (new transaction)
-    /// - `200 OK`: Existing payment returned (idempotent request)
-    /// - `400 Bad Request`: Invalid request data or missing Idempotency-Key
-    /// - `500 Internal Server Error`: Unexpected error during payment processing
-    ///
-    /// **Example Request:**
-    /// ```json
-    /// {
-    ///   "amount": 99.99,
-    ///   "currency": "USD",
-    ///   "customerId": "cust_12345",
-    ///   "orderId": "order_67890",
-    ///   "description": "Premium subscription",
-    ///   "returnUrl": "https://example.com/payment/success",
-    ///   "cancelUrl": "https://example.com/payment/cancel",
-    ///   "preferredProvider": "stripe",
-    ///   "metadata": {
-    ///     "plan": "premium",
-    ///     "period": "annual"
-    ///   }
-    /// }
-    /// ```
-    /// </remarks>
-    /// <response code="201">Payment successfully created. Returns transaction details and payment URL.</response>
-    /// <response code="200">Idempotent request. Returns existing transaction details.</response>
-    /// <response code="400">Invalid request. Missing required fields or invalid Idempotency-Key.</response>
-    /// <response code="500">Internal server error. Payment processing failed.</response>
     [HttpPost]
     [ProducesResponseType(typeof(PaymentResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(PaymentResponse), StatusCodes.Status200OK)]
@@ -207,51 +162,9 @@ public class PaymentsController : ControllerBase
     }
 
     /// <summary>
-    /// Get payment details by transaction ID.
+    /// Get payment details by transaction ID with Redis caching.
+    /// Cache TTL: 60 seconds for active transactions, 3600 seconds for terminal states.
     /// </summary>
-    /// <param name="id">The unique transaction ID (UUID) of the payment.</param>
-    /// <returns>The current payment details including status, amount, and provider information.</returns>
-    /// <remarks>
-    /// Retrieves payment transaction details with intelligent caching to improve performance.
-    ///
-    /// **Caching Strategy:**
-    /// - Active payments (pending, processing): 60 seconds TTL
-    /// - Terminal states (completed, failed, cancelled): 3600 seconds TTL
-    /// - Cache-aside pattern with Redis backing store
-    ///
-    /// **Required Headers:**
-    /// - `Authorization`: Bearer token for authentication
-    ///
-    /// **Status Values:**
-    /// - `pending`: Payment awaiting customer action
-    /// - `processing`: Payment being processed by provider
-    /// - `completed`: Payment successfully completed
-    /// - `failed`: Payment failed (check errorMessage for details)
-    /// - `cancelled`: Payment cancelled by customer or system
-    ///
-    /// **Performance:**
-    /// - Cache hit: ~5-10ms response time
-    /// - Cache miss: ~50-100ms response time
-    ///
-    /// **Example Response:**
-    /// ```json
-    /// {
-    ///   "transactionId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-    ///   "amount": 99.99,
-    ///   "currency": "USD",
-    ///   "status": "completed",
-    ///   "customerId": "cust_12345",
-    ///   "orderId": "order_67890",
-    ///   "selectedProvider": "stripe",
-    ///   "providerTransactionId": "pi_3L8K9M2eZvKYlo2C0w8TZ9Gh",
-    ///   "completedAt": "2025-11-19T10:35:00Z",
-    ///   "createdAt": "2025-11-19T10:30:00Z",
-    ///   "updatedAt": "2025-11-19T10:35:00Z"
-    /// }
-    /// ```
-    /// </remarks>
-    /// <response code="200">Payment found. Returns current payment details.</response>
-    /// <response code="404">Payment not found with the specified transaction ID.</response>
     [HttpGet("{id}")]
     [ProducesResponseType(typeof(PaymentResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
@@ -299,52 +212,8 @@ public class PaymentsController : ControllerBase
 
     /// <summary>
     /// Process a refund for a completed payment.
+    /// Requires Idempotency-Key header for duplicate detection.
     /// </summary>
-    /// <param name="transactionId">The unique transaction ID (UUID) of the payment to refund.</param>
-    /// <param name="request">The refund request containing amount, reason, and refund type.</param>
-    /// <returns>A refund response with refund details and status.</returns>
-    /// <remarks>
-    /// Initiates a refund for a previously completed payment. Supports both full and partial refunds
-    /// with validation to prevent over-refunding.
-    ///
-    /// **Required Headers:**
-    /// - `Authorization`: Bearer token for authentication
-    /// - `Idempotency-Key`: Unique identifier for this refund request (UUID recommended)
-    /// - `X-Correlation-Id` (optional): For distributed tracing across services
-    ///
-    /// **Refund Types:**
-    /// - `full`: Refund the entire payment amount
-    /// - `partial`: Refund a specific amount (must be ≤ remaining refundable amount)
-    ///
-    /// **Validation Rules:**
-    /// 1. Payment must be in `completed` status
-    /// 2. Refund amount must be greater than zero
-    /// 3. Refund amount cannot exceed remaining refundable amount
-    /// 4. Multiple partial refunds are supported (sum ≤ original payment amount)
-    ///
-    /// **Refund Status:**
-    /// - `pending`: Refund initiated, awaiting provider confirmation
-    /// - `processing`: Refund being processed by provider
-    /// - `completed`: Refund successfully completed
-    /// - `failed`: Refund failed (check errorMessage for details)
-    ///
-    /// **Processing Time:**
-    /// - Immediate: Provider API call (~1-2 seconds)
-    /// - Settlement: 5-10 business days to customer account (provider-dependent)
-    ///
-    /// **Example Request:**
-    /// ```json
-    /// {
-    ///   "amount": 49.99,
-    ///   "reason": "Customer requested partial refund",
-    ///   "refundType": "partial"
-    /// }
-    /// ```
-    /// </remarks>
-    /// <response code="200">Refund successfully processed. Returns refund details and status.</response>
-    /// <response code="400">Invalid request. Payment not completed or refund amount invalid.</response>
-    /// <response code="404">Payment not found with the specified transaction ID.</response>
-    /// <response code="500">Internal server error. Refund processing failed.</response>
     [HttpPost("{transactionId}/refund")]
     [ProducesResponseType(typeof(RefundResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
