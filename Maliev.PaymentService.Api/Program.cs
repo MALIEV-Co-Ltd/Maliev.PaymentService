@@ -166,7 +166,14 @@ if (!string.IsNullOrEmpty(jwtPublicKeyBase64))
 }
 else
 {
-    Log.Warning("JWT Authentication DISABLED - No public key configured (Development mode only)");
+    // Development mode: Allow anonymous access to all endpoints
+    builder.Services.AddAuthorization(options =>
+    {
+        options.FallbackPolicy = new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder()
+            .RequireAssertion(_ => true) // Always allow
+            .Build();
+    });
+    Log.Warning("JWT Authentication DISABLED - Anonymous access allowed (Development mode only)");
 }
 
 // Configure health checks
@@ -221,17 +228,15 @@ app.UseRequestLoggingMiddleware();
 
 app.UseHttpsRedirection();
 
-// Apply authentication/authorization middleware if JWT is configured
+// Apply authentication/authorization middleware
 if (!string.IsNullOrEmpty(jwtPublicKeyBase64))
 {
     app.UseAuthentication();
     app.UseJwtAuthenticationMiddleware();
-    app.UseAuthorization();
 }
-else
-{
-    Log.Warning("Running without authentication - DEVELOPMENT MODE ONLY");
-}
+
+// Always apply authorization middleware (uses fallback policy in dev mode)
+app.UseAuthorization();
 
 // Apply rate limiting to webhook endpoints
 app.UseMiddleware<WebhookRateLimitingMiddleware>();
