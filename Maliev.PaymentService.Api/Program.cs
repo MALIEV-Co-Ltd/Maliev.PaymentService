@@ -4,6 +4,7 @@ using Maliev.PaymentService.Infrastructure.Data;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Prometheus;
+using Scalar.AspNetCore;
 using Serilog;
 
 // Configure Serilog
@@ -34,9 +35,30 @@ try
 // Add services to the container
 builder.Services.AddControllers();
 
-// Configure OpenAPI
+// Configure OpenAPI with XML documentation
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddOpenApi("v1");
+builder.Services.AddOpenApi("v1", options =>
+{
+    options.AddDocumentTransformer((document, context, cancellationToken) =>
+    {
+        document.Info.Title = "Payment Gateway Service API";
+        document.Info.Version = "v1";
+        document.Info.Description = "RESTful API for payment processing with multi-provider support, intelligent routing, and comprehensive monitoring";
+        return Task.CompletedTask;
+    });
+
+    // Include XML comments
+    var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+    if (File.Exists(xmlPath))
+    {
+        options.AddSchemaTransformer((schema, context, cancellationToken) =>
+        {
+            // XML documentation is automatically included via OpenAPI schema generation
+            return Task.CompletedTask;
+        });
+    }
+});
 
 // Configure FluentValidation
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
@@ -153,10 +175,19 @@ builder.Services.AddHealthChecks()
 var app = builder.Build();
 
 // Configure the HTTP request pipeline
-if (app.Environment.IsDevelopment())
+app.MapOpenApi("/payments/openapi/{documentName}.json");
+app.MapScalarApiReference(options =>
 {
-    app.MapOpenApi("/payments/openapi/{documentName}.json");
-}
+    options
+        .WithTitle("Payment Gateway Service API")
+        .WithTheme(ScalarTheme.Purple)
+        .WithDefaultHttpClient(ScalarTarget.CSharp, ScalarClient.HttpClient);
+}).WithName("Payments API v1")
+.WithDisplayName("Payments API v1");
+
+// Map Scalar UI with custom path
+app.MapGet("/payments/scalar/v1", () => Results.Redirect("/scalar/v1"))
+    .ExcludeFromDescription();
 
 // Configure middleware pipeline order: Correlation -> Exception -> Logging -> Auth
 app.UseCorrelationIdMiddleware();
