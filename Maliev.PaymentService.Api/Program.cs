@@ -182,11 +182,11 @@ app.MapScalarApiReference(options =>
         .WithTitle("Payment Gateway Service API")
         .WithTheme(ScalarTheme.Purple)
         .WithDefaultHttpClient(ScalarTarget.CSharp, ScalarClient.HttpClient);
-}).WithName("Payments API v1")
-.WithDisplayName("Payments API v1");
+});
 
 // Map Scalar UI with custom path
 app.MapGet("/payments/scalar/v1", () => Results.Redirect("/scalar/v1"))
+    .WithName("PaymentsScalarRedirect")
     .ExcludeFromDescription();
 
 // Configure middleware pipeline order: Correlation -> Exception -> Logging -> Auth
