@@ -40,9 +40,73 @@ public class WebhooksController : ControllerBase
     }
 
     /// <summary>
-    /// Receives a webhook from a payment provider.
-    /// Validates signature, checks for duplicates, and queues for processing.
+    /// Receives webhook notifications from payment providers.
     /// </summary>
+    /// <param name="provider">The provider name (stripe, paypal, scb, omise).</param>
+    /// <param name="payload">The webhook payload from the provider (JSON format).</param>
+    /// <returns>Webhook received confirmation with event ID and processing status.</returns>
+    /// <remarks>
+    /// Receives and processes webhook notifications from payment providers. Webhooks are used by providers
+    /// to notify the gateway about payment status changes (e.g., completed, failed, refunded).
+    ///
+    /// **Security:**
+    /// - Signature validation using provider-specific secrets
+    /// - Source IP validation (optional, provider-dependent)
+    /// - Duplicate detection using event IDs
+    /// - Rate limiting: 100 requests/minute per provider
+    ///
+    /// **Supported Providers:**
+    /// - `stripe`: Stripe webhook events with Stripe-Signature header
+    /// - `paypal`: PayPal IPN/webhooks with PayPal-Transmission-Sig header
+    /// - `scb`: SCB API webhooks with X-SCB-Signature header
+    /// - `omise`: Omise webhook events with Omise-Signature header
+    ///
+    /// **Webhook Processing:**
+    /// 1. Signature validation (prevents tampering)
+    /// 2. Duplicate detection (idempotent processing)
+    /// 3. Event persistence to database
+    /// 4. Asynchronous processing (background job)
+    /// 5. Payment status update
+    ///
+    /// **Event Types:**
+    /// - `payment.succeeded`: Payment completed successfully
+    /// - `payment.failed`: Payment failed or declined
+    /// - `payment.cancelled`: Payment cancelled by customer
+    /// - `refund.succeeded`: Refund completed successfully
+    /// - `refund.failed`: Refund failed
+    ///
+    /// **Response Time:**
+    /// - Target: &lt; 200ms (fast acknowledgment)
+    /// - Processing: Asynchronous (1-5 seconds)
+    ///
+    /// **Example Stripe Webhook:**
+    /// ```bash
+    /// POST /payments/v1/webhooks/stripe
+    /// Stripe-Signature: t=1234567890,v1=abc123...
+    /// Content-Type: application/json
+    ///
+    /// {
+    ///   "id": "evt_123",
+    ///   "type": "payment_intent.succeeded",
+    ///   "data": {
+    ///     "object": {
+    ///       "id": "pi_123",
+    ///       "amount": 9999,
+    ///       "currency": "usd",
+    ///       "status": "succeeded"
+    ///     }
+    ///   }
+    /// }
+    /// ```
+    ///
+    /// **Testing:**
+    /// - Use provider test/sandbox webhooks for development
+    /// - Stripe CLI: `stripe listen --forward-to localhost:5251/payments/v1/webhooks/stripe`
+    /// - PayPal Sandbox: Configure webhook URL in PayPal Developer Dashboard
+    /// </remarks>
+    /// <response code="200">Webhook received and queued for processing. Returns event ID.</response>
+    /// <response code="400">Invalid request. Unknown provider or malformed payload.</response>
+    /// <response code="401">Unauthorized. Signature validation failed.</response>
     [HttpPost("{provider}")]
     [ProducesResponseType(typeof(WebhookReceivedResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
