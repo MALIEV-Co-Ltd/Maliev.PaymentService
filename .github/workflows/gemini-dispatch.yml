@@ -1,0 +1,107 @@
+name: Gemini AI Dispatch
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue number to analyze'
+        required: true
+        type: string
+      task:
+        description: 'Task to perform'
+        required: true
+        type: choice
+        options:
+          - analyze
+          - review
+          - triage
+        default: analyze
+
+env:
+  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        
+    - name: Install dependencies
+      run: |
+        npm install @google/generative-ai axios
+        
+    - name: Run Gemini Analysis
+      id: gemini
+      run: |
+        node -e "
+        const { GoogleGenerativeAI } = require('@google/generative-ai');
+        const axios = require('axios');
+        
+        async function analyzeIssue() {
+          try {
+            const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+            const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+            
+            // Fetch issue details
+            const response = await axios.get(
+              'https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.inputs.issue_number }}',
+              {
+                headers: {
+                  'Authorization': 'Bearer ${{ secrets.GITHUB_TOKEN }}',
+                  'Accept': 'application/vnd.github.v3+json'
+                }
+              }
+            );
+            
+            const issue = response.data;
+            
+            const prompt = \`
+            Analyze this GitHub issue for the Maliev Career Service:
+            
+            Title: \${issue.title}
+            Body: \${issue.body}
+            Labels: \${issue.labels.map(l => l.name).join(', ')}
+            
+            Task: ${{ github.event.inputs.task }}
+            
+            Please provide:
+            1. Issue classification
+            2. Priority assessment
+            3. Recommended actions
+            4. Technical analysis if applicable
+            \`;
+            
+            const result = await model.generateContent(prompt);
+            const analysis = result.response.text();
+            
+            // Post comment with analysis
+            await axios.post(
+              'https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.inputs.issue_number }}/comments',
+              {
+                body: \`## 🤖 Gemini AI Analysis\n\n\${analysis}\`
+              },
+              {
+                headers: {
+                  'Authorization': 'Bearer ${{ secrets.GITHUB_TOKEN }}',
+                  'Accept': 'application/vnd.github.v3+json'
+                }
+              }
+            );
+            
+            console.log('Analysis completed successfully');
+            
+          } catch (error) {
+            console.error('Error:', error.message);
+            process.exit(1);
+          }
+        }
+        
+        analyzeIssue();
+        "

@@ -1,0 +1,138 @@
+# Docker Compose configuration for Payment Gateway Service local development
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:18-alpine
+    container_name: payment-gateway-postgres
+    environment:
+      POSTGRES_DB: payment_gateway
+      POSTGRES_USER: payment_user
+      POSTGRES_PASSWORD: dev_password_change_in_production
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=en_US.UTF-8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U payment_user -d payment_gateway"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - payment-gateway-network
+    restart: unless-stopped
+
+  # Redis Cache
+  redis:
+    image: redis:7.2-alpine
+    container_name: payment-gateway-redis
+    command: redis-server --appendonly yes --requirepass dev_redis_password
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - payment-gateway-network
+    restart: unless-stopped
+
+  # RabbitMQ Message Broker
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: payment-gateway-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: payment_user
+      RABBITMQ_DEFAULT_PASS: dev_rabbitmq_password
+      RABBITMQ_DEFAULT_VHOST: /
+    ports:
+      - "5672:5672"   # AMQP port
+      - "15672:15672" # Management UI
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - payment-gateway-network
+    restart: unless-stopped
+
+  # Payment Gateway API
+  payment-gateway-api:
+    build:
+      context: .
+      dockerfile: Maliev.PaymentService.Api/Dockerfile
+    container_name: payment-gateway-api
+    environment:
+      # ASP.NET Core Configuration
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+
+      # Database Connection
+      ConnectionStrings__PaymentDatabase: "Host=postgres;Port=5432;Database=payment_gateway;Username=payment_user;Password=dev_password_change_in_production;Include Error Detail=true"
+
+      # Redis Configuration
+      Redis__Configuration: "redis:6379,password=dev_redis_password,abortConnect=false"
+      Redis__InstanceName: "PaymentGateway:"
+
+      # RabbitMQ Configuration
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Port: 5672
+      RabbitMQ__Username: payment_user
+      RabbitMQ__Password: dev_rabbitmq_password
+      RabbitMQ__VirtualHost: /
+
+      # JWT Authentication (development settings)
+      JwtAuthentication__Authority: https://your-auth-server.example.com
+      JwtAuthentication__Audience: payment-gateway-api
+      JwtAuthentication__RequireHttpsMetadata: "false"
+
+      # Service Configuration
+      ServiceVersion: 1.0.0
+
+      # Logging
+      Serilog__MinimumLevel__Default: Information
+      Serilog__MinimumLevel__Override__Microsoft: Warning
+      Serilog__MinimumLevel__Override__System: Warning
+    ports:
+      - "8080:8080"  # API port
+      - "8081:8081"  # Metrics port
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://localhost:8080/payments/readiness || exit 1"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 40s
+    networks:
+      - payment-gateway-network
+    restart: unless-stopped
+
+networks:
+  payment-gateway-network:
+    driver: bridge
+    name: payment-gateway-network
+
+volumes:
+  postgres_data:
+    name: payment-gateway-postgres-data
+  redis_data:
+    name: payment-gateway-redis-data
+  rabbitmq_data:
+    name: payment-gateway-rabbitmq-data

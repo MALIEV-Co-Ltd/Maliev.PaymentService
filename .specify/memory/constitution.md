@@ -3,27 +3,25 @@
 <!--
 SYNC IMPACT REPORT
 ==================
-Version Change: 1.1.0 → 1.2.0 (Amendment: Business Metrics & Analytics Enforcement)
+Version Change: 1.4.0 → 1.5.0 (Amendment: Real Infrastructure Testing with Testcontainers)
 Ratification Date: 2025-10-02
-Last Amendment: 2025-10-09
-
-NEW PRINCIPLE ADDED:
-- X. Business Metrics & Analytics (NON-NEGOTIABLE)
+Last Amendment: 2025-11-18
 
 UPDATES:
-- Deployment & Operations Standards: Metrics collection endpoints required.
-- Development Workflow: Tests must include analytics validation.
-- Governance: Constitution compliance extended to cover business analytics reporting.
+- Expanded Principle IV from "PostgreSQL-Only Testing" to "Real Infrastructure Testing"
+- Mandated Testcontainers for ALL infrastructure: PostgreSQL, RabbitMQ, Redis
+- Prohibited in-memory substitutes for databases, message queues, and caches
 
 TEMPLATE UPDATES REQUIRED:
-✅ spec-template.md — add “Metrics & Analytics Requirements” section  
-✅ plan-template.md — reference Principle X compliance check  
-✅ tasks-template.md — add analytics instrumentation and test task before release  
-✅ monitoring-config.yaml — enforce standard metrics labels (service, version, region)
+✅ constitution.md — Principle IV expanded to cover all infrastructure dependencies
+🔄 All test projects — Must include Testcontainers for PostgreSQL, RabbitMQ, Redis
+🔄 All specs — plan.md must validate Real Infrastructure Testing compliance
 
 FOLLOW-UP ITEMS:
-- Centralize analytics ingestion via company telemetry gateway  
-- Define canonical metric taxonomy (revenue, user activity, conversion, uptime, etc.)
+- Update all existing test projects to use Testcontainers.RabbitMQ and Testcontainers.Redis
+- Add Testcontainers fixture setup for RabbitMQ and Redis in integration tests
+- Verify CI/CD has Docker daemon available for Testcontainers
+- Update quickstart.md in all specs to document infrastructure requirements
 -->
 
 ## Core Principles
@@ -63,7 +61,21 @@ Each microservice must be **self-contained**:
 
 ---
 
-### IV. Auditability & Observability
+### IV. Real Infrastructure Testing (NON-NEGOTIABLE)
+
+* **ALL tests MUST use real infrastructure dependencies** via Testcontainers - no in-memory substitutes allowed
+* **PostgreSQL**: Real PostgreSQL instances required (no EF Core InMemoryDatabase provider permitted)
+* **RabbitMQ**: Real RabbitMQ instances required for message queue testing (no in-memory message buses)
+* **Redis**: Real Redis instances required for caching and distributed locking tests (no in-memory cache providers)
+* Integration tests MUST use Docker containers for all infrastructure (local/CI)
+* Test isolation achieved through database transactions, queue purging, or cleanup scripts
+* Test infrastructure must mirror production configuration exactly (same versions, same settings)
+
+**Rationale:** In-memory substitutes have different behavior, concurrency handling, and constraints than real infrastructure. Testing against production-like infrastructure catches real-world issues early (distributed locking race conditions, message serialization, connection pooling, transaction isolation) and eliminates false positives from in-memory quirks. This ensures test fidelity and production confidence across all infrastructure layers.
+
+---
+
+### V. Auditability & Observability
 
 * Structured JSON logging with traceable user/action IDs
 * Immutable audit logs retained per policy
@@ -73,7 +85,7 @@ Each microservice must be **self-contained**:
 
 ---
 
-### V. Security & Compliance
+### VI. Security & Compliance
 
 * JWT authentication, role-based authorization
 * Sensitive data encrypted at rest and in transit
@@ -81,7 +93,7 @@ Each microservice must be **self-contained**:
 
 ---
 
-### VI. Secrets Management & Configuration Security (NON-NEGOTIABLE)
+### VII. Secrets Management & Configuration Security (NON-NEGOTIABLE)
 
 * No secrets in source code
 * Secrets injected from **Google Secret Manager**
@@ -92,7 +104,7 @@ Each microservice must be **self-contained**:
 
 ---
 
-### VII. Zero Warnings Policy (NON-NEGOTIABLE)
+### VIII. Zero Warnings Policy (NON-NEGOTIABLE)
 
 * Builds must emit zero warnings
 * Warnings treated as build failures
@@ -101,15 +113,33 @@ Each microservice must be **self-contained**:
 
 ---
 
-### VIII. Clean Project Artifacts (NON-NEGOTIABLE)
+### IX. Clean Project Artifacts (NON-NEGOTIABLE)
 
 * Remove unused files, outdated docs, and generated artifacts
 * `.gitignore` must exclude temporary files
+* `.dockerignore` must exclude build artifacts, specs, and IDE files
 * Cleanup enforced pre-release
 
 ---
 
-### IX. Simplicity & Maintainability
+### X. Docker Best Practices (NON-NEGOTIABLE)
+
+* **ALL services MUST use the built-in `app` user** from Microsoft's ASP.NET runtime images
+* **NO custom user creation** with `useradd`, `adduser`, or `addgroup` commands
+* Set ownership with `chown -R app:app /app` **BEFORE** the `USER app` directive
+* This ensures copied files inherit correct ownership from the start
+* Use `.dockerignore` to exclude build outputs, IDE files, specs, CI/CD files, **and Test projects**
+* Multi-stage builds mandatory: SDK for build, ASP.NET runtime for final image
+* Use .NET 10 base images: `mcr.microsoft.com/dotnet/sdk:10.0` and `mcr.microsoft.com/dotnet/aspnet:10.0`
+* Health checks must validate service liveness endpoint
+* Install additional tools (like postgresql-client) ONLY when necessary
+* Optimize layer caching by copying project files before source code
+
+**Rationale:** Microsoft's built-in `app` user provides security without complexity. Setting ownership before switching users reduces build time and layer complexity. Following Docker best practices ensures consistent, secure, and efficient container images across all services.
+
+---
+
+### XI. Simplicity & Maintainability
 
 * Apply YAGNI
 * Favor readable, stateless design
@@ -117,9 +147,9 @@ Each microservice must be **self-contained**:
 
 ---
 
-### X. Business Metrics & Analytics (NON-NEGOTIABLE)
+### XII. Business Metrics & Analytics (NON-NEGOTIABLE)
 
-* Every service must expose **business-relevant metrics and analytics endpoints** for use by the company’s telemetry pipeline.
+* Every service must expose **business-relevant metrics and analytics endpoints** for use by the company's telemetry pipeline.
 * Metrics must quantify both **system health** and **business outcomes**, including (where applicable):
 
   * Number of processed jobs, quotes, or transactions
@@ -182,4 +212,4 @@ Each microservice must be **self-contained**:
 
 ---
 
-**Version:** 1.2.0 | **Ratified:** 2025-10-02 | **Last Amended:** 2025-10-09
+**Version:** 1.5.0 | **Ratified:** 2025-10-02 | **Last Amended:** 2025-11-18

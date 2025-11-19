@@ -1,0 +1,320 @@
+openapi: 3.0.3
+info:
+  title: Payment Gateway Service - Webhooks API
+  version: 1.0.0
+  description: |
+    API for receiving asynchronous notifications from payment providers.
+
+    **Authentication**: Provider-specific signature validation (no JWT required).
+
+    **Security**: All webhooks must have valid signatures. Invalid signatures are rejected with 401.
+
+    **Idempotency**: Duplicate webhook events (same provider_event_id) are safely ignored.
+  contact:
+    name: MALIEV Platform Team
+    email: platform@maliev.com
+
+servers:
+  - url: https://api.maliev.com/payment-gateway/v1
+    description: Production
+  - url: https://api-staging.maliev.com/payment-gateway/v1
+    description: Staging
+  - url: http://localhost:5000/v1
+    description: Local Development
+
+paths:
+  /webhooks/{provider}:
+    post:
+      summary: Receive Provider Webhook
+      description: |
+        Receives asynchronous notifications from payment providers about payment events.
+
+        Each provider has its own signature validation mechanism:
+        - **Stripe**: HMAC SHA-256 signature in `Stripe-Signature` header
+        - **PayPal**: Certificate validation using `CERT-URL` and `TRANSMISSION-SIG` headers
+        - **Omise**: IP whitelist validation (no signature)
+        - **SCB**: HMAC signature in custom header
+
+        Webhook events are processed asynchronously. A 200 response indicates the webhook was
+        received and validated, not that processing completed.
+      operationId: receiveWebhook
+      tags:
+        - Webhooks
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          description: Provider name (stripe, paypal, omise, scb)
+          schema:
+            type: string
+            enum: [stripe, paypal, omise, scb]
+            example: "stripe"
+        - name: Stripe-Signature
+          in: header
+          required: false
+          description: Stripe webhook signature (required for Stripe webhooks)
+          schema:
+            type: string
+            example: "t=1234567890,v1=signature_hash"
+        - name: CERT-URL
+          in: header
+          required: false
+          description: PayPal certificate URL (required for PayPal webhooks)
+          schema:
+            type: string
+            format: uri
+        - name: TRANSMISSION-SIG
+          in: header
+          required: false
+          description: PayPal transmission signature (required for PayPal webhooks)
+          schema:
+            type: string
+        - name: X-SCB-Signature
+          in: header
+          required: false
+          description: SCB webhook signature (required for SCB webhooks)
+          schema:
+            type: string
+      requestBody:
+        required: true
+        description: Provider-specific webhook payload (varies by provider)
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Provider-specific webhook event data
+              additionalProperties: true
+              example:
+                id: "evt_1234567890"
+                type: "payment_intent.succeeded"
+                data:
+                  object:
+                    id: "pi_1234567890"
+                    amount: 9999
+                    currency: "usd"
+                    status: "succeeded"
+      responses:
+        '200':
+          description: Webhook received and validated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - received
+                  - eventId
+                properties:
+                  received:
+                    type: boolean
+                    example: true
+                  eventId:
+                    type: string
+                    format: uuid
+                    description: Internal event ID for tracking
+                    example: "650e8400-e29b-41d4-a716-446655440000"
+                  message:
+                    type: string
+                    example: "Webhook event queued for processing"
+        '400':
+          description: Bad Request - Invalid webhook payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - Invalid or missing signature
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found - Provider not registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Conflict - Duplicate event already processed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /webhooks/{provider}/test:
+    post:
+      summary: Test Webhook Endpoint
+      description: |
+        Sends a test webhook event to verify endpoint configuration.
+        Only available in sandbox/development environments.
+      operationId: testWebhook
+      tags:
+        - Webhooks
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [stripe, paypal, omise, scb]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - eventType
+              properties:
+                eventType:
+                  type: string
+                  description: Type of test event to simulate
+                  enum: [payment.completed, payment.failed, refund.completed]
+                  example: "payment.completed"
+                transactionId:
+                  type: string
+                  format: uuid
+                  description: Existing transaction ID to simulate event for
+                  example: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        '200':
+          description: Test webhook sent successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Test webhook event sent"
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden - Test webhooks only available in non-production
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found - Provider or transaction not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+        - timestamp
+      properties:
+        error:
+          type: string
+          example: "INVALID_SIGNATURE"
+        message:
+          type: string
+          example: "Webhook signature validation failed"
+        details:
+          type: object
+          additionalProperties: true
+          nullable: true
+        timestamp:
+          type: string
+          format: date-time
+          example: "2025-11-18T10:30:00Z"
+        correlationId:
+          type: string
+          format: uuid
+          nullable: true
+
+    # Provider-Specific Webhook Schemas (for documentation)
+
+    StripeWebhookEvent:
+      type: object
+      description: Example Stripe webhook event structure
+      properties:
+        id:
+          type: string
+          example: "evt_1234567890"
+        type:
+          type: string
+          example: "payment_intent.succeeded"
+        data:
+          type: object
+          properties:
+            object:
+              type: object
+              description: The event object (PaymentIntent, Charge, Refund, etc.)
+        created:
+          type: integer
+          description: Unix timestamp
+          example: 1699999999
+
+    PayPalWebhookEvent:
+      type: object
+      description: Example PayPal webhook event structure
+      properties:
+        id:
+          type: string
+          example: "WH-12345-67890"
+        event_type:
+          type: string
+          example: "PAYMENT.CAPTURE.COMPLETED"
+        resource:
+          type: object
+          description: The event resource (Payment, Refund, etc.)
+        create_time:
+          type: string
+          format: date-time
+          example: "2025-11-18T10:30:00Z"
+
+    OmiseWebhookEvent:
+      type: object
+      description: Example Omise webhook event structure
+      properties:
+        id:
+          type: string
+          example: "evnt_test_1234567890"
+        key:
+          type: string
+          example: "charge.complete"
+        data:
+          type: object
+          description: The event data (Charge, Refund, etc.)
+        created:
+          type: string
+          format: date-time
+
+    SCBWebhookEvent:
+      type: object
+      description: Example SCB webhook event structure
+      properties:
+        transactionId:
+          type: string
+          example: "SCB-TXN-1234567890"
+        status:
+          type: string
+          enum: [SUCCESS, FAILED, PENDING]
+        amount:
+          type: number
+          format: decimal
+        currency:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
