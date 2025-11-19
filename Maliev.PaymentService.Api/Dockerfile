@@ -1,30 +1,52 @@
-# See https://aka.ms/customizecontainer to learn how to customize your debug container and how Visual Studio uses this Dockerfile to build your images for faster debugging.
+# Multi-stage Dockerfile for Payment Gateway Service
+# Stage 1: Build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
 
-# This stage is used when running from VS in fast mode (Default for Debug configuration)
-FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS base
-USER $APP_UID
+# Copy csproj files and restore dependencies (layer caching)
+COPY ["Maliev.PaymentService.Api/Maliev.PaymentService.Api.csproj", "Maliev.PaymentService.Api/"]
+COPY ["Maliev.PaymentService.Core/Maliev.PaymentService.Core.csproj", "Maliev.PaymentService.Core/"]
+COPY ["Maliev.PaymentService.Infrastructure/Maliev.PaymentService.Infrastructure.csproj", "Maliev.PaymentService.Infrastructure/"]
+RUN dotnet restore "Maliev.PaymentService.Api/Maliev.PaymentService.Api.csproj"
+
+# Copy all source code
+COPY . .
+
+# Build the application
+WORKDIR "/src/Maliev.PaymentService.Api"
+RUN dotnet build "Maliev.PaymentService.Api.csproj" -c Release -o /app/build
+
+# Stage 2: Publish
+FROM build AS publish
+RUN dotnet publish "Maliev.PaymentService.Api.csproj" -c Release -o /app/publish /p:UseAppHost=false
+
+# Stage 3: Runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
+
+# Create non-root user for security
+RUN groupadd -r app && useradd -r -g app app
+
+# Copy published application
+COPY --from=publish /app/publish .
+
+# Set ownership to app user
+RUN chown -R app:app /app
+
+# Switch to non-root user
+USER app
+
+# Expose ports
 EXPOSE 8080
 EXPOSE 8081
 
+# Configure health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+  CMD curl --fail http://localhost:8080/payments/readiness || exit 1
 
-# This stage is used to build the service project
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
-ARG BUILD_CONFIGURATION=Release
-WORKDIR /src
-COPY ["Maliev.PaymentService.Api/Maliev.PaymentService.Api.csproj", "Maliev.PaymentService.Api/"]
-RUN dotnet restore "./Maliev.PaymentService.Api/Maliev.PaymentService.Api.csproj"
-COPY . .
-WORKDIR "/src/Maliev.PaymentService.Api"
-RUN dotnet build "./Maliev.PaymentService.Api.csproj" -c $BUILD_CONFIGURATION -o /app/build
+# Set environment variables
+ENV ASPNETCORE_URLS=http://+:8080
+ENV ASPNETCORE_ENVIRONMENT=Production
 
-# This stage is used to publish the service project to be copied to the final stage
-FROM build AS publish
-ARG BUILD_CONFIGURATION=Release
-RUN dotnet publish "./Maliev.PaymentService.Api.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false
-
-# This stage is used in production or when running from VS in regular mode (Default when not using the Debug configuration)
-FROM base AS final
-WORKDIR /app
-COPY --from=publish /app/publish .
+# Entry point
 ENTRYPOINT ["dotnet", "Maliev.PaymentService.Api.dll"]

@@ -1,0 +1,119 @@
+name: Gemini AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+env:
+  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+jobs:
+  code-review:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 2
+        
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        
+    - name: Install dependencies
+      run: |
+        npm install @google/generative-ai axios
+        
+    - name: Get Changed Files
+      id: changed-files
+      run: |
+        # Get list of changed files
+        git diff --name-only HEAD~1 HEAD > changed_files.txt
+        echo "Changed files:"
+        cat changed_files.txt
+        
+    - name: Perform Code Review
+      run: |
+        node -e "
+        const { GoogleGenerativeAI } = require('@google/generative-ai');
+        const axios = require('axios');
+        const fs = require('fs');
+        
+        async function performReview() {
+          try {
+            const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+            const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+            
+            // Read changed files
+            const changedFiles = fs.readFileSync('changed_files.txt', 'utf8')
+              .split('\n')
+              .filter(file => file.trim() && (file.endsWith('.cs') || file.endsWith('.yml') || file.endsWith('.yaml')))
+              .slice(0, 10); // Limit to 10 files
+            
+            if (changedFiles.length === 0) {
+              console.log('No relevant files to review');
+              return;
+            }
+            
+            let reviewContent = '## 🤖 Gemini AI Code Review\n\n';
+            
+            for (const file of changedFiles) {
+              try {
+                if (fs.existsSync(file)) {
+                  const content = fs.readFileSync(file, 'utf8');
+                  
+                  const prompt = \`
+                  Review this code file from Maliev Career Service:
+                  
+                  File: \${file}
+                  
+                  \`\`\`
+                  \${content}
+                  \`\`\`
+                  
+                  Focus on:
+                  - Code quality and best practices
+                  - Security considerations
+                  - Performance implications
+                  - .NET/C# specific recommendations
+                  - Architecture patterns
+                  - Potential bugs or issues
+                  
+                  Provide constructive feedback in a concise format.
+                  \`;
+                  
+                  const result = await model.generateContent(prompt);
+                  const review = result.response.text();
+                  
+                  reviewContent += \`### \${file}\n\n\${review}\n\n---\n\n\`;
+                }
+              } catch (error) {
+                console.log(\`Skipping file \${file}: \${error.message}\`);
+              }
+            }
+            
+            // Post review comment
+            await axios.post(
+              'https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments',
+              {
+                body: reviewContent
+              },
+              {
+                headers: {
+                  'Authorization': 'Bearer ${{ secrets.GITHUB_TOKEN }}',
+                  'Accept': 'application/vnd.github.v3+json'
+                }
+              }
+            );
+            
+            console.log('Code review completed successfully');
+            
+          } catch (error) {
+            console.error('Error performing code review:', error.message);
+          }
+        }
+        
+        performReview();
+        "

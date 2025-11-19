@@ -1,0 +1,136 @@
+name: Gemini AI Issue Triage
+
+on:
+  issues:
+    types: [opened]
+
+env:
+  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        
+    - name: Install dependencies
+      run: |
+        npm install @google/generative-ai axios
+        
+    - name: Triage New Issue
+      run: |
+        node -e "
+        const { GoogleGenerativeAI } = require('@google/generative-ai');
+        const axios = require('axios');
+        
+        async function triageIssue() {
+          try {
+            const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+            const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+            
+            const issue = {
+              title: \`${{ github.event.issue.title }}\`,
+              body: \`${{ github.event.issue.body }}\`,
+              number: ${{ github.event.issue.number }},
+              user: \`${{ github.event.issue.user.login }}\`
+            };
+            
+            const prompt = \`
+            Analyze this new GitHub issue for the Maliev Career Service (.NET microservice for job management):
+            
+            Title: \${issue.title}
+            Body: \${issue.body}
+            Author: \${issue.user}
+            
+            Please provide:
+            1. Issue classification (bug/enhancement/question/documentation)
+            2. Priority assessment (high/medium/low)
+            3. Suggested labels
+            4. Initial response or questions for the author
+            5. Technical area affected (API/Database/Authentication/FileUpload/etc.)
+            
+            Focus on Career Service domain: job positions, applications, documents, skills, locations.
+            \`;
+            
+            const result = await model.generateContent(prompt);
+            const analysis = result.response.text();
+            
+            // Extract suggested labels from analysis
+            const labelsMatch = analysis.match(/labels?:([^\\n]*)/i);
+            const suggestedLabels = labelsMatch ? 
+              labelsMatch[1].split(',').map(l => l.trim().toLowerCase()).filter(l => l) : 
+              [];
+            
+            // Map to actual repository labels
+            const validLabels = [];
+            const labelMappings = {
+              'bug': 'bug',
+              'enhancement': 'enhancement',
+              'feature': 'enhancement',
+              'question': 'question',
+              'documentation': 'documentation',
+              'help': 'help wanted',
+              'high': 'priority: high',
+              'medium': 'priority: medium',
+              'low': 'priority: low',
+              'api': 'area: api',
+              'database': 'area: database',
+              'auth': 'area: authentication',
+              'security': 'security'
+            };
+            
+            for (const label of suggestedLabels) {
+              if (labelMappings[label]) {
+                validLabels.push(labelMappings[label]);
+              }
+            }
+            
+            // Add default 'triage' label
+            validLabels.push('triage');
+            
+            // Apply labels if any were identified
+            if (validLabels.length > 0) {
+              await axios.patch(
+                \`https://api.github.com/repos/${{ github.repository }}/issues/\${issue.number}\`,
+                {
+                  labels: [...new Set(validLabels)] // Remove duplicates
+                },
+                {
+                  headers: {
+                    'Authorization': 'Bearer ${{ secrets.GITHUB_TOKEN }}',
+                    'Accept': 'application/vnd.github.v3+json'
+                  }
+                }
+              );
+            }
+            
+            // Post analysis comment
+            await axios.post(
+              \`https://api.github.com/repos/${{ github.repository }}/issues/\${issue.number}/comments\`,
+              {
+                body: \`## 🤖 Automatic Triage\n\n\${analysis}\n\n*This issue has been automatically triaged. A team member will review and provide further assistance.*\`
+              },
+              {
+                headers: {
+                  'Authorization': 'Bearer ${{ secrets.GITHUB_TOKEN }}',
+                  'Accept': 'application/vnd.github.v3+json'
+                }
+              }
+            );
+            
+            console.log(\`Issue #\${issue.number} triaged successfully\`);
+            
+          } catch (error) {
+            console.error('Error triaging issue:', error.message);
+          }
+        }
+        
+        triageIssue();
+        "

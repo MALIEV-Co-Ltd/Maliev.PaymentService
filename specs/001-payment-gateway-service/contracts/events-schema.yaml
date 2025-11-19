@@ -1,0 +1,558 @@
+# Message Queue Event Schemas
+# Payment Gateway Service publishes events to RabbitMQ using MassTransit
+# These events notify other microservices about payment state changes
+
+# Event Schema Version: 1.0.0
+# Message Format: JSON
+# Transport: RabbitMQ with MassTransit
+# Exchange Type: Topic
+# Routing Pattern: payment.{event_type}
+
+---
+# Base Event Interface
+BasePaymentEvent:
+  description: Base interface for all payment events
+  type: object
+  required:
+    - eventId
+    - eventType
+    - transactionId
+    - occurredAt
+    - serviceName
+    - correlationId
+    - version
+  properties:
+    eventId:
+      type: string
+      format: uuid
+      description: Unique event identifier
+      example: "750e8400-e29b-41d4-a716-446655440002"
+    eventType:
+      type: string
+      description: Type of event
+      example: "PaymentCompleted"
+    transactionId:
+      type: string
+      format: uuid
+      description: Payment transaction identifier
+      example: "550e8400-e29b-41d4-a716-446655440000"
+    occurredAt:
+      type: string
+      format: date-time
+      description: UTC timestamp when event occurred
+      example: "2025-11-18T10:30:00Z"
+    serviceName:
+      type: string
+      description: Name of the service publishing the event
+      example: "payment-gateway-service"
+      const: "payment-gateway-service"
+    correlationId:
+      type: string
+      format: uuid
+      description: Correlation ID for distributed tracing
+      example: "650e8400-e29b-41d4-a716-446655440001"
+    version:
+      type: string
+      description: Event schema version
+      example: "1.0.0"
+
+---
+# Event Type: PaymentCreated
+PaymentCreatedEvent:
+  description: Published when a payment transaction is initiated
+  allOf:
+    - $ref: '#/BasePaymentEvent'
+  type: object
+  required:
+    - amount
+    - currency
+    - customerId
+    - requestingService
+    - providerName
+  properties:
+    amount:
+      type: number
+      format: decimal
+      description: Payment amount
+      example: 99.99
+    currency:
+      type: string
+      description: ISO 4217 currency code
+      pattern: '^[A-Z]{3}$'
+      example: "USD"
+    customerId:
+      type: string
+      description: Customer identifier
+      example: "cust_1234567890"
+    requestingService:
+      type: string
+      description: Name of the service that requested the payment
+      example: "order-service"
+    providerName:
+      type: string
+      description: Payment provider name
+      example: "Stripe"
+    description:
+      type: string
+      description: Payment description
+      example: "Order #12345"
+      nullable: true
+    metadata:
+      type: object
+      description: Additional payment metadata
+      additionalProperties: true
+      nullable: true
+
+  # RabbitMQ Routing
+  exchange: "payment.events"
+  routingKey: "payment.created"
+  durable: true
+
+---
+# Event Type: PaymentCompleted
+PaymentCompletedEvent:
+  description: Published when a payment transaction is successfully completed
+  allOf:
+    - $ref: '#/BasePaymentEvent'
+  type: object
+  required:
+    - amount
+    - currency
+    - customerId
+    - requestingService
+    - providerName
+    - providerTransactionId
+    - completedAt
+  properties:
+    amount:
+      type: number
+      format: decimal
+      example: 99.99
+    currency:
+      type: string
+      pattern: '^[A-Z]{3}$'
+      example: "USD"
+    customerId:
+      type: string
+      example: "cust_1234567890"
+    requestingService:
+      type: string
+      description: Service that initiated the payment
+      example: "order-service"
+    providerName:
+      type: string
+      example: "Stripe"
+    providerTransactionId:
+      type: string
+      description: Provider's transaction identifier
+      example: "pi_1234567890"
+    paymentMethod:
+      type: string
+      description: Payment method used
+      example: "card"
+      nullable: true
+    completedAt:
+      type: string
+      format: date-time
+      description: UTC timestamp when payment completed
+      example: "2025-11-18T10:30:25Z"
+    processingTimeMs:
+      type: integer
+      description: Time taken to process payment in milliseconds
+      example: 2500
+      nullable: true
+    metadata:
+      type: object
+      additionalProperties: true
+      nullable: true
+
+  # RabbitMQ Routing
+  exchange: "payment.events"
+  routingKey: "payment.completed"
+  durable: true
+
+---
+# Event Type: PaymentFailed
+PaymentFailedEvent:
+  description: Published when a payment transaction fails
+  allOf:
+    - $ref: '#/BasePaymentEvent'
+  type: object
+  required:
+    - amount
+    - currency
+    - customerId
+    - requestingService
+    - providerName
+    - failedAt
+    - failureCode
+    - failureReason
+  properties:
+    amount:
+      type: number
+      format: decimal
+      example: 99.99
+    currency:
+      type: string
+      pattern: '^[A-Z]{3}$'
+      example: "USD"
+    customerId:
+      type: string
+      example: "cust_1234567890"
+    requestingService:
+      type: string
+      example: "order-service"
+    providerName:
+      type: string
+      example: "Stripe"
+    providerTransactionId:
+      type: string
+      description: Provider's transaction identifier (if available)
+      example: "pi_1234567890"
+      nullable: true
+    failedAt:
+      type: string
+      format: date-time
+      example: "2025-11-18T10:30:15Z"
+    failureCode:
+      type: string
+      description: Standardized error code
+      example: "INSUFFICIENT_FUNDS"
+    failureReason:
+      type: string
+      description: Human-readable failure reason
+      example: "The card has insufficient funds to complete the purchase"
+    isRetryable:
+      type: boolean
+      description: Whether the payment can be retried
+      example: false
+    metadata:
+      type: object
+      additionalProperties: true
+      nullable: true
+
+  # RabbitMQ Routing
+  exchange: "payment.events"
+  routingKey: "payment.failed"
+  durable: true
+
+---
+# Event Type: RefundInitiated
+RefundInitiatedEvent:
+  description: Published when a refund is initiated
+  allOf:
+    - $ref: '#/BasePaymentEvent'
+  type: object
+  required:
+    - refundId
+    - amount
+    - currency
+    - refundType
+    - requestingService
+  properties:
+    refundId:
+      type: string
+      format: uuid
+      description: Unique refund transaction identifier
+      example: "650e8400-e29b-41d4-a716-446655440003"
+    amount:
+      type: number
+      format: decimal
+      description: Refund amount
+      example: 49.99
+    currency:
+      type: string
+      pattern: '^[A-Z]{3}$'
+      example: "USD"
+    refundType:
+      type: string
+      enum: [full, partial]
+      example: "partial"
+    reason:
+      type: string
+      description: Reason for refund
+      example: "Customer requested refund"
+      nullable: true
+    requestingService:
+      type: string
+      description: Service that requested the refund
+      example: "customer-service"
+    providerName:
+      type: string
+      example: "Stripe"
+    metadata:
+      type: object
+      additionalProperties: true
+      nullable: true
+
+  # RabbitMQ Routing
+  exchange: "payment.events"
+  routingKey: "refund.initiated"
+  durable: true
+
+---
+# Event Type: RefundCompleted
+RefundCompletedEvent:
+  description: Published when a refund is successfully completed
+  allOf:
+    - $ref: '#/BasePaymentEvent'
+  type: object
+  required:
+    - refundId
+    - amount
+    - currency
+    - refundType
+    - completedAt
+  properties:
+    refundId:
+      type: string
+      format: uuid
+      example: "650e8400-e29b-41d4-a716-446655440003"
+    amount:
+      type: number
+      format: decimal
+      example: 49.99
+    currency:
+      type: string
+      pattern: '^[A-Z]{3}$'
+      example: "USD"
+    refundType:
+      type: string
+      enum: [full, partial]
+      example: "partial"
+    providerName:
+      type: string
+      example: "Stripe"
+    providerRefundId:
+      type: string
+      description: Provider's refund identifier
+      example: "re_1234567890"
+      nullable: true
+    completedAt:
+      type: string
+      format: date-time
+      example: "2025-11-18T11:00:15Z"
+    processingTimeMs:
+      type: integer
+      description: Time taken to process refund
+      example: 1500
+      nullable: true
+    metadata:
+      type: object
+      additionalProperties: true
+      nullable: true
+
+  # RabbitMQ Routing
+  exchange: "payment.events"
+  routingKey: "refund.completed"
+  durable: true
+
+---
+# Event Type: RefundFailed
+RefundFailedEvent:
+  description: Published when a refund fails
+  allOf:
+    - $ref: '#/BasePaymentEvent'
+  type: object
+  required:
+    - refundId
+    - amount
+    - failedAt
+    - failureCode
+    - failureReason
+  properties:
+    refundId:
+      type: string
+      format: uuid
+      example: "650e8400-e29b-41d4-a716-446655440003"
+    amount:
+      type: number
+      format: decimal
+      example: 49.99
+    providerName:
+      type: string
+      example: "Stripe"
+    failedAt:
+      type: string
+      format: date-time
+      example: "2025-11-18T11:00:10Z"
+    failureCode:
+      type: string
+      example: "REFUND_WINDOW_EXPIRED"
+    failureReason:
+      type: string
+      example: "Refund window has expired for this transaction"
+    metadata:
+      type: object
+      additionalProperties: true
+      nullable: true
+
+  # RabbitMQ Routing
+  exchange: "payment.events"
+  routingKey: "refund.failed"
+  durable: true
+
+---
+# Event Type: ProviderDegraded
+ProviderDegradedEvent:
+  description: Published when a payment provider's health status degrades (circuit breaker opens)
+  type: object
+  required:
+    - eventId
+    - eventType
+    - occurredAt
+    - serviceName
+    - correlationId
+    - version
+    - providerId
+    - providerName
+    - previousStatus
+    - currentStatus
+    - reason
+  properties:
+    eventId:
+      type: string
+      format: uuid
+      example: "850e8400-e29b-41d4-a716-446655440004"
+    eventType:
+      type: string
+      const: "ProviderDegraded"
+    providerId:
+      type: string
+      format: uuid
+      description: Provider identifier
+      example: "450e8400-e29b-41d4-a716-446655440005"
+    providerName:
+      type: string
+      example: "Stripe"
+    previousStatus:
+      type: string
+      enum: [active, disabled, degraded, maintenance]
+      example: "active"
+    currentStatus:
+      type: string
+      enum: [degraded]
+      example: "degraded"
+    reason:
+      type: string
+      description: Reason for degradation
+      example: "Circuit breaker opened due to 50% failure rate"
+    failureRate:
+      type: number
+      format: decimal
+      description: Current failure rate (0-1)
+      example: 0.52
+      nullable: true
+    occurredAt:
+      type: string
+      format: date-time
+      example: "2025-11-18T10:35:00Z"
+    serviceName:
+      type: string
+      const: "payment-gateway-service"
+    correlationId:
+      type: string
+      format: uuid
+      example: "950e8400-e29b-41d4-a716-446655440006"
+    version:
+      type: string
+      example: "1.0.0"
+
+  # RabbitMQ Routing
+  exchange: "payment.events"
+  routingKey: "provider.degraded"
+  durable: true
+
+---
+# Event Type: ProviderRecovered
+ProviderRecoveredEvent:
+  description: Published when a degraded payment provider recovers (circuit breaker closes)
+  type: object
+  required:
+    - eventId
+    - eventType
+    - occurredAt
+    - serviceName
+    - correlationId
+    - version
+    - providerId
+    - providerName
+    - previousStatus
+    - currentStatus
+  properties:
+    eventId:
+      type: string
+      format: uuid
+      example: "a50e8400-e29b-41d4-a716-446655440007"
+    eventType:
+      type: string
+      const: "ProviderRecovered"
+    providerId:
+      type: string
+      format: uuid
+      example: "450e8400-e29b-41d4-a716-446655440005"
+    providerName:
+      type: string
+      example: "Stripe"
+    previousStatus:
+      type: string
+      enum: [degraded]
+      example: "degraded"
+    currentStatus:
+      type: string
+      enum: [active]
+      example: "active"
+    downtimeDurationMs:
+      type: integer
+      description: Duration of degradation in milliseconds
+      example: 65000
+      nullable: true
+    occurredAt:
+      type: string
+      format: date-time
+      example: "2025-11-18T10:36:05Z"
+    serviceName:
+      type: string
+      const: "payment-gateway-service"
+    correlationId:
+      type: string
+      format: uuid
+      example: "b50e8400-e29b-41d4-a716-446655440008"
+    version:
+      type: string
+      example: "1.0.0"
+
+  # RabbitMQ Routing
+  exchange: "payment.events"
+  routingKey: "provider.recovered"
+  durable: true
+
+---
+# Consumer Guidelines
+
+# Event Consumption Best Practices:
+# 1. Idempotency: All events include eventId. Consumers must handle duplicate events gracefully.
+# 2. Ordering: Events are not guaranteed to arrive in order. Use occurredAt timestamp for ordering.
+# 3. Retry: Consumers should implement exponential backoff retry logic.
+# 4. Dead Letter Queue: Unprocessable events should be moved to DLQ after max retries.
+# 5. Correlation: Use correlationId for distributed tracing across services.
+# 6. Schema Validation: Validate event schema before processing.
+
+# Exchange Configuration:
+# - Name: payment.events
+# - Type: topic
+# - Durable: true
+# - Auto-delete: false
+
+# Queue Binding Examples:
+# - All payment events: payment.#
+# - Only completed payments: payment.completed
+# - All refund events: refund.#
+# - Provider health events: provider.*
+
+# Message Properties:
+# - Delivery Mode: Persistent (2)
+# - Content Type: application/json
+# - Content Encoding: utf-8
+# - Priority: 0 (normal)
+# - Expiration: 3600000 (1 hour TTL)

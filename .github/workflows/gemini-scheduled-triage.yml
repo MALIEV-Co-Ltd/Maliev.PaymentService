@@ -1,0 +1,193 @@
+name: Gemini AI Scheduled Triage
+
+on:
+  schedule:
+    - cron: '0 9 * * MON'  # Every Monday at 9 AM UTC
+  workflow_dispatch:
+
+env:
+  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+jobs:
+  scheduled-triage:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        
+    - name: Install dependencies
+      run: |
+        npm install @google/generative-ai axios
+        
+    - name: Perform Weekly Triage
+      run: |
+        node -e "
+        const { GoogleGenerativeAI } = require('@google/generative-ai');
+        const axios = require('axios');
+        
+        async function weeklyTriage() {
+          try {
+            const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+            const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+            
+            // Get open issues from the last week
+            const oneWeekAgo = new Date();
+            oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+            
+            const response = await axios.get(
+              'https://api.github.com/repos/${{ github.repository }}/issues',
+              {
+                params: {
+                  state: 'open',
+                  since: oneWeekAgo.toISOString(),
+                  per_page: 50
+                },
+                headers: {
+                  'Authorization': 'Bearer ${{ secrets.GITHUB_TOKEN }}',
+                  'Accept': 'application/vnd.github.v3+json'
+                }
+              }
+            );
+            
+            const issues = response.data.filter(issue => !issue.pull_request);
+            
+            if (issues.length === 0) {
+              console.log('No issues to triage');
+              return;
+            }
+            
+            let triageReport = '## 🤖 Weekly Issue Triage Report\n\n';
+            triageReport += \`**Date:** \${new Date().toLocaleDateString()}\n\`;
+            triageReport += \`**Issues Analyzed:** \${issues.length}\n\n\`;
+            
+            // Categorize issues
+            const categories = {
+              'bug': [],
+              'enhancement': [],
+              'question': [],
+              'documentation': [],
+              'other': []
+            };
+            
+            for (const issue of issues.slice(0, 20)) { // Limit to 20 issues
+              const prompt = \`
+              Analyze this GitHub issue for the Maliev Career Service:
+              
+              Title: \${issue.title}
+              Body: \${issue.body}
+              Current Labels: \${issue.labels.map(l => l.name).join(', ')}
+              
+              Classify this issue into one of these categories:
+              - bug: Software defects, errors, or malfunctions
+              - enhancement: New features or improvements
+              - question: Support requests or clarifications
+              - documentation: Documentation updates or clarifications
+              - other: Anything else
+              
+              Also suggest priority level (high/medium/low) and any missing labels.
+              Respond in format: 'Category: [category], Priority: [priority], Suggested Labels: [labels]'
+              \`;
+              
+              try {
+                const result = await model.generateContent(prompt);
+                const analysis = result.response.text();
+                
+                // Parse analysis
+                const categoryMatch = analysis.match(/Category:\\s*(\\w+)/i);
+                const category = categoryMatch ? categoryMatch[1].toLowerCase() : 'other';
+                
+                if (categories[category]) {
+                  categories[category].push({
+                    issue: issue,
+                    analysis: analysis
+                  });
+                } else {
+                  categories['other'].push({
+                    issue: issue,
+                    analysis: analysis
+                  });
+                }
+                
+              } catch (error) {
+                console.log(\`Error analyzing issue #\${issue.number}: \${error.message}\`);
+                categories['other'].push({
+                  issue: issue,
+                  analysis: 'Analysis failed'
+                });
+              }
+            }
+            
+            // Build report
+            for (const [category, items] of Object.entries(categories)) {
+              if (items.length > 0) {
+                triageReport += \`### \${category.charAt(0).toUpperCase() + category.slice(1)} (\${items.length})\n\n\`;
+                
+                for (const item of items) {
+                  triageReport += \`- [#\${item.issue.number}](\${item.issue.html_url}) \${item.issue.title}\n\`;
+                  triageReport += \`  *\${item.analysis}*\n\n\`;
+                }
+              }
+            }
+            
+            // Create or update triage issue
+            const existingIssues = await axios.get(
+              'https://api.github.com/repos/${{ github.repository }}/issues',
+              {
+                params: {
+                  labels: 'triage-report',
+                  state: 'open'
+                },
+                headers: {
+                  'Authorization': 'Bearer ${{ secrets.GITHUB_TOKEN }}',
+                  'Accept': 'application/vnd.github.v3+json'
+                }
+              }
+            );
+            
+            if (existingIssues.data.length > 0) {
+              // Update existing triage issue
+              await axios.patch(
+                \`https://api.github.com/repos/${{ github.repository }}/issues/\${existingIssues.data[0].number}\`,
+                {
+                  body: triageReport
+                },
+                {
+                  headers: {
+                    'Authorization': 'Bearer ${{ secrets.GITHUB_TOKEN }}',
+                    'Accept': 'application/vnd.github.v3+json'
+                  }
+                }
+              );
+            } else {
+              // Create new triage issue
+              await axios.post(
+                'https://api.github.com/repos/${{ github.repository }}/issues',
+                {
+                  title: 'Weekly Issue Triage Report',
+                  body: triageReport,
+                  labels: ['triage-report', 'automated']
+                },
+                {
+                  headers: {
+                    'Authorization': 'Bearer ${{ secrets.GITHUB_TOKEN }}',
+                    'Accept': 'application/vnd.github.v3+json'
+                  }
+                }
+              );
+            }
+            
+            console.log('Weekly triage completed successfully');
+            
+          } catch (error) {
+            console.error('Error performing weekly triage:', error.message);
+          }
+        }
+        
+        weeklyTriage();
+        "

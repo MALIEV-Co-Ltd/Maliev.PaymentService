@@ -1,0 +1,200 @@
+openapi: 3.0.3
+info:
+  title: Payment Gateway Service - Metrics API
+  version: 1.0.0
+  description: |
+    API for exposing Prometheus metrics and health check endpoints.
+
+    **Authentication**: Health endpoints are public. Metrics endpoint may require authentication depending on configuration.
+
+    **Format**: Metrics are exposed in Prometheus text format.
+  contact:
+    name: MALIEV Platform Team
+    email: platform@maliev.com
+
+servers:
+  - url: https://api.maliev.com/payment-gateway/v1
+    description: Production
+  - url: https://api-staging.maliev.com/payment-gateway/v1
+    description: Staging
+  - url: http://localhost:5000/v1
+    description: Local Development
+
+paths:
+  /health:
+    get:
+      summary: Health Check
+      description: Returns the health status of the service. Used by Kubernetes liveness probe.
+      operationId: healthCheck
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: Service is unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /health/ready:
+    get:
+      summary: Readiness Check
+      description: |
+        Returns whether the service is ready to accept traffic.
+        Used by Kubernetes readiness probe.
+
+        Checks:
+        - Database connectivity
+        - Redis connectivity
+        - At least one active payment provider
+        - RabbitMQ connection
+      operationId: readinessCheck
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+        '503':
+          description: Service is not ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+
+  /metrics:
+    get:
+      summary: Prometheus Metrics
+      description: |
+        Exposes Prometheus metrics in text format.
+
+        **Business Metrics**:
+        - `payment_transactions_total` - Total payment transactions (counter)
+        - `payment_transactions_amount` - Total payment amount processed (counter)
+        - `payment_success_rate` - Payment success rate by provider (gauge)
+        - `payment_duration_seconds` - Payment processing latency (histogram)
+        - `refund_transactions_total` - Total refund transactions (counter)
+        - `active_providers` - Number of active providers (gauge)
+        - `provider_circuit_breaker_state` - Circuit breaker state per provider (gauge)
+
+        **System Metrics**:
+        - `http_requests_total` - Total HTTP requests (counter)
+        - `http_request_duration_seconds` - HTTP request duration (histogram)
+        - `database_connections_active` - Active database connections (gauge)
+        - `redis_operations_total` - Total Redis operations (counter)
+
+        All metrics include standard labels:
+        - `service_name`: "payment-gateway-service"
+        - `version`: service version
+        - `environment`: deployment environment
+      operationId: getMetrics
+      tags:
+        - Metrics
+      responses:
+        '200':
+          description: Metrics retrieved successfully
+          content:
+            text/plain:
+              schema:
+                type: string
+                description: Prometheus metrics in text format
+                example: |
+                  # HELP payment_transactions_total Total number of payment transactions
+                  # TYPE payment_transactions_total counter
+                  payment_transactions_total{service_name="payment-gateway-service",provider="Stripe",status="completed",environment="production",version="1.0.0"} 1250
+                  payment_transactions_total{service_name="payment-gateway-service",provider="PayPal",status="completed",environment="production",version="1.0.0"} 850
+
+                  # HELP payment_success_rate Payment success rate by provider
+                  # TYPE payment_success_rate gauge
+                  payment_success_rate{service_name="payment-gateway-service",provider="Stripe",environment="production",version="1.0.0"} 0.998
+
+                  # HELP payment_duration_seconds Payment processing latency
+                  # TYPE payment_duration_seconds histogram
+                  payment_duration_seconds_bucket{service_name="payment-gateway-service",provider="Stripe",le="1",environment="production",version="1.0.0"} 1000
+                  payment_duration_seconds_bucket{service_name="payment-gateway-service",provider="Stripe",le="3",environment="production",version="1.0.0"} 1200
+                  payment_duration_seconds_bucket{service_name="payment-gateway-service",provider="Stripe",le="5",environment="production",version="1.0.0"} 1240
+                  payment_duration_seconds_bucket{service_name="payment-gateway-service",provider="Stripe",le="+Inf",environment="production",version="1.0.0"} 1250
+                  payment_duration_seconds_sum{service_name="payment-gateway-service",provider="Stripe",environment="production",version="1.0.0"} 2500
+                  payment_duration_seconds_count{service_name="payment-gateway-service",provider="Stripe",environment="production",version="1.0.0"} 1250
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - timestamp
+      properties:
+        status:
+          type: string
+          enum: [healthy, unhealthy]
+          example: "healthy"
+        timestamp:
+          type: string
+          format: date-time
+          example: "2025-11-18T10:30:00Z"
+        version:
+          type: string
+          description: Service version
+          example: "1.0.0"
+        uptime:
+          type: integer
+          description: Uptime in seconds
+          example: 86400
+
+    ReadinessResponse:
+      type: object
+      required:
+        - status
+        - timestamp
+        - checks
+      properties:
+        status:
+          type: string
+          enum: [ready, not_ready]
+          example: "ready"
+        timestamp:
+          type: string
+          format: date-time
+          example: "2025-11-18T10:30:00Z"
+        checks:
+          type: object
+          description: Individual component health checks
+          properties:
+            database:
+              $ref: '#/components/schemas/ComponentCheck'
+            redis:
+              $ref: '#/components/schemas/ComponentCheck'
+            rabbitmq:
+              $ref: '#/components/schemas/ComponentCheck'
+            providers:
+              $ref: '#/components/schemas/ComponentCheck'
+
+    ComponentCheck:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum: [up, down, degraded]
+          example: "up"
+        message:
+          type: string
+          description: Additional status information
+          example: "Connected to PostgreSQL"
+          nullable: true
+        latencyMs:
+          type: integer
+          description: Component response latency in milliseconds
+          example: 5
+          nullable: true

@@ -1,0 +1,536 @@
+openapi: 3.0.3
+info:
+  title: Payment Gateway Service - Payments API
+  version: 1.0.0
+  description: |
+    API for initiating payments, checking payment status, and processing refunds through the Payment Gateway Service.
+
+    **Authentication**: All endpoints require JWT bearer token with service identity claims.
+
+    **Idempotency**: Payment and refund operations support idempotency keys to prevent duplicate charges.
+  contact:
+    name: MALIEV Platform Team
+    email: platform@maliev.com
+
+servers:
+  - url: https://api.maliev.com/payment-gateway/v1
+    description: Production
+  - url: https://api-staging.maliev.com/payment-gateway/v1
+    description: Staging
+  - url: http://localhost:5000/v1
+    description: Local Development
+
+security:
+  - BearerAuth: []
+
+paths:
+  /payments:
+    post:
+      summary: Initiate Payment
+      description: |
+        Initiates a new payment transaction through the gateway. The payment is processed asynchronously,
+        and the status can be checked using the returned transaction ID.
+
+        **Idempotency**: Use the `Idempotency-Key` header to safely retry requests. Duplicate requests
+        with the same idempotency key will return the original transaction response.
+      operationId: initiatePayment
+      tags:
+        - Payments
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Unique idempotency key for this payment request (16-255 characters)
+          schema:
+            type: string
+            minLength: 16
+            maxLength: 255
+            example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        - name: X-Correlation-Id
+          in: header
+          required: false
+          description: Distributed tracing correlation ID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentRequest'
+      responses:
+        '201':
+          description: Payment initiated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+        '400':
+          description: Bad Request - Invalid input data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - Invalid or missing JWT token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Conflict - Duplicate idempotency key with different request data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Unprocessable Entity - No provider available for currency
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Service Unavailable - All providers down
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /payments/{transactionId}:
+    get:
+      summary: Get Payment Status
+      description: Retrieves the current status and details of a payment transaction.
+      operationId: getPaymentStatus
+      tags:
+        - Payments
+      parameters:
+        - name: transactionId
+          in: path
+          required: true
+          description: Unique transaction identifier returned when payment was initiated
+          schema:
+            type: string
+            format: uuid
+        - name: X-Correlation-Id
+          in: header
+          required: false
+          description: Distributed tracing correlation ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Payment status retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentStatusResponse'
+        '404':
+          description: Not Found - Transaction does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - Invalid or missing JWT token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /payments/{transactionId}/refund:
+    post:
+      summary: Refund Payment
+      description: |
+        Initiates a refund for a completed payment transaction. Supports both full and partial refunds.
+
+        **Idempotency**: Use the `Idempotency-Key` header to safely retry refund requests.
+      operationId: refundPayment
+      tags:
+        - Refunds
+      parameters:
+        - name: transactionId
+          in: path
+          required: true
+          description: Transaction ID of the payment to refund
+          schema:
+            type: string
+            format: uuid
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Unique idempotency key for this refund request
+          schema:
+            type: string
+            minLength: 16
+            maxLength: 255
+        - name: X-Correlation-Id
+          in: header
+          required: false
+          description: Distributed tracing correlation ID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefundRequest'
+      responses:
+        '201':
+          description: Refund initiated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefundResponse'
+        '400':
+          description: Bad Request - Invalid refund amount or reason
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - Invalid or missing JWT token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found - Original transaction does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Conflict - Duplicate idempotency key or transaction already fully refunded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Unprocessable Entity - Transaction not eligible for refund
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token with service identity claims
+
+  schemas:
+    PaymentRequest:
+      type: object
+      required:
+        - amount
+        - currency
+        - customerId
+      properties:
+        amount:
+          type: number
+          format: decimal
+          description: Payment amount with up to 4 decimal places
+          minimum: 0.01
+          example: 99.99
+        currency:
+          type: string
+          description: ISO 4217 currency code
+          pattern: '^[A-Z]{3}$'
+          example: "USD"
+        customerId:
+          type: string
+          description: External customer identifier
+          minLength: 1
+          maxLength: 255
+          example: "cust_1234567890"
+        customerEmail:
+          type: string
+          format: email
+          description: Customer email address
+          maxLength: 255
+          example: "customer@example.com"
+        customerName:
+          type: string
+          description: Customer full name
+          maxLength: 255
+          example: "John Doe"
+        description:
+          type: string
+          description: Human-readable payment description
+          maxLength: 500
+          example: "Order #12345 - Premium subscription"
+        paymentMethod:
+          type: string
+          description: Preferred payment method (if specified)
+          enum: [card, bank_transfer, qr_code, wallet]
+          example: "card"
+        metadata:
+          type: object
+          description: Additional metadata for the payment
+          additionalProperties: true
+          example:
+            orderId: "12345"
+            userId: "user_789"
+
+    PaymentResponse:
+      type: object
+      required:
+        - transactionId
+        - status
+        - amount
+        - currency
+        - createdAt
+      properties:
+        transactionId:
+          type: string
+          format: uuid
+          description: Unique transaction identifier
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        status:
+          type: string
+          enum: [pending, processing, completed, failed]
+          description: Current payment status
+          example: "pending"
+        amount:
+          type: number
+          format: decimal
+          description: Payment amount
+          example: 99.99
+        currency:
+          type: string
+          description: ISO 4217 currency code
+          example: "USD"
+        customerId:
+          type: string
+          description: Customer identifier
+          example: "cust_1234567890"
+        providerName:
+          type: string
+          description: Name of the payment provider used
+          example: "Stripe"
+        providerTransactionId:
+          type: string
+          description: Provider's transaction identifier (if available)
+          example: "pi_1234567890"
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+          description: UTC timestamp when payment was created
+          example: "2025-11-18T10:30:00Z"
+        estimatedCompletionTime:
+          type: string
+          format: date-time
+          description: Estimated time for payment completion (if pending)
+          example: "2025-11-18T10:30:30Z"
+          nullable: true
+
+    PaymentStatusResponse:
+      type: object
+      required:
+        - transactionId
+        - status
+        - amount
+        - currency
+        - createdAt
+      properties:
+        transactionId:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        status:
+          type: string
+          enum: [pending, processing, completed, failed, refunded, partially_refunded]
+          example: "completed"
+        amount:
+          type: number
+          format: decimal
+          example: 99.99
+        currency:
+          type: string
+          example: "USD"
+        customerId:
+          type: string
+          example: "cust_1234567890"
+        customerEmail:
+          type: string
+          format: email
+          example: "customer@example.com"
+          nullable: true
+        customerName:
+          type: string
+          example: "John Doe"
+          nullable: true
+        description:
+          type: string
+          example: "Order #12345"
+          nullable: true
+        paymentMethod:
+          type: string
+          example: "card"
+          nullable: true
+        providerName:
+          type: string
+          example: "Stripe"
+        providerTransactionId:
+          type: string
+          example: "pi_1234567890"
+          nullable: true
+        refundedAmount:
+          type: number
+          format: decimal
+          description: Total amount refunded
+          example: 0.00
+        createdAt:
+          type: string
+          format: date-time
+          example: "2025-11-18T10:30:00Z"
+        completedAt:
+          type: string
+          format: date-time
+          example: "2025-11-18T10:30:25Z"
+          nullable: true
+        failedAt:
+          type: string
+          format: date-time
+          nullable: true
+        failureReason:
+          type: string
+          description: Reason for failure if status is failed
+          example: "Insufficient funds"
+          nullable: true
+        failureCode:
+          type: string
+          description: Standardized error code
+          example: "INSUFFICIENT_FUNDS"
+          nullable: true
+
+    RefundRequest:
+      type: object
+      required:
+        - amount
+      properties:
+        amount:
+          type: number
+          format: decimal
+          description: Amount to refund (must not exceed remaining refundable amount)
+          minimum: 0.01
+          example: 49.99
+        reason:
+          type: string
+          description: Reason for the refund
+          maxLength: 500
+          example: "Customer requested refund for defective product"
+        metadata:
+          type: object
+          description: Additional metadata for the refund
+          additionalProperties: true
+          example:
+            ticketId: "SUP-12345"
+
+    RefundResponse:
+      type: object
+      required:
+        - refundId
+        - transactionId
+        - status
+        - amount
+        - currency
+        - createdAt
+      properties:
+        refundId:
+          type: string
+          format: uuid
+          description: Unique refund transaction identifier
+          example: "650e8400-e29b-41d4-a716-446655440001"
+        transactionId:
+          type: string
+          format: uuid
+          description: Original payment transaction ID
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        status:
+          type: string
+          enum: [pending, processing, completed, failed]
+          example: "pending"
+        amount:
+          type: number
+          format: decimal
+          example: 49.99
+        currency:
+          type: string
+          example: "USD"
+        refundType:
+          type: string
+          enum: [full, partial]
+          example: "partial"
+        providerName:
+          type: string
+          example: "Stripe"
+        providerRefundId:
+          type: string
+          description: Provider's refund identifier (if available)
+          example: "re_1234567890"
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+          example: "2025-11-18T11:00:00Z"
+        estimatedCompletionTime:
+          type: string
+          format: date-time
+          nullable: true
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+        - timestamp
+      properties:
+        error:
+          type: string
+          description: Error code
+          example: "INVALID_CURRENCY"
+        message:
+          type: string
+          description: Human-readable error message
+          example: "No payment provider supports the specified currency"
+        details:
+          type: object
+          description: Additional error details
+          additionalProperties: true
+          nullable: true
+        timestamp:
+          type: string
+          format: date-time
+          example: "2025-11-18T10:30:00Z"
+        correlationId:
+          type: string
+          format: uuid
+          description: Correlation ID for tracing
+          example: "750e8400-e29b-41d4-a716-446655440002"
+          nullable: true

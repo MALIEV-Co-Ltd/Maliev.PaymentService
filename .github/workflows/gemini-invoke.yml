@@ -1,0 +1,94 @@
+name: Gemini AI Invoke
+
+on:
+  issue_comment:
+    types: [created]
+
+env:
+  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+jobs:
+  invoke-gemini:
+    if: contains(github.event.comment.body, '@gemini') && github.event.issue.pull_request == null
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        
+    - name: Install dependencies
+      run: |
+        npm install @google/generative-ai axios
+        
+    - name: Process Gemini Request
+      run: |
+        node -e "
+        const { GoogleGenerativeAI } = require('@google/generative-ai');
+        const axios = require('axios');
+        
+        async function processRequest() {
+          try {
+            const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+            const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+            
+            const comment = \`${{ github.event.comment.body }}\`;
+            const userQuery = comment.replace(/@gemini/g, '').trim();
+            
+            // Fetch issue context
+            const response = await axios.get(
+              'https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}',
+              {
+                headers: {
+                  'Authorization': 'Bearer ${{ secrets.GITHUB_TOKEN }}',
+                  'Accept': 'application/vnd.github.v3+json'
+                }
+              }
+            );
+            
+            const issue = response.data;
+            
+            const prompt = \`
+            Context: GitHub issue in Maliev Career Service repository
+            Issue Title: \${issue.title}
+            Issue Body: \${issue.body}
+            
+            User Question: \${userQuery}
+            
+            Please provide a helpful response focused on the Career Service domain, including:
+            - Technical guidance if applicable
+            - Best practices
+            - Code suggestions if relevant
+            - References to .NET, Entity Framework, or microservices patterns as needed
+            \`;
+            
+            const result = await model.generateContent(prompt);
+            const response_text = result.response.text();
+            
+            // Post response
+            await axios.post(
+              'https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments',
+              {
+                body: \`## 🤖 Gemini AI Response\n\n\${response_text}\n\n*Triggered by @${{ github.event.comment.user.login }}*\`
+              },
+              {
+                headers: {
+                  'Authorization': 'Bearer ${{ secrets.GITHUB_TOKEN }}',
+                  'Accept': 'application/vnd.github.v3+json'
+                }
+              }
+            );
+            
+            console.log('Response posted successfully');
+            
+          } catch (error) {
+            console.error('Error:', error.message);
+          }
+        }
+        
+        processRequest();
+        "

@@ -1,152 +1,203 @@
-using Maliev.PaymentService.Api.Services;
-using Maliev.PaymentService.Data.Database.PaymentContext;
+using FluentValidation;
+using Maliev.PaymentService.Api.Middleware;
+using Maliev.PaymentService.Infrastructure.Data;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.ApiExplorer;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
-using Microsoft.OpenApi.Models;
-using System.Text;
+using Prometheus;
+using Serilog;
 
-var builder = WebApplication.CreateBuilder(args);
+// Configure Serilog
+Log.Logger = new LoggerConfiguration()
+    .ReadFrom.Configuration(new ConfigurationBuilder()
+        .AddJsonFile("appsettings.json")
+        .AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production"}.json", optional: true)
+        .Build())
+    .Enrich.FromLogContext()
+    .Enrich.WithProperty("Application", "PaymentGatewayService")
+    .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}")
+    .WriteTo.File(
+        path: "logs/payment-gateway-.txt",
+        rollingInterval: RollingInterval.Day,
+        outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}",
+        retainedFileCountLimit: 30)
+    .CreateLogger();
 
-// Add services to the container.
-
-// Configure DbContext
-builder.Services.AddDbContext<PaymentContext>(options =>
+try
 {
-    options.UseInMemoryDatabase("PaymentServiceDb"); // Using in-memory for simplicity, replace with actual DB in production
+    Log.Information("Starting Payment Gateway Service");
+
+    var builder = WebApplication.CreateBuilder(args);
+
+    // Use Serilog for logging
+    builder.Host.UseSerilog();
+
+// Add services to the container
+builder.Services.AddControllers();
+
+// Configure OpenAPI
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddOpenApi("v1");
+
+// Configure FluentValidation
+builder.Services.AddValidatorsFromAssemblyContaining<Program>();
+
+// Configure DbContext with PostgreSQL
+var dataSourceBuilder = new Npgsql.NpgsqlDataSourceBuilder(builder.Configuration.GetConnectionString("PaymentDatabase")!);
+dataSourceBuilder.EnableDynamicJson();
+var dataSource = dataSourceBuilder.Build();
+builder.Services.AddDbContext<PaymentDbContext>(options =>
+    options.UseNpgsql(dataSource));
+
+// Register metrics service
+builder.Services.AddSingleton<Maliev.PaymentService.Core.Interfaces.IMetricsService, Maliev.PaymentService.Infrastructure.Metrics.PrometheusMetricsService>();
+
+// Configure MassTransit with RabbitMQ
+Maliev.PaymentService.Infrastructure.Messaging.MassTransitConfiguration.AddMassTransitWithRabbitMQ(builder.Services, builder.Configuration);
+
+// Register event publisher
+builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IEventPublisher, Maliev.PaymentService.Infrastructure.Messaging.MassTransitEventPublisher>();
+
+// Configure Redis
+Maliev.PaymentService.Infrastructure.Caching.RedisConfiguration.AddRedisConfiguration(builder.Services, builder.Configuration);
+
+// Register idempotency service
+builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IIdempotencyService, Maliev.PaymentService.Infrastructure.Caching.RedisIdempotencyService>();
+
+// Register circuit breaker state manager
+builder.Services.AddSingleton<Maliev.PaymentService.Infrastructure.Resilience.CircuitBreakerStateManager>();
+
+// Register Polly resilience pipeline
+builder.Services.AddSingleton<Polly.ResiliencePipeline<System.Net.Http.HttpResponseMessage>>(sp =>
+{
+    var configuration = sp.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>();
+    return Maliev.PaymentService.Infrastructure.Resilience.PollyPolicies.CreateCombinedPolicy(configuration);
 });
 
-// Add API Versioning
-builder.Services.AddApiVersioning(options =>
-{
-    options.DefaultApiVersion = new ApiVersion(1, 0);
-    options.AssumeDefaultVersionWhenUnspecified = true;
-    options.ReportApiVersions = true;
-});
+// Configure Data Protection for credential encryption
+builder.Services.AddDataProtection();
 
-builder.Services.AddVersionedApiExplorer(options =>
-{
-    options.GroupNameFormat = "'v'VVV";
-    options.SubstituteApiVersionInUrl = true;
-});
+// Register encryption service
+builder.Services.AddScoped<Maliev.PaymentService.Infrastructure.Encryption.IEncryptionService, Maliev.PaymentService.Infrastructure.Encryption.CredentialEncryptionService>();
 
-// Add Swagger
-builder.Services.AddSwaggerGen(options =>
-{
-    options.SwaggerDoc("v1", new OpenApiInfo { Title = "Maliev.PaymentService.Api", Version = "v1" });
+// Register repositories
+builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IProviderRepository, Maliev.PaymentService.Infrastructure.Data.Repositories.ProviderRepository>();
+builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IPaymentRepository, Maliev.PaymentService.Infrastructure.Data.Repositories.PaymentRepository>();
 
-    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
-    {
-        Description = @"JWT Authorization header using the Bearer scheme. Example: ""Authorization: Bearer {token}""",
-        Name = "Authorization",
-        In = ParameterLocation.Header,
-        Type = SecuritySchemeType.ApiKey,
-        Scheme = "Bearer"
-    });
+// Register HttpClient for provider adapters
+builder.Services.AddHttpClient();
 
-    options.AddSecurityRequirement(new OpenApiSecurityRequirement
-    {
-        {
-            new OpenApiSecurityScheme
-            {
-                Reference = new OpenApiReference
-                {
-                    Type = ReferenceType.SecurityScheme,
-                    Id = "Bearer"
-                }
-            },
-            Array.Empty<string>()
-        }
-    });
-});
+// Register provider factory
+builder.Services.AddScoped<Maliev.PaymentService.Infrastructure.Providers.ProviderFactory>();
 
-// Add Authentication
+// Register services
+builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IProviderManagementService, Maliev.PaymentService.Infrastructure.Services.ProviderManagementService>();
+builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IPaymentRoutingService, Maliev.PaymentService.Infrastructure.Services.PaymentRoutingService>();
+builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IPaymentService, Maliev.PaymentService.Infrastructure.Services.PaymentService>();
+builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IPaymentStatusService, Maliev.PaymentService.Infrastructure.Services.PaymentStatusService>();
+builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IRefundService, Maliev.PaymentService.Infrastructure.Services.RefundService>();
+builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IRefundRepository, Maliev.PaymentService.Infrastructure.Data.Repositories.RefundRepository>();
+
+// Register webhook services
+builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IWebhookRepository, Maliev.PaymentService.Infrastructure.Data.Repositories.WebhookRepository>();
+builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IWebhookValidationService, Maliev.PaymentService.Infrastructure.Services.WebhookValidationService>();
+builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IWebhookProcessingService, Maliev.PaymentService.Infrastructure.Services.WebhookProcessingService>();
+builder.Services.AddHostedService<Maliev.PaymentService.Infrastructure.Services.WebhookCleanupService>();
+
+// Configure JWT Authentication
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        options.TokenValidationParameters = new TokenValidationParameters
+        options.Authority = builder.Configuration["JwtAuthentication:Authority"];
+        options.Audience = builder.Configuration["JwtAuthentication:Audience"];
+        options.RequireHttpsMetadata = builder.Configuration.GetValue<bool>("JwtAuthentication:RequireHttpsMetadata");
+        options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
         {
             ValidateIssuer = true,
             ValidateAudience = true,
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
-            ValidIssuer = builder.Configuration["Jwt:Issuer"],
-            ValidAudience = builder.Configuration["Jwt:Audience"],
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["JwtSecurityKey"]!))
+            ClockSkew = TimeSpan.Zero
         };
     });
 
-// Add Authorization
 builder.Services.AddAuthorization();
 
-// Add CORS
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy("AllowSpecificOrigin",
-        builder => builder.WithOrigins("*.maliev.com") // Replace with actual allowed origins
-            .AllowAnyHeader()
-            .AllowAnyMethod()
-            .AllowCredentials());
-});
+// Configure health checks
+builder.Services.AddHealthChecks()
+    .AddNpgSql(
+        builder.Configuration.GetConnectionString("PaymentDatabase")!,
+        name: "postgresql",
+        tags: new[] { "db", "ready" })
+    .AddRedis(
+        builder.Configuration["Redis:Configuration"]!,
+        name: "redis",
+        tags: new[] { "cache", "ready" })
+    .AddRabbitMQ(
+        sp =>
+        {
+            var factory = new RabbitMQ.Client.ConnectionFactory
+            {
+                HostName = builder.Configuration["RabbitMQ:Host"] ?? "localhost",
+                Port = int.TryParse(builder.Configuration["RabbitMQ:Port"], out var port) ? port : 5672,
+                UserName = builder.Configuration["RabbitMQ:Username"] ?? "guest",
+                Password = builder.Configuration["RabbitMQ:Password"] ?? "guest",
+                VirtualHost = builder.Configuration["RabbitMQ:VirtualHost"] ?? "/"
+            };
+            return factory.CreateConnectionAsync().GetAwaiter().GetResult();
+        },
+        name: "rabbitmq",
+        tags: new[] { "messaging", "ready" });
 
-// Register services
-builder.Services.AddScoped<IPaymentServiceService, PaymentServiceService>();
-
-builder.Services.AddControllers();
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
-builder.Services.AddEndpointsApiExplorer();
+// TODO: Additional services will be configured in later tasks
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+// Configure the HTTP request pipeline
 if (app.Environment.IsDevelopment())
 {
-    app.UseSwagger();
-    app.UseSwaggerUI(options =>
-    {
-        var apiVersionDescriptionProvider = app.Services.GetRequiredService<IApiVersionDescriptionProvider>();
-        foreach (var description in apiVersionDescriptionProvider.ApiVersionDescriptions)
-        {
-            options.SwaggerEndpoint($"/swagger/{description.GroupName}/swagger.json", description.GroupName.ToUpperInvariant());
-        }
-    });
+    app.MapOpenApi("/payments/openapi/{documentName}.json");
 }
-else
-{
-    app.UseExceptionHandler(appBuilder =>
-    {
-        appBuilder.Run(async context =>
-        {
-            context.Response.StatusCode = StatusCodes.Status500InternalServerError;
-            context.Response.ContentType = "application/json";
-            var error = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
-            if (error != null)
-            {
-                var logger = app.Services.GetRequiredService<ILogger<Program>>();
-                logger.LogError(error.Error, "An unhandled exception has occurred.");
-                await context.Response.WriteAsync(new
-                {
-                    StatusCode = context.Response.StatusCode,
-                    Message = "An unexpected error occurred."
-                }.ToString()!);
-            }
-        });
-    });
-    app.UseHsts();
-}
+
+// Configure middleware pipeline order: Correlation -> Exception -> Logging -> Auth
+app.UseCorrelationIdMiddleware();
+app.UseExceptionHandlingMiddleware();
+app.UseRequestLoggingMiddleware();
 
 app.UseHttpsRedirection();
 
-app.UsePathBase("/paymentservice"); // Added UsePathBase
-app.UseRouting(); // Must be before UseCors, UseAuthentication, UseAuthorization
-
-app.UseCors("AllowSpecificOrigin");
-
 app.UseAuthentication();
+app.UseJwtAuthenticationMiddleware();
 app.UseAuthorization();
+
+// Apply rate limiting to webhook endpoints
+app.UseMiddleware<WebhookRateLimitingMiddleware>();
+
+// Configure Prometheus metrics endpoint at /payments/metrics
+app.MapMetrics("/payments/metrics");
+
+// Configure health check endpoints
+app.MapHealthChecks("/payments/liveness", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = _ => false // Liveness - always returns healthy if service is running
+});
+
+app.MapHealthChecks("/payments/readiness", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("ready") // Readiness - checks PostgreSQL, Redis, RabbitMQ
+});
 
 app.MapControllers();
 
 app.Run();
+}
+catch (Exception ex)
+{
+    Log.Fatal(ex, "Application terminated unexpectedly");
+}
+finally
+{
+    Log.CloseAndFlush();
+}
+
+// Make Program class accessible for integration testing
+public partial class Program { }
