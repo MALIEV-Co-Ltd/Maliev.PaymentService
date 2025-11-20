@@ -66,13 +66,13 @@ jobs:
                   
                   const prompt = \`
                   Review this code file from Maliev Career Service:
-                  
+
                   File: \${file}
-                  
+
                   \`\`\`
                   \${content}
                   \`\`\`
-                  
+
                   Focus on:
                   - Code quality and best practices
                   - Security considerations
@@ -80,13 +80,13 @@ jobs:
                   - .NET/C# specific recommendations
                   - Architecture patterns
                   - Potential bugs or issues
-                  
+
                   Provide constructive feedback in a concise format.
                   \`;
-                  
+
                   const result = await model.generateContent(prompt);
                   const review = result.response.text();
-                  
+
                   reviewContent += \`### \${file}\n\n\${review}\n\n---\n\n\`;
                 }
               } catch (error) {
