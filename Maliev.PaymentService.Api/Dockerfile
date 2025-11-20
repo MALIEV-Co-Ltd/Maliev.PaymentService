@@ -24,8 +24,8 @@ RUN dotnet publish -c Release -o /app/publish --no-restore /p:UseAppHost=false
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
-# Create directory for Google Secret Manager secrets and ensure 'app' owns the workdir (app user already exists in ASP.NET runtime image)
-RUN mkdir -p /mnt/secrets && chown -R app:app /app /mnt/secrets
+# Ensure 'app' user owns the workdir (app user already exists in ASP.NET runtime image)
+RUN chown -R app:app /app
 
 # Switch to non-root user
 USER app

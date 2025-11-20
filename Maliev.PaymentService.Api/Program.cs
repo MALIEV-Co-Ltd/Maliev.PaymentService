@@ -29,17 +29,10 @@ try
 
     var builder = WebApplication.CreateBuilder(args);
 
-    // Load configuration from Google Secret Manager
-    var secretsPath = "/mnt/secrets";
-    if (Directory.Exists(secretsPath))
-    {
-        builder.Configuration.AddKeyPerFile(directoryPath: secretsPath, optional: true);
-        Log.Information("Loaded configuration from Google Secret Manager at {SecretsPath}", secretsPath);
-    }
-    else
-    {
-        Log.Warning("Google Secret Manager path {SecretsPath} not found - using appsettings only", secretsPath);
-    }
+    // Configuration is loaded from:
+    // 1. appsettings.json / appsettings.{Environment}.json
+    // 2. Environment variables (including secrets injected by External Secrets Operator in Kubernetes)
+    Log.Information("Loading configuration from appsettings and environment variables");
 
     // Use Serilog for logging
     builder.Host.UseSerilog();
