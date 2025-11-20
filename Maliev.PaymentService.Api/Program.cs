@@ -29,6 +29,18 @@ try
 
     var builder = WebApplication.CreateBuilder(args);
 
+    // Load configuration from Google Secret Manager
+    var secretsPath = "/mnt/secrets";
+    if (Directory.Exists(secretsPath))
+    {
+        builder.Configuration.AddKeyPerFile(directoryPath: secretsPath, optional: true);
+        Log.Information("Loaded configuration from Google Secret Manager at {SecretsPath}", secretsPath);
+    }
+    else
+    {
+        Log.Warning("Google Secret Manager path {SecretsPath} not found - using appsettings only", secretsPath);
+    }
+
     // Use Serilog for logging
     builder.Host.UseSerilog();
 
@@ -73,17 +85,35 @@ builder.Services.AddDbContext<PaymentDbContext>(options =>
 // Register metrics service
 builder.Services.AddSingleton<Maliev.PaymentService.Core.Interfaces.IMetricsService, Maliev.PaymentService.Infrastructure.Metrics.PrometheusMetricsService>();
 
-// Configure MassTransit with RabbitMQ
-Maliev.PaymentService.Infrastructure.Messaging.MassTransitConfiguration.AddMassTransitWithRabbitMQ(builder.Services, builder.Configuration);
+// Configure MassTransit with RabbitMQ (conditional)
+var rabbitMqEnabled = builder.Configuration.GetValue<bool>("RabbitMQ:Enabled", true);
+if (rabbitMqEnabled)
+{
+    Maliev.PaymentService.Infrastructure.Messaging.MassTransitConfiguration.AddMassTransitWithRabbitMQ(builder.Services, builder.Configuration);
+    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IEventPublisher, Maliev.PaymentService.Infrastructure.Messaging.MassTransitEventPublisher>();
+    Log.Information("RabbitMQ messaging enabled");
+}
+else
+{
+    // Register no-op event publisher for development
+    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IEventPublisher, Maliev.PaymentService.Infrastructure.Messaging.NoOpEventPublisher>();
+    Log.Warning("RabbitMQ DISABLED - Using no-op event publisher (Development mode only)");
+}
 
-// Register event publisher
-builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IEventPublisher, Maliev.PaymentService.Infrastructure.Messaging.MassTransitEventPublisher>();
-
-// Configure Redis
-Maliev.PaymentService.Infrastructure.Caching.RedisConfiguration.AddRedisConfiguration(builder.Services, builder.Configuration);
-
-// Register idempotency service
-builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IIdempotencyService, Maliev.PaymentService.Infrastructure.Caching.RedisIdempotencyService>();
+// Configure Redis (conditional)
+var redisEnabled = builder.Configuration.GetValue<bool>("Redis:Enabled", true);
+if (redisEnabled)
+{
+    Maliev.PaymentService.Infrastructure.Caching.RedisConfiguration.AddRedisConfiguration(builder.Services, builder.Configuration);
+    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IIdempotencyService, Maliev.PaymentService.Infrastructure.Caching.RedisIdempotencyService>();
+    Log.Information("Redis caching enabled");
+}
+else
+{
+    // Register in-memory idempotency service for development
+    builder.Services.AddSingleton<Maliev.PaymentService.Core.Interfaces.IIdempotencyService, Maliev.PaymentService.Infrastructure.Caching.InMemoryIdempotencyService>();
+    Log.Warning("Redis DISABLED - Using in-memory idempotency service (Development mode only)");
+}
 
 // Register circuit breaker state manager
 builder.Services.AddSingleton<Maliev.PaymentService.Infrastructure.Resilience.CircuitBreakerStateManager>();
@@ -177,30 +207,44 @@ else
 }
 
 // Configure health checks
-builder.Services.AddHealthChecks()
+var healthChecksBuilder = builder.Services.AddHealthChecks()
     .AddNpgSql(
         builder.Configuration.GetConnectionString("PaymentDatabase")!,
         name: "postgresql",
-        tags: new[] { "db", "ready" })
-    .AddRedis(
-        builder.Configuration["Redis:Configuration"]!,
+        tags: new[] { "db", "ready" });
+
+// Add Redis health check if enabled
+if (redisEnabled)
+{
+    var redisConnectionString = builder.Configuration["Redis:Host"]
+        ?? builder.Configuration["Redis:Configuration"]
+        ?? "localhost:6379";
+
+    healthChecksBuilder.AddRedis(
+        redisConnectionString,
         name: "redis",
-        tags: new[] { "cache", "ready" })
-    .AddRabbitMQ(
+        tags: new[] { "cache", "ready" });
+}
+
+// Add RabbitMQ health check if enabled
+if (rabbitMqEnabled)
+{
+    healthChecksBuilder.AddRabbitMQ(
         sp =>
         {
             var factory = new RabbitMQ.Client.ConnectionFactory
             {
-                HostName = builder.Configuration["RabbitMQ:Host"] ?? "localhost",
-                Port = int.TryParse(builder.Configuration["RabbitMQ:Port"], out var port) ? port : 5672,
-                UserName = builder.Configuration["RabbitMQ:Username"] ?? "guest",
-                Password = builder.Configuration["RabbitMQ:Password"] ?? "guest",
-                VirtualHost = builder.Configuration["RabbitMQ:VirtualHost"] ?? "/"
+                HostName = builder.Configuration["RabbitMQ:Host"] ?? builder.Configuration["RabbitMq:Host"] ?? "localhost",
+                Port = int.TryParse(builder.Configuration["RabbitMQ:Port"] ?? builder.Configuration["RabbitMq:Port"], out var port) ? port : 5672,
+                UserName = builder.Configuration["RabbitMQ:Username"] ?? builder.Configuration["RabbitMq:Username"] ?? "guest",
+                Password = builder.Configuration["RabbitMQ:Password"] ?? builder.Configuration["RabbitMq:Password"] ?? "guest",
+                VirtualHost = builder.Configuration["RabbitMQ:VirtualHost"] ?? builder.Configuration["RabbitMq:VirtualHost"] ?? "/"
             };
             return factory.CreateConnectionAsync().GetAwaiter().GetResult();
         },
         name: "rabbitmq",
         tags: new[] { "messaging", "ready" });
+}
 
 // TODO: Additional services will be configured in later tasks
 
