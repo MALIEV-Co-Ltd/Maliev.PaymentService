@@ -5,15 +5,13 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-# Copy solution and project files
-COPY Maliev.PaymentService.sln ./
+# Copy project files (exclude Tests - filtered by .dockerignore)
 COPY Maliev.PaymentService.Api/Maliev.PaymentService.Api.csproj Maliev.PaymentService.Api/
 COPY Maliev.PaymentService.Core/Maliev.PaymentService.Core.csproj Maliev.PaymentService.Core/
 COPY Maliev.PaymentService.Infrastructure/Maliev.PaymentService.Infrastructure.csproj Maliev.PaymentService.Infrastructure/
-COPY Maliev.PaymentService.Tests/Maliev.PaymentService.Tests.csproj Maliev.PaymentService.Tests/
 
-# Restore dependencies
-RUN dotnet restore Maliev.PaymentService.sln
+# Restore dependencies for Api project (will restore dependencies for Core and Infrastructure)
+RUN dotnet restore Maliev.PaymentService.Api/Maliev.PaymentService.Api.csproj
 
 # Copy all source code
 COPY . .
