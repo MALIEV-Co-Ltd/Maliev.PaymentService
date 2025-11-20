@@ -125,24 +125,56 @@ builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IWebhookValidat
 builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IWebhookProcessingService, Maliev.PaymentService.Infrastructure.Services.WebhookProcessingService>();
 builder.Services.AddHostedService<Maliev.PaymentService.Infrastructure.Services.WebhookCleanupService>();
 
-// Configure JWT Authentication
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
+// Configure JWT Authentication with RSA public key validation
+var jwtPublicKeyBase64 = builder.Configuration["Jwt__PublicKey"];
+if (!string.IsNullOrEmpty(jwtPublicKeyBase64))
+{
+    try
     {
-        options.Authority = builder.Configuration["JwtAuthentication:Authority"];
-        options.Audience = builder.Configuration["JwtAuthentication:Audience"];
-        options.RequireHttpsMetadata = builder.Configuration.GetValue<bool>("JwtAuthentication:RequireHttpsMetadata");
-        options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidateAudience = true,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-            ClockSkew = TimeSpan.Zero
-        };
-    });
+        // Decode base64 public key
+        var publicKeyPem = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(jwtPublicKeyBase64));
 
-builder.Services.AddAuthorization();
+        // Create RSA security key from PEM
+        var rsa = System.Security.Cryptography.RSA.Create();
+        rsa.ImportFromPem(publicKeyPem);
+        var securityKey = new Microsoft.IdentityModel.Tokens.RsaSecurityKey(rsa);
+
+        builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+            .AddJwtBearer(options =>
+            {
+                options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidateAudience = true,
+                    ValidateLifetime = true,
+                    ValidateIssuerSigningKey = true,
+                    ValidIssuer = builder.Configuration["Jwt__Issuer"],
+                    ValidAudience = builder.Configuration["Jwt__Audience"],
+                    IssuerSigningKey = securityKey,
+                    ClockSkew = TimeSpan.Zero
+                };
+            });
+
+        builder.Services.AddAuthorization();
+        Log.Information("JWT Authentication enabled with RSA public key validation");
+    }
+    catch (Exception ex)
+    {
+        Log.Error(ex, "Failed to configure JWT authentication with public key");
+        throw;
+    }
+}
+else
+{
+    // Development mode: Allow anonymous access to all endpoints
+    builder.Services.AddAuthorization(options =>
+    {
+        options.FallbackPolicy = new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder()
+            .RequireAssertion(_ => true) // Always allow
+            .Build();
+    });
+    Log.Warning("JWT Authentication DISABLED - Anonymous access allowed (Development mode only)");
+}
 
 // Configure health checks
 builder.Services.AddHealthChecks()
@@ -182,11 +214,11 @@ app.MapScalarApiReference(options =>
         .WithTitle("Payment Gateway Service API")
         .WithTheme(ScalarTheme.Purple)
         .WithDefaultHttpClient(ScalarTarget.CSharp, ScalarClient.HttpClient);
-}).WithName("Payments API v1")
-.WithDisplayName("Payments API v1");
+});
 
 // Map Scalar UI with custom path
 app.MapGet("/payments/scalar/v1", () => Results.Redirect("/scalar/v1"))
+    .WithName("PaymentsScalarRedirect")
     .ExcludeFromDescription();
 
 // Configure middleware pipeline order: Correlation -> Exception -> Logging -> Auth
@@ -196,8 +228,14 @@ app.UseRequestLoggingMiddleware();
 
 app.UseHttpsRedirection();
 
-app.UseAuthentication();
-app.UseJwtAuthenticationMiddleware();
+// Apply authentication/authorization middleware
+if (!string.IsNullOrEmpty(jwtPublicKeyBase64))
+{
+    app.UseAuthentication();
+    app.UseJwtAuthenticationMiddleware();
+}
+
+// Always apply authorization middleware (uses fallback policy in dev mode)
 app.UseAuthorization();
 
 // Apply rate limiting to webhook endpoints
