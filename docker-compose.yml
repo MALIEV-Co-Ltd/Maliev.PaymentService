@@ -8,15 +8,15 @@ services:
     container_name: payment-gateway-postgres
     environment:
       POSTGRES_DB: payment_gateway
-      POSTGRES_USER: payment_user
-      POSTGRES_PASSWORD: dev_password_change_in_production
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=en_US.UTF-8"
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U payment_user -d payment_gateway"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d payment_gateway"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -29,13 +29,13 @@ services:
   redis:
     image: redis:7.2-alpine
     container_name: payment-gateway-redis
-    command: redis-server --appendonly yes --requirepass dev_redis_password
+    command: redis-server --appendonly yes
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -49,8 +49,8 @@ services:
     image: rabbitmq:3.13-management-alpine
     container_name: payment-gateway-rabbitmq
     environment:
-      RABBITMQ_DEFAULT_USER: payment_user
-      RABBITMQ_DEFAULT_PASS: dev_rabbitmq_password
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
       RABBITMQ_DEFAULT_VHOST: /
     ports:
       - "5672:5672"   # AMQP port
@@ -79,18 +79,20 @@ services:
       ASPNETCORE_URLS: http://+:8080
 
       # Database Connection
-      ConnectionStrings__PaymentDatabase: "Host=postgres;Port=5432;Database=payment_gateway;Username=payment_user;Password=dev_password_change_in_production;Include Error Detail=true"
+      ConnectionStrings__PaymentDatabase: "Host=postgres;Port=5432;Database=payment_gateway;Username=postgres;Password=postgres;Include Error Detail=true"
 
       # Redis Configuration
-      Redis__Configuration: "redis:6379,password=dev_redis_password,abortConnect=false"
+      Redis__Configuration: "redis:6379,abortConnect=false"
       Redis__InstanceName: "PaymentGateway:"
+      Redis__Enabled: "true"
 
       # RabbitMQ Configuration
       RabbitMQ__Host: rabbitmq
       RabbitMQ__Port: 5672
-      RabbitMQ__Username: payment_user
-      RabbitMQ__Password: dev_rabbitmq_password
+      RabbitMQ__Username: guest
+      RabbitMQ__Password: guest
       RabbitMQ__VirtualHost: /
+      RabbitMQ__Enabled: "true"
 
       # JWT Authentication (development settings)
       JwtAuthentication__Authority: https://your-auth-server.example.com
