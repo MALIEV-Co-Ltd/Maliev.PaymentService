@@ -76,7 +76,12 @@ builder.Services.AddOpenApi("v1", options =>
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 
 // Configure DbContext with PostgreSQL
-var dataSourceBuilder = new Npgsql.NpgsqlDataSourceBuilder(builder.Configuration.GetConnectionString("PaymentDatabase")!);
+// Support both PaymentDbContext (from Google Secret Manager) and PaymentDatabase (from appsettings)
+var connectionString = builder.Configuration.GetConnectionString("PaymentDbContext")
+    ?? builder.Configuration.GetConnectionString("PaymentDatabase")
+    ?? throw new InvalidOperationException("Database connection string not found. Expected 'ConnectionStrings:PaymentDbContext' or 'ConnectionStrings:PaymentDatabase'");
+
+var dataSourceBuilder = new Npgsql.NpgsqlDataSourceBuilder(connectionString);
 dataSourceBuilder.EnableDynamicJson();
 var dataSource = dataSourceBuilder.Build();
 builder.Services.AddDbContext<PaymentDbContext>(options =>
@@ -86,7 +91,10 @@ builder.Services.AddDbContext<PaymentDbContext>(options =>
 builder.Services.AddSingleton<Maliev.PaymentService.Core.Interfaces.IMetricsService, Maliev.PaymentService.Infrastructure.Metrics.PrometheusMetricsService>();
 
 // Configure MassTransit with RabbitMQ (conditional)
-var rabbitMqEnabled = builder.Configuration.GetValue<bool>("RabbitMQ:Enabled", true);
+// Support both RabbitMQ (standard) and RabbitMq (from Google Secret Manager) key formats
+var rabbitMqEnabled = builder.Configuration.GetValue<bool?>("RabbitMQ:Enabled")
+    ?? builder.Configuration.GetValue<bool?>("RabbitMq:Enabled")
+    ?? true;
 if (rabbitMqEnabled)
 {
     Maliev.PaymentService.Infrastructure.Messaging.MassTransitConfiguration.AddMassTransitWithRabbitMQ(builder.Services, builder.Configuration);
@@ -209,7 +217,7 @@ else
 // Configure health checks
 var healthChecksBuilder = builder.Services.AddHealthChecks()
     .AddNpgSql(
-        builder.Configuration.GetConnectionString("PaymentDatabase")!,
+        connectionString,
         name: "postgresql",
         tags: new[] { "db", "ready" });
 

@@ -21,11 +21,12 @@ public static class MassTransitConfiguration
             // Configure RabbitMQ transport
             x.UsingRabbitMq((context, cfg) =>
             {
-                var rabbitMqHost = configuration["RabbitMQ:Host"] ?? "localhost";
-                var rabbitMqPort = int.TryParse(configuration["RabbitMQ:Port"], out var port) ? port : 5672;
-                var rabbitMqUsername = configuration["RabbitMQ:Username"] ?? "guest";
-                var rabbitMqPassword = configuration["RabbitMQ:Password"] ?? "guest";
-                var rabbitMqVirtualHost = configuration["RabbitMQ:VirtualHost"] ?? "/";
+                // Support both RabbitMQ (standard) and RabbitMq (from Google Secret Manager) key formats
+                var rabbitMqHost = configuration["RabbitMQ:Host"] ?? configuration["RabbitMq:Host"] ?? "localhost";
+                var rabbitMqPort = int.TryParse(configuration["RabbitMQ:Port"] ?? configuration["RabbitMq:Port"], out var port) ? port : 5672;
+                var rabbitMqUsername = configuration["RabbitMQ:Username"] ?? configuration["RabbitMq:Username"] ?? "guest";
+                var rabbitMqPassword = configuration["RabbitMQ:Password"] ?? configuration["RabbitMq:Password"] ?? "guest";
+                var rabbitMqVirtualHost = configuration["RabbitMQ:VirtualHost"] ?? configuration["RabbitMq:VirtualHost"] ?? "/";
 
                 cfg.Host(rabbitMqHost, (ushort)rabbitMqPort, rabbitMqVirtualHost, h =>
                 {
