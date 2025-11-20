@@ -17,7 +17,10 @@ public static class RedisConfiguration
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        var redisConnectionString = configuration["Redis:Configuration"] ?? "localhost:6379";
+        // Support both Redis:Host (from Google Secret Manager) and Redis:Configuration (from appsettings)
+        var redisConnectionString = configuration["Redis:Host"]
+            ?? configuration["Redis:Configuration"]
+            ?? "localhost:6379";
 
         services.AddSingleton<IConnectionMultiplexer>(sp =>
         {
@@ -25,6 +28,7 @@ public static class RedisConfiguration
             configOptions.AbortOnConnectFail = false;
             configOptions.ConnectRetry = 3;
             configOptions.ConnectTimeout = 5000;
+            configOptions.SyncTimeout = 5000;
             return ConnectionMultiplexer.Connect(configOptions);
         });
 
@@ -32,7 +36,7 @@ public static class RedisConfiguration
         services.AddStackExchangeRedisCache(options =>
         {
             options.Configuration = redisConnectionString;
-            options.InstanceName = "payment_gateway:";
+            options.InstanceName = configuration["Redis:InstanceName"] ?? "payment_gateway:";
         });
 
         return services;
