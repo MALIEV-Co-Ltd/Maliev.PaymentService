@@ -30,6 +30,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Maliev.PaymentService.Core\Maliev.PaymentService.Core.csproj" />
     <ProjectReference Include="..\Maliev.PaymentService.Infrastructure\Maliev.PaymentService.Infrastructure.csproj" />
+    <PackageReference Include="Maliev.Aspire.ServiceDefaults" Version="1.0.*" />
   </ItemGroup>
 
 </Project>

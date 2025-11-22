@@ -43,7 +43,11 @@ jobs:
     - name: Build and push Docker image
       run: |
         gcloud auth configure-docker asia-southeast1-docker.pkg.dev
-        docker build -t asia-southeast1-docker.pkg.dev/maliev-website/maliev-website-artifact-staging/maliev-payment-service:$RELEASE_VERSION -f Maliev.PaymentService.Api/Dockerfile .
+        export RELEASE_VERSION=$(echo ${{ github.ref }} | sed -e 's,.*/v,,g')
+        NUGET_USERNAME=${{ github.actor }} NUGET_PASSWORD=${{ secrets.GITOPS_PAT }} docker build \
+          --secret id=nuget_username,env=NUGET_USERNAME \
+          --secret id=nuget_password,env=NUGET_PASSWORD \
+          -t asia-southeast1-docker.pkg.dev/maliev-website/maliev-website-artifact-staging/maliev-payment-service:$RELEASE_VERSION -f Maliev.PaymentService.Api/Dockerfile .
         docker push asia-southeast1-docker.pkg.dev/maliev-website/maliev-website-artifact-staging/maliev-payment-service:$RELEASE_VERSION
 
     - name: Checkout maliev-gitops repository

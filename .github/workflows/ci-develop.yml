@@ -20,6 +20,9 @@ jobs:
 
     - name: Restore dependencies
       run: dotnet restore Maliev.PaymentService.sln
+      env:
+        NUGET_USERNAME: ${{ github.actor }}
+        NUGET_PASSWORD: ${{ secrets.GITOPS_PAT }}
 
     - name: Build
       run: dotnet build Maliev.PaymentService.sln --no-restore
