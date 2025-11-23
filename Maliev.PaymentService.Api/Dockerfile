@@ -5,13 +5,18 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-# Copy project files (exclude Tests - filtered by .dockerignore)
+# Copy project files and nuget.config (exclude Tests - filtered by .dockerignore)
+COPY nuget.config ./
 COPY Maliev.PaymentService.Api/Maliev.PaymentService.Api.csproj Maliev.PaymentService.Api/
 COPY Maliev.PaymentService.Core/Maliev.PaymentService.Core.csproj Maliev.PaymentService.Core/
 COPY Maliev.PaymentService.Infrastructure/Maliev.PaymentService.Infrastructure.csproj Maliev.PaymentService.Infrastructure/
 
-# Restore dependencies for Api project (will restore dependencies for Core and Infrastructure)
-RUN dotnet restore Maliev.PaymentService.Api/Maliev.PaymentService.Api.csproj
+# Restore dependencies with private NuGet feed credentials
+RUN --mount=type=secret,id=nuget_username \
+    --mount=type=secret,id=nuget_password \
+    NUGET_USERNAME=$(cat /run/secrets/nuget_username) \
+    NUGET_PASSWORD=$(cat /run/secrets/nuget_password) \
+    dotnet restore Maliev.PaymentService.Api/Maliev.PaymentService.Api.csproj
 
 # Copy all source code
 COPY . .
