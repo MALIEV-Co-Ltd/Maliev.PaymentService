@@ -249,6 +249,9 @@ if (rabbitMqEnabled)
 
 // TODO: Additional services will be configured in later tasks
 
+// Add service defaults for .NET Aspire
+builder.AddServiceDefaults();
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline
