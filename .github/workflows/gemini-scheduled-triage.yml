@@ -1,193 +1,214 @@
-name: Gemini AI Scheduled Triage
+name: '📋 Gemini Scheduled Issue Triage'
 
 on:
   schedule:
-    - cron: '0 9 * * MON'  # Every Monday at 9 AM UTC
+    - cron: '0 * * * *' # Runs every hour
+  pull_request:
+    branches:
+      - 'main'
+      - 'release/**/*'
+    paths:
+      - '.github/workflows/gemini-scheduled-triage.yml'
+  push:
+    branches:
+      - 'main'
+      - 'release/**/*'
+    paths:
+      - '.github/workflows/gemini-scheduled-triage.yml'
   workflow_dispatch:
 
-env:
-  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+concurrency:
+  group: '${{ github.workflow }}'
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: 'bash'
 
 jobs:
-  scheduled-triage:
-    runs-on: ubuntu-latest
-    
+  triage:
+    runs-on: 'ubuntu-latest'
+    timeout-minutes: 7
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+      issues: 'read'
+      pull-requests: 'read'
+    outputs:
+      available_labels: '${{ steps.get_labels.outputs.available_labels }}'
+      triaged_issues: '${{ env.TRIAGED_ISSUES }}'
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-        
-    - name: Install dependencies
-      run: |
-        npm install @google/generative-ai axios
-        
-    - name: Perform Weekly Triage
-      run: |
-        node -e "
-        const { GoogleGenerativeAI } = require('@google/generative-ai');
-        const axios = require('axios');
-        
-        async function weeklyTriage() {
-          try {
-            const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-            const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
-            
-            // Get open issues from the last week
-            const oneWeekAgo = new Date();
-            oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-            
-            const response = await axios.get(
-              'https://api.github.com/repos/${{ github.repository }}/issues',
-              {
-                params: {
-                  state: 'open',
-                  since: oneWeekAgo.toISOString(),
-                  per_page: 50
-                },
-                headers: {
-                  'Authorization': 'Bearer ${{ secrets.GITHUB_TOKEN }}',
-                  'Accept': 'application/vnd.github.v3+json'
-                }
-              }
-            );
-            
-            const issues = response.data.filter(issue => !issue.pull_request);
-            
-            if (issues.length === 0) {
-              console.log('No issues to triage');
-              return;
+      - name: 'Get repository labels'
+        id: 'get_labels'
+        uses: 'actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea' # ratchet:actions/github-script@v7.0.1
+        with:
+          # NOTE: we intentionally do not use the minted token. The default
+          # GITHUB_TOKEN provided by the action has enough permissions to read
+          # the labels.
+          script: |-
+            const labels = [];
+            for await (const response of github.paginate.iterator(github.rest.issues.listLabelsForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100, // Maximum per page to reduce API calls
+            })) {
+              labels.push(...response.data);
             }
-            
-            let triageReport = '## 🤖 Weekly Issue Triage Report\n\n';
-            triageReport += \`**Date:** \${new Date().toLocaleDateString()}\n\`;
-            triageReport += \`**Issues Analyzed:** \${issues.length}\n\n\`;
-            
-            // Categorize issues
-            const categories = {
-              'bug': [],
-              'enhancement': [],
-              'question': [],
-              'documentation': [],
-              'other': []
-            };
-            
-            for (const issue of issues.slice(0, 20)) { // Limit to 20 issues
-              const prompt = \`
-              Analyze this GitHub issue for the Maliev Career Service:
-              
-              Title: \${issue.title}
-              Body: \${issue.body}
-              Current Labels: \${issue.labels.map(l => l.name).join(', ')}
-              
-              Classify this issue into one of these categories:
-              - bug: Software defects, errors, or malfunctions
-              - enhancement: New features or improvements
-              - question: Support requests or clarifications
-              - documentation: Documentation updates or clarifications
-              - other: Anything else
-              
-              Also suggest priority level (high/medium/low) and any missing labels.
-              Respond in format: 'Category: [category], Priority: [priority], Suggested Labels: [labels]'
-              \`;
-              
-              try {
-                const result = await model.generateContent(prompt);
-                const analysis = result.response.text();
-                
-                // Parse analysis
-                const categoryMatch = analysis.match(/Category:\\s*(\\w+)/i);
-                const category = categoryMatch ? categoryMatch[1].toLowerCase() : 'other';
-                
-                if (categories[category]) {
-                  categories[category].push({
-                    issue: issue,
-                    analysis: analysis
-                  });
-                } else {
-                  categories['other'].push({
-                    issue: issue,
-                    analysis: analysis
-                  });
-                }
-                
-              } catch (error) {
-                console.log(\`Error analyzing issue #\${issue.number}: \${error.message}\`);
-                categories['other'].push({
-                  issue: issue,
-                  analysis: 'Analysis failed'
-                });
+
+            if (!labels || labels.length === 0) {
+              core.setFailed('There are no issue labels in this repository.')
+            }
+
+            const labelNames = labels.map(label => label.name).sort();
+            core.setOutput('available_labels', labelNames.join(','));
+            core.info(`Found ${labelNames.length} labels: ${labelNames.join(', ')}`);
+            return labelNames;
+
+      - name: 'Find untriaged issues'
+        id: 'find_issues'
+        env:
+          GITHUB_REPOSITORY: '${{ github.repository }}'
+          GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN || github.token }}'
+        run: |-
+          echo '🔍 Finding unlabeled issues and issues marked for triage...'
+          ISSUES="$(gh issue list \
+            --state 'open' \
+            --search 'no:label label:"status/needs-triage"' \
+            --json number,title,body \
+            --limit '100' \
+            --repo "${GITHUB_REPOSITORY}"
+          )"
+
+          echo '📝 Setting output for GitHub Actions...'
+          echo "issues_to_triage=${ISSUES}" >> "${GITHUB_OUTPUT}"
+
+          ISSUE_COUNT="$(echo "${ISSUES}" | jq 'length')"
+          echo "✅ Found ${ISSUE_COUNT} issue(s) to triage! 🎯"
+
+      - name: 'Run Gemini Issue Analysis'
+        id: 'gemini_issue_analysis'
+        if: |-
+          ${{ steps.find_issues.outputs.issues_to_triage != '[]' }}
+        uses: 'google-github-actions/run-gemini-cli@main' # ratchet:exclude
+        env:
+          GITHUB_TOKEN: '' # Do not pass any auth token here since this runs on untrusted inputs
+          ISSUES_TO_TRIAGE: '${{ steps.find_issues.outputs.issues_to_triage }}'
+          REPOSITORY: '${{ github.repository }}'
+          AVAILABLE_LABELS: '${{ steps.get_labels.outputs.available_labels }}'
+        with:
+          gcp_location: '${{ vars.GOOGLE_CLOUD_LOCATION }}'
+          gcp_project_id: '${{ vars.GOOGLE_CLOUD_PROJECT }}'
+          gcp_service_account: '${{ vars.SERVICE_ACCOUNT_EMAIL }}'
+          gcp_workload_identity_provider: '${{ vars.GCP_WIF_PROVIDER }}'
+          gemini_api_key: '${{ secrets.GEMINI_API_KEY }}'
+          gemini_cli_version: '${{ vars.GEMINI_CLI_VERSION }}'
+          gemini_debug: '${{ fromJSON(vars.DEBUG || vars.ACTIONS_STEP_DEBUG || false) }}'
+          gemini_model: '${{ vars.GEMINI_MODEL }}'
+          google_api_key: '${{ secrets.GOOGLE_API_KEY }}'
+          use_gemini_code_assist: '${{ vars.GOOGLE_GENAI_USE_GCA }}'
+          use_vertex_ai: '${{ vars.GOOGLE_GENAI_USE_VERTEXAI }}'
+          upload_artifacts: '${{ vars.UPLOAD_ARTIFACTS }}'
+          workflow_name: 'gemini-scheduled-triage'
+          settings: |-
+            {
+              "model": {
+                "maxSessionTurns": 25
+              },
+              "telemetry": {
+                "enabled": true,
+                "target": "local",
+                "outfile": ".gemini/telemetry.log"
+              },
+              "tools": {
+                "core": [
+                  "run_shell_command(echo)",
+                  "run_shell_command(jq)",
+                  "run_shell_command(printenv)"
+                ]
               }
             }
-            
-            // Build report
-            for (const [category, items] of Object.entries(categories)) {
-              if (items.length > 0) {
-                triageReport += \`### \${category.charAt(0).toUpperCase() + category.slice(1)} (\${items.length})\n\n\`;
-                
-                for (const item of items) {
-                  triageReport += \`- [#\${item.issue.number}](\${item.issue.html_url}) \${item.issue.title}\n\`;
-                  triageReport += \`  *\${item.analysis}*\n\n\`;
-                }
+          prompt: '/gemini-scheduled-triage'
+
+  label:
+    runs-on: 'ubuntu-latest'
+    needs:
+      - 'triage'
+    if: |-
+      needs.triage.outputs.available_labels != '' &&
+      needs.triage.outputs.available_labels != '[]' &&
+      needs.triage.outputs.triaged_issues != '' &&
+      needs.triage.outputs.triaged_issues != '[]'
+    permissions:
+      contents: 'read'
+      issues: 'write'
+      pull-requests: 'write'
+    steps:
+      - name: 'Mint identity token'
+        id: 'mint_identity_token'
+        if: |-
+          ${{ vars.APP_ID }}
+        uses: 'actions/create-github-app-token@a8d616148505b5069dccd32f177bb87d7f39123b' # ratchet:actions/create-github-app-token@v2
+        with:
+          app-id: '${{ vars.APP_ID }}'
+          private-key: '${{ secrets.APP_PRIVATE_KEY }}'
+          permission-contents: 'read'
+          permission-issues: 'write'
+          permission-pull-requests: 'write'
+
+      - name: 'Apply labels'
+        env:
+          AVAILABLE_LABELS: '${{ needs.triage.outputs.available_labels }}'
+          TRIAGED_ISSUES: '${{ needs.triage.outputs.triaged_issues }}'
+        uses: 'actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea' # ratchet:actions/github-script@v7.0.1
+        with:
+          # Use the provided token so that the "gemini-cli" is the actor in the
+          # log for what changed the labels.
+          github-token: '${{ steps.mint_identity_token.outputs.token || secrets.GITHUB_TOKEN || github.token }}'
+          script: |-
+            // Parse the available labels
+            const availableLabels = (process.env.AVAILABLE_LABELS || '').split(',')
+              .map((label) => label.trim())
+              .sort()
+
+            // Parse out the triaged issues
+            const triagedIssues = (JSON.parse(process.env.TRIAGED_ISSUES || '{}'))
+              .sort((a, b) => a.issue_number - b.issue_number)
+
+            core.debug(`Triaged issues: ${JSON.stringify(triagedIssues)}`);
+
+            // Iterate over each label
+            for (const issue of triagedIssues) {
+              if (!issue) {
+                core.debug(`Skipping empty issue: ${JSON.stringify(issue)}`);
+                continue;
               }
-            }
-            
-            // Create or update triage issue
-            const existingIssues = await axios.get(
-              'https://api.github.com/repos/${{ github.repository }}/issues',
-              {
-                params: {
-                  labels: 'triage-report',
-                  state: 'open'
-                },
-                headers: {
-                  'Authorization': 'Bearer ${{ secrets.GITHUB_TOKEN }}',
-                  'Accept': 'application/vnd.github.v3+json'
-                }
+
+              const issueNumber = issue.issue_number;
+              if (!issueNumber) {
+                core.debug(`Skipping issue with no data: ${JSON.stringify(issue)}`);
+                continue;
               }
-            );
-            
-            if (existingIssues.data.length > 0) {
-              // Update existing triage issue
-              await axios.patch(
-                \`https://api.github.com/repos/${{ github.repository }}/issues/\${existingIssues.data[0].number}\`,
-                {
-                  body: triageReport
-                },
-                {
-                  headers: {
-                    'Authorization': 'Bearer ${{ secrets.GITHUB_TOKEN }}',
-                    'Accept': 'application/vnd.github.v3+json'
-                  }
-                }
-              );
-            } else {
-              // Create new triage issue
-              await axios.post(
-                'https://api.github.com/repos/${{ github.repository }}/issues',
-                {
-                  title: 'Weekly Issue Triage Report',
-                  body: triageReport,
-                  labels: ['triage-report', 'automated']
-                },
-                {
-                  headers: {
-                    'Authorization': 'Bearer ${{ secrets.GITHUB_TOKEN }}',
-                    'Accept': 'application/vnd.github.v3+json'
-                  }
-                }
-              );
+
+              // Extract and reject invalid labels - we do this just in case
+              // someone was able to prompt inject malicious labels.
+              let labelsToSet = (issue.labels_to_set || [])
+                .map((label) => label.trim())
+                .filter((label) => availableLabels.includes(label))
+                .sort()
+
+              core.debug(`Identified labels to set: ${JSON.stringify(labelsToSet)}`);
+
+              if (labelsToSet.length === 0) {
+                core.info(`Skipping issue #${issueNumber} - no labels to set.`)
+                continue;
+              }
+
+              core.debug(`Setting labels on issue #${issueNumber} to ${labelsToSet.join(', ')} (${issue.explanation || 'no explanation'})`)
+
+              await github.rest.issues.setLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                labels: labelsToSet,
+              });
             }
-            
-            console.log('Weekly triage completed successfully');
-            
-          } catch (error) {
-            console.error('Error performing weekly triage:', error.message);
-          }
-        }
-        
-        weeklyTriage();
-        "

@@ -41,6 +41,7 @@ jobs:
       with:
         project_id: maliev-website
 
+
     - name: Build and push Docker image
       run: |
         gcloud auth configure-docker asia-southeast1-docker.pkg.dev
