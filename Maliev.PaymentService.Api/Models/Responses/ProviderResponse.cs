@@ -62,11 +62,29 @@ public class ProviderResponse
     /// </summary>
     public class ProviderConfigurationDto
     {
+        /// <summary>
+        /// Unique identifier for the configuration.
+        /// </summary>
         public required Guid Id { get; set; }
+        /// <summary>
+        /// Region identifier (e.g., "US", "EU").
+        /// </summary>
         public required string Region { get; set; }
+        /// <summary>
+        /// API base URL for this region.
+        /// </summary>
         public required string ApiBaseUrl { get; set; }
+        /// <summary>
+        /// Whether this configuration is active.
+        /// </summary>
         public required bool IsActive { get; set; }
+        /// <summary>
+        /// Maximum retries for this region.
+        /// </summary>
         public required int MaxRetries { get; set; }
+        /// <summary>
+        /// Timeout in seconds for this region.
+        /// </summary>
         public required int TimeoutSeconds { get; set; }
     }
 }

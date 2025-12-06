@@ -116,7 +116,7 @@ public class WebhookEvent
     /// <summary>
     /// Optimistic concurrency token.
     /// </summary>
-    public required byte[] RowVersion { get; set; }
+    public byte[] RowVersion { get; set; } = Array.Empty<byte>();
 
     /// <summary>
     /// Navigation property to payment provider.

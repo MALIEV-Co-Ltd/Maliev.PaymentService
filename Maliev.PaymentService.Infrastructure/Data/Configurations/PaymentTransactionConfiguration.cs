@@ -119,8 +119,9 @@ public class PaymentTransactionConfiguration : IEntityTypeConfiguration<PaymentT
 
         builder.Property(p => p.RowVersion)
             .HasColumnName("row_version")
-            .IsRowVersion()
-            .IsRequired();
+            .HasColumnType("bytea")
+            .IsConcurrencyToken()
+            .HasDefaultValueSql("'\\x00'::bytea");  // Default empty bytea for PostgreSQL
 
         // Indexes
         builder.HasIndex(p => p.IdempotencyKey)

@@ -18,7 +18,8 @@ public static class RedisConfiguration
         IConfiguration configuration)
     {
         // Support both Redis:Host (from Google Secret Manager) and Redis:Configuration (from appsettings)
-        var redisConnectionString = configuration["Redis:Host"]
+        var redisConnectionString = configuration.GetConnectionString("redis")
+            ?? configuration["Redis:Host"]
             ?? configuration["Redis:Configuration"]
             ?? "localhost:6379";
 

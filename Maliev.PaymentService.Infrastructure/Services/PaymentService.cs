@@ -5,7 +5,6 @@ using Maliev.PaymentService.Core.Interfaces;
 using Maliev.PaymentService.Infrastructure.Providers;
 using Maliev.PaymentService.Infrastructure.Resilience;
 using Microsoft.Extensions.Logging;
-using Polly;
 
 namespace Maliev.PaymentService.Infrastructure.Services;
 
@@ -22,7 +21,6 @@ public class PaymentService : IPaymentService
     private readonly IMetricsService _metricsService;
     private readonly ProviderFactory _providerFactory;
     private readonly CircuitBreakerStateManager _circuitBreakerStateManager;
-    private readonly ResiliencePipeline<HttpResponseMessage> _resiliencePipeline;
     private readonly ILogger<PaymentService> _logger;
 
     public PaymentService(
@@ -33,7 +31,6 @@ public class PaymentService : IPaymentService
         IMetricsService metricsService,
         ProviderFactory providerFactory,
         CircuitBreakerStateManager circuitBreakerStateManager,
-        ResiliencePipeline<HttpResponseMessage> resiliencePipeline,
         ILogger<PaymentService> logger)
     {
         _paymentRepository = paymentRepository;
@@ -43,7 +40,6 @@ public class PaymentService : IPaymentService
         _metricsService = metricsService;
         _providerFactory = providerFactory;
         _circuitBreakerStateManager = circuitBreakerStateManager;
-        _resiliencePipeline = resiliencePipeline;
         _logger = logger;
     }
 
@@ -114,7 +110,7 @@ public class PaymentService : IPaymentService
                 CorrelationId = request.CorrelationId,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
-                RowVersion = new byte[0] // EF Core will set this
+
             };
 
             // Save initial transaction

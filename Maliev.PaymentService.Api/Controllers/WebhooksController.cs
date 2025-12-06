@@ -23,6 +23,15 @@ public class WebhooksController : ControllerBase
     private readonly IMetricsService _metricsService;
     private readonly ILogger<WebhooksController> _logger;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="WebhooksController"/> class.
+    /// </summary>
+    /// <param name="providerRepository"></param>
+    /// <param name="webhookRepository"></param>
+    /// <param name="validationService"></param>
+    /// <param name="processingService"></param>
+    /// <param name="metricsService"></param>
+    /// <param name="logger"></param>
     public WebhooksController(
         IProviderRepository providerRepository,
         IWebhookRepository webhookRepository,

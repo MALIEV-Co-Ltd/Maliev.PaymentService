@@ -16,6 +16,12 @@ public class WebhookRateLimitingMiddleware
     private const int MaxRequestsPerMinute = 100;
     private const int WindowSizeSeconds = 60;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="WebhookRateLimitingMiddleware"/> class.
+    /// </summary>
+    /// <param name="next">The next middleware in the pipeline.</param>
+    /// <param name="cache">The distributed cache instance.</param>
+    /// <param name="logger">The logger instance.</param>
     public WebhookRateLimitingMiddleware(
         RequestDelegate next,
         IDistributedCache cache,
@@ -26,6 +32,10 @@ public class WebhookRateLimitingMiddleware
         _logger = logger;
     }
 
+    /// <summary>
+    /// Invokes the middleware to apply rate limiting to webhook endpoints.
+    /// </summary>
+    /// <param name="context">The HTTP context.</param>
     public async Task InvokeAsync(HttpContext context)
     {
         // Only apply to webhook endpoints

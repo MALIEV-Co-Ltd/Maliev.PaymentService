@@ -13,15 +13,15 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Maliev.PaymentService.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(PaymentDbContext))]
-    [Migration("20251119100829_AddWebhookTable")]
-    partial class AddWebhookTable
+    [Migration("20251206115714_InitialCreate")]
+    partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "9.0.10")
+                .HasAnnotation("ProductVersion", "10.0.0")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -207,9 +207,10 @@ namespace Maliev.PaymentService.Infrastructure.Data.Migrations
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
                         .IsRequired()
-                        .ValueGeneratedOnAddOrUpdate()
+                        .ValueGeneratedOnAdd()
                         .HasColumnType("bytea")
-                        .HasColumnName("row_version");
+                        .HasColumnName("row_version")
+                        .HasDefaultValueSql("'\\x00'::bytea");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -313,6 +314,155 @@ namespace Maliev.PaymentService.Infrastructure.Data.Migrations
                     b.ToTable("provider_configurations", (string)null);
                 });
 
+            modelBuilder.Entity("Maliev.PaymentService.Core.Entities.RefundTransaction", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(19, 4)
+                        .HasColumnType("numeric(19,4)")
+                        .HasColumnName("amount");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<Guid>("CorrelationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("correlation_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)")
+                        .HasColumnName("currency");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("error_message");
+
+                    b.Property<DateTime?>("FailedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("failed_at");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("idempotency_key");
+
+                    b.Property<DateTime?>("InitiatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("initiated_at");
+
+                    b.Property<string>("InternalNotes")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("internal_notes");
+
+                    b.Property<bool>("IsArchived")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_archived");
+
+                    b.Property<Guid>("PaymentTransactionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("payment_transaction_id");
+
+                    b.Property<string>("ProviderErrorCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("provider_error_code");
+
+                    b.Property<Guid>("ProviderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("provider_id");
+
+                    b.Property<string>("ProviderRefundId")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("provider_refund_id");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("reason");
+
+                    b.Property<string>("RefundType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("refund_type");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bytea")
+                        .HasColumnName("row_version")
+                        .HasDefaultValueSql("'\\x00'::bytea");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CorrelationId")
+                        .HasDatabaseName("idx_refund_transactions_correlation_id");
+
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique()
+                        .HasDatabaseName("uk_refund_transactions_idempotency_key");
+
+                    b.HasIndex("ProviderId")
+                        .HasDatabaseName("idx_refund_transactions_provider_id");
+
+                    b.HasIndex("PaymentTransactionId", "CreatedAt")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("idx_refund_transactions_payment_id");
+
+                    b.HasIndex("Status", "CreatedAt")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("idx_refund_transactions_status");
+
+                    b.ToTable("refund_transactions", null, t =>
+                        {
+                            t.HasCheckConstraint("chk_refund_transactions_amount_positive", "amount > 0");
+
+                            t.HasCheckConstraint("chk_refund_transactions_currency_length", "LENGTH(currency) = 3");
+
+                            t.HasCheckConstraint("chk_refund_transactions_status", "status IN ('pending', 'processing', 'completed', 'failed')");
+
+                            t.HasCheckConstraint("chk_refund_transactions_type", "refund_type IN ('full', 'partial')");
+                        });
+                });
+
             modelBuilder.Entity("Maliev.PaymentService.Core.Entities.TransactionLog", b =>
                 {
                     b.Property<Guid>("Id")
@@ -366,6 +516,9 @@ namespace Maliev.PaymentService.Infrastructure.Data.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("provider_response");
 
+                    b.Property<Guid?>("RefundTransactionId")
+                        .HasColumnType("uuid");
+
                     b.HasKey("Id");
 
                     b.HasIndex("CorrelationId")
@@ -379,6 +532,8 @@ namespace Maliev.PaymentService.Infrastructure.Data.Migrations
 
                     b.HasIndex("PaymentTransactionId")
                         .HasDatabaseName("ix_transaction_logs_payment_transaction_id");
+
+                    b.HasIndex("RefundTransactionId");
 
                     b.ToTable("transaction_logs", (string)null);
                 });
@@ -468,9 +623,10 @@ namespace Maliev.PaymentService.Infrastructure.Data.Migrations
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
                         .IsRequired()
-                        .ValueGeneratedOnAddOrUpdate()
+                        .ValueGeneratedOnAdd()
                         .HasColumnType("bytea")
-                        .HasColumnName("row_version");
+                        .HasColumnName("row_version")
+                        .HasDefaultValueSql("'\\x00'::bytea");
 
                     b.Property<string>("Signature")
                         .HasMaxLength(500)
@@ -547,6 +703,27 @@ namespace Maliev.PaymentService.Infrastructure.Data.Migrations
                     b.Navigation("PaymentProvider");
                 });
 
+            modelBuilder.Entity("Maliev.PaymentService.Core.Entities.RefundTransaction", b =>
+                {
+                    b.HasOne("Maliev.PaymentService.Core.Entities.PaymentTransaction", "PaymentTransaction")
+                        .WithMany()
+                        .HasForeignKey("PaymentTransactionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_refund_transactions_payment_transactions");
+
+                    b.HasOne("Maliev.PaymentService.Core.Entities.PaymentProvider", "Provider")
+                        .WithMany()
+                        .HasForeignKey("ProviderId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_refund_transactions_payment_providers");
+
+                    b.Navigation("PaymentTransaction");
+
+                    b.Navigation("Provider");
+                });
+
             modelBuilder.Entity("Maliev.PaymentService.Core.Entities.TransactionLog", b =>
                 {
                     b.HasOne("Maliev.PaymentService.Core.Entities.PaymentTransaction", "PaymentTransaction")
@@ -554,6 +731,10 @@ namespace Maliev.PaymentService.Infrastructure.Data.Migrations
                         .HasForeignKey("PaymentTransactionId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.HasOne("Maliev.PaymentService.Core.Entities.RefundTransaction", null)
+                        .WithMany("TransactionLogs")
+                        .HasForeignKey("RefundTransactionId");
 
                     b.Navigation("PaymentTransaction");
                 });
@@ -584,6 +765,11 @@ namespace Maliev.PaymentService.Infrastructure.Data.Migrations
                 });
 
             modelBuilder.Entity("Maliev.PaymentService.Core.Entities.PaymentTransaction", b =>
+                {
+                    b.Navigation("TransactionLogs");
+                });
+
+            modelBuilder.Entity("Maliev.PaymentService.Core.Entities.RefundTransaction", b =>
                 {
                     b.Navigation("TransactionLogs");
                 });

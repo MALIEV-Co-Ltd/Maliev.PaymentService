@@ -1,4 +1,3 @@
-using FluentValidation;
 using Maliev.PaymentService.Api.Models.Requests;
 using Maliev.PaymentService.Api.Models.Responses;
 using Maliev.PaymentService.Core.Interfaces;
@@ -20,22 +19,27 @@ public class PaymentsController : ControllerBase
     private readonly IPaymentStatusService _paymentStatusService;
     private readonly IRefundService _refundService;
     private readonly IMetricsService _metricsService;
-    private readonly IValidator<PaymentRequest> _validator;
     private readonly ILogger<PaymentsController> _logger;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="PaymentsController"/> class.
+    /// </summary>
+    /// <param name="paymentService"></param>
+    /// <param name="paymentStatusService"></param>
+    /// <param name="refundService"></param>
+    /// <param name="metricsService"></param>
+    /// <param name="logger"></param>
     public PaymentsController(
         IPaymentService paymentService,
         IPaymentStatusService paymentStatusService,
         IRefundService refundService,
         IMetricsService metricsService,
-        IValidator<PaymentRequest> validator,
         ILogger<PaymentsController> logger)
     {
         _paymentService = paymentService;
         _paymentStatusService = paymentStatusService;
         _refundService = refundService;
         _metricsService = metricsService;
-        _validator = validator;
         _logger = logger;
     }
 
@@ -118,25 +122,7 @@ public class PaymentsController : ControllerBase
         // Store correlation ID in HttpContext for middleware logging
         HttpContext.Items["CorrelationId"] = correlationId.ToString();
 
-        // Validate request
-        var validationResult = await _validator.ValidateAsync(request);
-        if (!validationResult.IsValid)
-        {
-            var errors = validationResult.Errors
-                .GroupBy(e => e.PropertyName)
-                .ToDictionary(g => g.Key, g => g.Select(e => e.ErrorMessage).ToArray());
 
-            _logger.LogWarning("Payment request validation failed. Errors: {Errors}", errors);
-
-            return BadRequest(new ErrorResponse
-            {
-                Error = "VALIDATION_ERROR",
-                Message = "One or more validation errors occurred",
-                Details = errors.ToDictionary(kvp => kvp.Key, kvp => (object)kvp.Value),
-                Timestamp = DateTime.UtcNow,
-                CorrelationId = correlationId
-            });
-        }
 
         _logger.LogInformation(
             "Processing payment request. IdempotencyKey: {IdempotencyKey}, Amount: {Amount}, Currency: {Currency}, OrderId: {OrderId}, CorrelationId: {CorrelationId}",

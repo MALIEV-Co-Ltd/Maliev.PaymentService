@@ -139,8 +139,9 @@ public class WebhookEventConfiguration : IEntityTypeConfiguration<WebhookEvent>
 
         builder.Property(e => e.RowVersion)
             .HasColumnName("row_version")
-            .IsRowVersion()
-            .IsRequired();
+            .HasColumnType("bytea")
+            .IsConcurrencyToken()
+            .HasDefaultValueSql("'\\x00'::bytea");  // Default empty bytea for PostgreSQL
 
         // Foreign keys
         builder.HasOne(e => e.PaymentProvider)

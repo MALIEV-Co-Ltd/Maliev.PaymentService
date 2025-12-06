@@ -400,3 +400,21 @@ FodyWeavers.xsd
 
 # macOS
 .DS_Store
+
+# Temporary/debug files
+*.bak
+*.log
+*.sql
+build_errors.txt
+docker-compose.test.yml
+docker-compose.dev.yml
+
+# OpenAPI exports
+*-openapi.json
+*-openapi-*.json
+
+# Temporary tracking docs
+*MIGRATION*.md
+*SUMMARY*.md
+*AUDIT*.md
+*.Improvements.md

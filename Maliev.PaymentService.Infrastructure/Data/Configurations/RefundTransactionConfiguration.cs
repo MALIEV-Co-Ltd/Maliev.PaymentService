@@ -116,8 +116,9 @@ public class RefundTransactionConfiguration : IEntityTypeConfiguration<RefundTra
 
         builder.Property(e => e.RowVersion)
             .HasColumnName("row_version")
-            .IsRowVersion()
-            .IsRequired();
+            .HasColumnType("bytea")
+            .IsConcurrencyToken()
+            .HasDefaultValueSql("'\\x00'::bytea");  // Default empty bytea for PostgreSQL
 
         // Indexes
         builder.HasIndex(e => e.IdempotencyKey)

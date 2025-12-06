@@ -12,12 +12,21 @@ public class JwtAuthenticationMiddleware
     private readonly RequestDelegate _next;
     private readonly ILogger<JwtAuthenticationMiddleware> _logger;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="JwtAuthenticationMiddleware"/> class.
+    /// </summary>
+    /// <param name="next">The next middleware in the pipeline.</param>
+    /// <param name="logger">The logger instance.</param>
     public JwtAuthenticationMiddleware(RequestDelegate next, ILogger<JwtAuthenticationMiddleware> logger)
     {
         _next = next;
         _logger = logger;
     }
 
+    /// <summary>
+    /// Invokes the middleware to validate service identity claims in JWT tokens.
+    /// </summary>
+    /// <param name="context">The HTTP context.</param>
     public async Task InvokeAsync(HttpContext context)
     {
         // Skip authentication for health check endpoints
@@ -87,6 +96,11 @@ public class JwtAuthenticationMiddleware
 /// </summary>
 public static class JwtAuthenticationMiddlewareExtensions
 {
+    /// <summary>
+    /// Adds the <see cref="JwtAuthenticationMiddleware"/> to the application's request pipeline.
+    /// </summary>
+    /// <param name="builder">The <see cref="IApplicationBuilder"/> instance.</param>
+    /// <returns>The <see cref="IApplicationBuilder"/> instance.</returns>
     public static IApplicationBuilder UseJwtAuthenticationMiddleware(this IApplicationBuilder builder)
     {
         return builder.UseMiddleware<JwtAuthenticationMiddleware>();

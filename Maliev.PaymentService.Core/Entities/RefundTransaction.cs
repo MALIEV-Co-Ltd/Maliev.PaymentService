@@ -121,7 +121,7 @@ public class RefundTransaction
     /// <summary>
     /// Row version for optimistic concurrency control.
     /// </summary>
-    public required byte[] RowVersion { get; set; }
+    public byte[] RowVersion { get; set; } = Array.Empty<byte>();
 
     /// <summary>
     /// Navigation property to parent payment transaction.

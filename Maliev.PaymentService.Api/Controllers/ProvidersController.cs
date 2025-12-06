@@ -19,6 +19,11 @@ public class ProvidersController : ControllerBase
     private readonly IProviderManagementService _providerService;
     private readonly ILogger<ProvidersController> _logger;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ProvidersController"/> class.
+    /// </summary>
+    /// <param name="providerService"></param>
+    /// <param name="logger"></param>
     public ProvidersController(
         IProviderManagementService providerService,
         ILogger<ProvidersController> logger)

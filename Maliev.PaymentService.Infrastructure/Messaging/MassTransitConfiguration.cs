@@ -16,23 +16,32 @@ public static class MassTransitConfiguration
         this IServiceCollection services,
         IConfiguration configuration)
     {
+        var rabbitmqConnectionString = configuration.GetConnectionString("rabbitmq");
+
         services.AddMassTransit(x =>
         {
             // Configure RabbitMQ transport
             x.UsingRabbitMq((context, cfg) =>
             {
-                // Support both RabbitMQ (standard) and RabbitMq (from Google Secret Manager) key formats
-                var rabbitMqHost = configuration["RabbitMQ:Host"] ?? configuration["RabbitMq:Host"] ?? "localhost";
-                var rabbitMqPort = int.TryParse(configuration["RabbitMQ:Port"] ?? configuration["RabbitMq:Port"], out var port) ? port : 5672;
-                var rabbitMqUsername = configuration["RabbitMQ:Username"] ?? configuration["RabbitMq:Username"] ?? "guest";
-                var rabbitMqPassword = configuration["RabbitMQ:Password"] ?? configuration["RabbitMq:Password"] ?? "guest";
-                var rabbitMqVirtualHost = configuration["RabbitMQ:VirtualHost"] ?? configuration["RabbitMq:VirtualHost"] ?? "/";
-
-                cfg.Host(rabbitMqHost, (ushort)rabbitMqPort, rabbitMqVirtualHost, h =>
+                if (!string.IsNullOrEmpty(rabbitmqConnectionString))
                 {
-                    h.Username(rabbitMqUsername);
-                    h.Password(rabbitMqPassword);
-                });
+                    cfg.Host(rabbitmqConnectionString);
+                }
+                else
+                {
+                     // Support both RabbitMQ (standard) and RabbitMq (from Google Secret Manager) key formats
+                    var rabbitMqHost = configuration["RabbitMQ:Host"] ?? configuration["RabbitMq:Host"] ?? "localhost";
+                    var rabbitMqPort = int.TryParse(configuration["RabbitMQ:Port"] ?? configuration["RabbitMq:Port"], out var port) ? port : 5672;
+                    var rabbitMqUsername = configuration["RabbitMQ:Username"] ?? configuration["RabbitMq:Username"] ?? "guest";
+                    var rabbitMqPassword = configuration["RabbitMQ:Password"] ?? configuration["RabbitMq:Password"] ?? "guest";
+                    var rabbitMqVirtualHost = configuration["RabbitMQ:VirtualHost"] ?? configuration["RabbitMq:VirtualHost"] ?? "/";
+
+                    cfg.Host(rabbitMqHost, (ushort)rabbitMqPort, rabbitMqVirtualHost, h =>
+                    {
+                        h.Username(rabbitMqUsername);
+                        h.Password(rabbitMqPassword);
+                    });
+                }
 
                 // Configure message retry policy
                 cfg.UseMessageRetry(r => r.Exponential(
