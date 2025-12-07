@@ -79,8 +79,8 @@ public class JwtAuthenticationMiddleware
             return;
         }
 
-        // Log service identity for audit trail
-        _logger.LogInformation("Request from service {ServiceId} ({ServiceName}) to {Path}",
+        // Log service identity for audit trail (debug level for high volume)
+        _logger.LogDebug("Request from service {ServiceId} ({ServiceName}) to {Path}",
             serviceId, serviceName ?? "unknown", context.Request.Path);
 
         // Add service identity to HttpContext.Items for downstream access

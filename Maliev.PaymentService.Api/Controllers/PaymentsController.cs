@@ -252,7 +252,7 @@ public class PaymentsController : ControllerBase
 
             if (transaction == null)
             {
-                _logger.LogInformation("Payment {TransactionId} not found", id);
+                _logger.LogDebug("Payment {TransactionId} not found", id);
                 return NotFound(new ErrorResponse
                 {
                     Error = "PAYMENT_NOT_FOUND",
@@ -266,7 +266,7 @@ public class PaymentsController : ControllerBase
             // Record metrics
             _metricsService.RecordPaymentStatusQuery(transaction.ProviderName ?? "unknown", duration);
 
-            _logger.LogInformation("Retrieved payment {TransactionId}, Status: {Status}", id, transaction.Status);
+            _logger.LogDebug("Retrieved payment {TransactionId}, Status: {Status}", id, transaction.Status);
 
             return Ok(MapToResponse(transaction));
         }

@@ -32,7 +32,7 @@ public class RequestLoggingMiddleware
         var correlationId = context.Items["CorrelationId"]?.ToString() ?? "unknown";
 
         // Log request
-        _logger.LogInformation(
+        _logger.LogDebug(
             "HTTP {Method} {Path} started. CorrelationId: {CorrelationId}, ContentType: {ContentType}, ContentLength: {ContentLength}",
             context.Request.Method,
             context.Request.Path,
