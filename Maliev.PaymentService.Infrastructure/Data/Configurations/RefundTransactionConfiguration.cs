@@ -152,6 +152,9 @@ public class RefundTransactionConfiguration : IEntityTypeConfiguration<RefundTra
             .HasConstraintName("fk_refund_transactions_payment_providers")
             .OnDelete(DeleteBehavior.Restrict);
 
+        // Ensures that refunds for soft-deleted providers are not retrieved
+        builder.HasQueryFilter(r => r.Provider != null && r.Provider.DeletedAt == null);
+
         // Check constraints
         builder.ToTable(t =>
         {

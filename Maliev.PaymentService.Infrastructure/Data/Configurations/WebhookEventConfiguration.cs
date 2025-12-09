@@ -156,6 +156,9 @@ public class WebhookEventConfiguration : IEntityTypeConfiguration<WebhookEvent>
             .HasConstraintName("fk_webhook_events_payment_transactions")
             .OnDelete(DeleteBehavior.Restrict);
 
+        // Ensures that webhooks for soft-deleted providers are not retrieved
+        builder.HasQueryFilter(e => e.PaymentProvider != null && e.PaymentProvider.DeletedAt == null);
+
         // Check constraints
         builder.ToTable(t =>
         {
