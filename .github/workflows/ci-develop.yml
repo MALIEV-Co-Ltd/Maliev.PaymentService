@@ -34,6 +34,9 @@ jobs:
           NUGET_USERNAME: ${{ github.actor }}
           NUGET_PASSWORD: ${{ secrets.GITOPS_PAT }}
 
+      - name: Verify restored package version
+        run: ls -d /home/runner/.nuget/packages/maliev.messagingcontracts/*
+
       - name: Build
         run: dotnet build Maliev.PaymentService.sln --no-restore
 
