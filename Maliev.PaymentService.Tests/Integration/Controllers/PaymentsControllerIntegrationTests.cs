@@ -17,6 +17,7 @@ namespace Maliev.PaymentService.Tests.Integration.Controllers;
 /// Integration tests for Payments API endpoints.
 /// Tests payment processing with real database and infrastructure.
 /// </summary>
+[Collection(nameof(IntegrationTestCollection))]
 public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestWebAppFactory>, IAsyncLifetime
 {
     private readonly IntegrationTestWebAppFactory _factory;
@@ -38,6 +39,9 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
 
     public async Task InitializeAsync()
     {
+        // Clean database before seeding
+        await _factory.CleanDatabaseAsync();
+
         // Get DbContext
         var scope = _factory.Services.CreateScope();
         _dbContext = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
@@ -127,7 +131,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
         // Act
-        var response = await _client.PostAsJsonAsync("/payments/v1/payments", request);
+        var response = await _client.PostAsJsonAsync("/payment/v1/payments", request);
 
         // Assert
         if (response.StatusCode != HttpStatusCode.Created)
@@ -169,7 +173,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
         // Act - First request
-        var response1 = await _client.PostAsJsonAsync("/payments/v1/payments", request);
+        var response1 = await _client.PostAsJsonAsync("/payment/v1/payments", request);
         var payment1 = await response1.Content.ReadFromJsonAsync<PaymentResponse>();
 
         // Act - Second request with same idempotency key using fresh client
@@ -178,7 +182,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         client2.DefaultRequestHeaders.Add("Idempotency-Key", idempotencyKey);
         client2.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
-        var response2 = await client2.PostAsJsonAsync("/payments/v1/payments", request);
+        var response2 = await client2.PostAsJsonAsync("/payment/v1/payments", request);
         var payment2 = await response2.Content.ReadFromJsonAsync<PaymentResponse>();
 
         // Assert
@@ -211,7 +215,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         // Intentionally NOT adding Idempotency-Key
 
         // Act
-        var response = await _client.PostAsJsonAsync("/payments/v1/payments", request);
+        var response = await _client.PostAsJsonAsync("/payment/v1/payments", request);
 
         // Assert
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -237,7 +241,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
         // Act
-        var response = await _client.PostAsJsonAsync("/payments/v1/payments", request);
+        var response = await _client.PostAsJsonAsync("/payment/v1/payments", request);
 
         // Assert
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -263,7 +267,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
         // Act
-        var response = await _client.PostAsJsonAsync("/payments/v1/payments", request);
+        var response = await _client.PostAsJsonAsync("/payment/v1/payments", request);
 
         // Assert
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -289,11 +293,11 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         _client.DefaultRequestHeaders.Add("Idempotency-Key", idempotencyKey);
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
-        var createResponse = await _client.PostAsJsonAsync("/payments/v1/payments", createRequest);
+        var createResponse = await _client.PostAsJsonAsync("/payment/v1/payments", createRequest);
         var createdPayment = await createResponse.Content.ReadFromJsonAsync<PaymentResponse>();
 
         // Act
-        var response = await _client.GetAsync($"/payments/v1/payments/{createdPayment!.TransactionId}");
+        var response = await _client.GetAsync($"/payment/v1/payments/{createdPayment!.TransactionId}");
 
         // Assert
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -309,7 +313,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
     public async Task GetPaymentById_WithNonExistingId_ReturnsNotFound()
     {
         // Act
-        var response = await _client.GetAsync($"/payments/v1/payments/{Guid.NewGuid()}");
+        var response = await _client.GetAsync($"/payment/v1/payments/{Guid.NewGuid()}");
 
         // Assert
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
@@ -335,15 +339,15 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         _client.DefaultRequestHeaders.Add("Idempotency-Key", idempotencyKey);
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
-        var createResponse = await _client.PostAsJsonAsync("/payments/v1/payments", createRequest);
+        var createResponse = await _client.PostAsJsonAsync("/payment/v1/payments", createRequest);
         var createdPayment = await createResponse.Content.ReadFromJsonAsync<PaymentResponse>();
 
         // Act - First call (should query DB and cache)
-        var response1 = await _client.GetAsync($"/payments/v1/payments/{createdPayment!.TransactionId}");
+        var response1 = await _client.GetAsync($"/payment/v1/payments/{createdPayment!.TransactionId}");
         var payment1 = await response1.Content.ReadFromJsonAsync<PaymentResponse>();
 
         // Act - Second call (should use cache)
-        var response2 = await _client.GetAsync($"/payments/v1/payments/{createdPayment.TransactionId}");
+        var response2 = await _client.GetAsync($"/payment/v1/payments/{createdPayment.TransactionId}");
         var payment2 = await response2.Content.ReadFromJsonAsync<PaymentResponse>();
 
         // Assert - Both calls should return the same data
@@ -379,18 +383,18 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         _client.DefaultRequestHeaders.Add("Idempotency-Key", idempotencyKey);
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
-        var createResponse = await _client.PostAsJsonAsync("/payments/v1/payments", createRequest);
+        var createResponse = await _client.PostAsJsonAsync("/payment/v1/payments", createRequest);
         var createdPayment = await createResponse.Content.ReadFromJsonAsync<PaymentResponse>();
 
         // Act - First call (caches with 60s TTL for pending)
-        var response1 = await _client.GetAsync($"/payments/v1/payments/{createdPayment!.TransactionId}");
+        var response1 = await _client.GetAsync($"/payment/v1/payments/{createdPayment!.TransactionId}");
 
         // Wait for cache to potentially expire (skip in fast tests, or set very short TTL in test config)
         // For this test, we just verify the endpoint still works after delay
         await Task.Delay(100); // Small delay to simulate time passing
 
         // Second call (should still work even if cache expired)
-        var response2 = await _client.GetAsync($"/payments/v1/payments/{createdPayment.TransactionId}");
+        var response2 = await _client.GetAsync($"/payment/v1/payments/{createdPayment.TransactionId}");
 
         // Assert
         Assert.Equal(HttpStatusCode.OK, response1.StatusCode);
@@ -426,7 +430,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
         // Act
-        var response = await _client.PostAsJsonAsync("/payments/v1/payments", request);
+        var response = await _client.PostAsJsonAsync("/payment/v1/payments", request);
         var payment = await response.Content.ReadFromJsonAsync<PaymentResponse>();
 
         // Assert
@@ -458,7 +462,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         _client.DefaultRequestHeaders.Add("Idempotency-Key", idempotencyKey);
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
-        var createResponse = await _client.PostAsJsonAsync("/payments/v1/payments", createRequest);
+        var createResponse = await _client.PostAsJsonAsync("/payment/v1/payments", createRequest);
         var payment = await createResponse.Content.ReadFromJsonAsync<PaymentResponse>();
 
         // Manually update payment status to Completed (in real scenario, webhook would do this)
@@ -477,7 +481,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
         // Act
-        var response = await _client.PostAsJsonAsync($"/payments/v1/payments/{payment.TransactionId}/refund", refundRequest);
+        var response = await _client.PostAsJsonAsync($"/payment/v1/payments/{payment.TransactionId}/refund", refundRequest);
 
         // Assert
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -508,7 +512,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         _client.DefaultRequestHeaders.Add("Idempotency-Key", idempotencyKey);
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
-        var createResponse = await _client.PostAsJsonAsync("/payments/v1/payments", createRequest);
+        var createResponse = await _client.PostAsJsonAsync("/payment/v1/payments", createRequest);
         var payment = await createResponse.Content.ReadFromJsonAsync<PaymentResponse>();
 
         // Try to refund without completing payment
@@ -524,7 +528,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
         // Act
-        var response = await _client.PostAsJsonAsync($"/payments/v1/payments/{payment!.TransactionId}/refund", refundRequest);
+        var response = await _client.PostAsJsonAsync($"/payment/v1/payments/{payment!.TransactionId}/refund", refundRequest);
 
         // Assert
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -550,7 +554,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         _client.DefaultRequestHeaders.Add("Idempotency-Key", idempotencyKey);
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
-        var createResponse = await _client.PostAsJsonAsync("/payments/v1/payments", createRequest);
+        var createResponse = await _client.PostAsJsonAsync("/payment/v1/payments", createRequest);
         var payment = await createResponse.Content.ReadFromJsonAsync<PaymentResponse>();
 
         await UpdatePaymentStatusToCompleted(payment!.TransactionId);
@@ -568,7 +572,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
         // Act
-        var response = await _client.PostAsJsonAsync($"/payments/v1/payments/{payment.TransactionId}/refund", refundRequest);
+        var response = await _client.PostAsJsonAsync($"/payment/v1/payments/{payment.TransactionId}/refund", refundRequest);
 
         // Assert
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);

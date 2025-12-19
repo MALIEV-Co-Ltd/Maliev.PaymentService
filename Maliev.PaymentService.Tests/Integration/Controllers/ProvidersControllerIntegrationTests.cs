@@ -15,6 +15,7 @@ namespace Maliev.PaymentService.Tests.Integration.Controllers;
 /// Integration tests for Providers API endpoints.
 /// Tests provider CRUD operations with real database.
 /// </summary>
+[Collection(nameof(IntegrationTestCollection))]
 public class ProvidersControllerIntegrationTests : IClassFixture<IntegrationTestWebAppFactory>, IAsyncLifetime
 {
     private readonly IntegrationTestWebAppFactory _factory;
@@ -33,6 +34,9 @@ public class ProvidersControllerIntegrationTests : IClassFixture<IntegrationTest
 
     public async Task InitializeAsync()
     {
+        // Clean database before each test class
+        await _factory.CleanDatabaseAsync();
+
         // Get DbContext
         var scope = _factory.Services.CreateScope();
         _dbContext = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
@@ -76,7 +80,7 @@ public class ProvidersControllerIntegrationTests : IClassFixture<IntegrationTest
         };
 
         // Act
-        var response = await _client.PostAsJsonAsync("/payments/v1/providers", request);
+        var response = await _client.PostAsJsonAsync("/payment/v1/providers", request);
 
         // Assert
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
@@ -111,10 +115,10 @@ public class ProvidersControllerIntegrationTests : IClassFixture<IntegrationTest
                 new() { Region = "US", ApiBaseUrl = "https://api.paypal.com", IsActive = true }
             }
         };
-        await _client.PostAsJsonAsync("/payments/v1/providers", registerRequest);
+        await _client.PostAsJsonAsync("/payment/v1/providers", registerRequest);
 
         // Act
-        var response = await _client.GetAsync("/payments/v1/providers");
+        var response = await _client.GetAsync("/payment/v1/providers");
 
         // Assert
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -142,11 +146,11 @@ public class ProvidersControllerIntegrationTests : IClassFixture<IntegrationTest
                 new() { Region = "US", ApiBaseUrl = "https://connect.squareup.com", IsActive = true }
             }
         };
-        var createResponse = await _client.PostAsJsonAsync("/payments/v1/providers", registerRequest);
+        var createResponse = await _client.PostAsJsonAsync("/payment/v1/providers", registerRequest);
         var createdProvider = await createResponse.Content.ReadFromJsonAsync<ProviderResponse>();
 
         // Act
-        var response = await _client.GetAsync($"/payments/v1/providers/{createdProvider!.Id}");
+        var response = await _client.GetAsync($"/payment/v1/providers/{createdProvider!.Id}");
 
         // Assert
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -161,7 +165,7 @@ public class ProvidersControllerIntegrationTests : IClassFixture<IntegrationTest
     public async Task GetProviderById_WithNonExistingId_ReturnsNotFound()
     {
         // Act
-        var response = await _client.GetAsync($"/payments/v1/providers/{Guid.NewGuid()}");
+        var response = await _client.GetAsync($"/payment/v1/providers/{Guid.NewGuid()}");
 
         // Assert
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
@@ -184,7 +188,7 @@ public class ProvidersControllerIntegrationTests : IClassFixture<IntegrationTest
                 new() { Region = "US", ApiBaseUrl = "https://api.adyen.com", IsActive = true }
             }
         };
-        var createResponse = await _client.PostAsJsonAsync("/payments/v1/providers", registerRequest);
+        var createResponse = await _client.PostAsJsonAsync("/payment/v1/providers", registerRequest);
         var createdProvider = await createResponse.Content.ReadFromJsonAsync<ProviderResponse>();
 
         var updateRequest = new UpdateProviderRequest
@@ -196,7 +200,7 @@ public class ProvidersControllerIntegrationTests : IClassFixture<IntegrationTest
         };
 
         // Act
-        var response = await _client.PutAsJsonAsync($"/payments/v1/providers/{createdProvider!.Id}", updateRequest);
+        var response = await _client.PutAsJsonAsync($"/payment/v1/providers/{createdProvider!.Id}", updateRequest);
 
         // Assert
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -226,7 +230,7 @@ public class ProvidersControllerIntegrationTests : IClassFixture<IntegrationTest
                 new() { Region = "US", ApiBaseUrl = "https://api.braintreegateway.com", IsActive = true }
             }
         };
-        var createResponse = await _client.PostAsJsonAsync("/payments/v1/providers", registerRequest);
+        var createResponse = await _client.PostAsJsonAsync("/payment/v1/providers", registerRequest);
         var createdProvider = await createResponse.Content.ReadFromJsonAsync<ProviderResponse>();
 
         var statusRequest = new UpdateProviderStatusRequest
@@ -235,13 +239,13 @@ public class ProvidersControllerIntegrationTests : IClassFixture<IntegrationTest
         };
 
         // Act
-        var response = await _client.PatchAsJsonAsync($"/payments/v1/providers/{createdProvider!.Id}/status", statusRequest);
+        var response = await _client.PatchAsJsonAsync($"/payment/v1/providers/{createdProvider!.Id}/status", statusRequest);
 
         // Assert
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
 
         // Verify status was updated
-        var getResponse = await _client.GetAsync($"/payments/v1/providers/{createdProvider.Id}");
+        var getResponse = await _client.GetAsync($"/payment/v1/providers/{createdProvider.Id}");
         var provider = await getResponse.Content.ReadFromJsonAsync<ProviderResponse>();
         Assert.Equal(ProviderStatus.Maintenance, provider!.Status);
     }
@@ -263,17 +267,17 @@ public class ProvidersControllerIntegrationTests : IClassFixture<IntegrationTest
                 new() { Region = "US", ApiBaseUrl = "https://api.authorize.net", IsActive = true }
             }
         };
-        var createResponse = await _client.PostAsJsonAsync("/payments/v1/providers", registerRequest);
+        var createResponse = await _client.PostAsJsonAsync("/payment/v1/providers", registerRequest);
         var createdProvider = await createResponse.Content.ReadFromJsonAsync<ProviderResponse>();
 
         // Act
-        var response = await _client.DeleteAsync($"/payments/v1/providers/{createdProvider!.Id}");
+        var response = await _client.DeleteAsync($"/payment/v1/providers/{createdProvider!.Id}");
 
         // Assert
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
 
         // Verify provider was deleted
-        var getResponse = await _client.GetAsync($"/payments/v1/providers/{createdProvider.Id}");
+        var getResponse = await _client.GetAsync($"/payment/v1/providers/{createdProvider.Id}");
         Assert.Equal(HttpStatusCode.NotFound, getResponse.StatusCode);
     }
 
@@ -309,11 +313,11 @@ public class ProvidersControllerIntegrationTests : IClassFixture<IntegrationTest
             }
         };
 
-        await _client.PostAsJsonAsync("/payments/v1/providers", provider1);
-        await _client.PostAsJsonAsync("/payments/v1/providers", provider2);
+        await _client.PostAsJsonAsync("/payment/v1/providers", provider1);
+        await _client.PostAsJsonAsync("/payment/v1/providers", provider2);
 
         // Act
-        var response = await _client.GetAsync("/payments/v1/providers/active?currency=GBP");
+        var response = await _client.GetAsync("/payment/v1/providers/active?currency=GBP");
 
         // Assert
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
