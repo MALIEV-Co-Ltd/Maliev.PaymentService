@@ -1,5 +1,6 @@
 using Maliev.PaymentService.Core.Entities;
 using Microsoft.EntityFrameworkCore;
+using Maliev.Aspire.ServiceDefaults.Database;
 
 namespace Maliev.PaymentService.Infrastructure.Data;
 
@@ -53,5 +54,8 @@ public class PaymentDbContext : DbContext
 
         // Apply all entity configurations from the assembly
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(PaymentDbContext).Assembly);
+
+        // Apply PostgreSQL snake_case naming convention globally
+        SnakeCaseNamingHelper.ApplySnakeCaseNaming(modelBuilder);
     }
 }

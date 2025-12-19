@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace Maliev.PaymentService.Infrastructure.Data.Migrations
+namespace Maliev.PaymentService.Infrastructure.Migrations
 {
     /// <inheritdoc />
     public partial class InitialCreate : Migration
@@ -29,7 +29,7 @@ namespace Maliev.PaymentService.Infrastructure.Data.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_payment_providers", x => x.id);
+                    table.PrimaryKey("pk_payment_providers", x => x.id);
                 });
 
             migrationBuilder.CreateTable(
@@ -62,9 +62,9 @@ namespace Maliev.PaymentService.Infrastructure.Data.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_payment_transactions", x => x.id);
+                    table.PrimaryKey("pk_payment_transactions", x => x.id);
                     table.ForeignKey(
-                        name: "FK_payment_transactions_payment_providers_payment_provider_id",
+                        name: "fk_payment_transactions_payment_providers_payment_provider_id",
                         column: x => x.payment_provider_id,
                         principalTable: "payment_providers",
                         principalColumn: "id",
@@ -87,9 +87,9 @@ namespace Maliev.PaymentService.Infrastructure.Data.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_provider_configurations", x => x.id);
+                    table.PrimaryKey("pk_provider_configurations", x => x.id);
                     table.ForeignKey(
-                        name: "FK_provider_configurations_payment_providers_payment_provider_~",
+                        name: "fk_provider_configurations_payment_providers_payment_provider_~",
                         column: x => x.payment_provider_id,
                         principalTable: "payment_providers",
                         principalColumn: "id",
@@ -126,7 +126,7 @@ namespace Maliev.PaymentService.Infrastructure.Data.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_refund_transactions", x => x.id);
+                    table.PrimaryKey("pk_refund_transactions", x => x.id);
                     table.CheckConstraint("chk_refund_transactions_amount_positive", "amount > 0");
                     table.CheckConstraint("chk_refund_transactions_currency_length", "LENGTH(currency) = 3");
                     table.CheckConstraint("chk_refund_transactions_status", "status IN ('pending', 'processing', 'completed', 'failed')");
@@ -205,20 +205,20 @@ namespace Maliev.PaymentService.Infrastructure.Data.Migrations
                     error_details = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: true),
                     correlation_id = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
                     created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    RefundTransactionId = table.Column<Guid>(type: "uuid", nullable: true)
+                    refund_transaction_id = table.Column<Guid>(type: "uuid", nullable: true)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_transaction_logs", x => x.id);
+                    table.PrimaryKey("pk_transaction_logs", x => x.id);
                     table.ForeignKey(
-                        name: "FK_transaction_logs_payment_transactions_payment_transaction_id",
+                        name: "fk_transaction_logs_payment_transactions_payment_transaction_id",
                         column: x => x.payment_transaction_id,
                         principalTable: "payment_transactions",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
                     table.ForeignKey(
-                        name: "FK_transaction_logs_refund_transactions_RefundTransactionId",
-                        column: x => x.RefundTransactionId,
+                        name: "fk_transaction_logs_refund_transactions_refund_transaction_id",
+                        column: x => x.refund_transaction_id,
                         principalTable: "refund_transactions",
                         principalColumn: "id");
                 });
@@ -350,9 +350,9 @@ namespace Maliev.PaymentService.Infrastructure.Data.Migrations
                 column: "payment_transaction_id");
 
             migrationBuilder.CreateIndex(
-                name: "IX_transaction_logs_RefundTransactionId",
+                name: "ix_transaction_logs_refund_transaction_id",
                 table: "transaction_logs",
-                column: "RefundTransactionId");
+                column: "refund_transaction_id");
 
             migrationBuilder.CreateIndex(
                 name: "idx_webhook_events_created_at",

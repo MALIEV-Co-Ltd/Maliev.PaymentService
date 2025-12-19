@@ -4,20 +4,17 @@ using System.Collections.Generic;
 using Maliev.PaymentService.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
-namespace Maliev.PaymentService.Infrastructure.Data.Migrations
+namespace Maliev.PaymentService.Infrastructure.Migrations
 {
     [DbContext(typeof(PaymentDbContext))]
-    [Migration("20251206115714_InitialCreate")]
-    partial class InitialCreate
+    partial class PaymentDbContextModelSnapshot : ModelSnapshot
     {
-        /// <inheritdoc />
-        protected override void BuildTargetModel(ModelBuilder modelBuilder)
+        protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -77,7 +74,8 @@ namespace Maliev.PaymentService.Infrastructure.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_payment_providers");
 
                     b.HasIndex("DeletedAt")
                         .HasDatabaseName("ix_payment_providers_deleted_at");
@@ -222,7 +220,8 @@ namespace Maliev.PaymentService.Infrastructure.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_payment_transactions");
 
                     b.HasIndex("CorrelationId")
                         .HasDatabaseName("ix_payment_transactions_correlation_id");
@@ -299,7 +298,8 @@ namespace Maliev.PaymentService.Infrastructure.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_provider_configurations");
 
                     b.HasIndex("IsActive")
                         .HasDatabaseName("ix_provider_configurations_is_active");
@@ -431,7 +431,8 @@ namespace Maliev.PaymentService.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("updated_by");
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_refund_transactions");
 
                     b.HasIndex("CorrelationId")
                         .HasDatabaseName("idx_refund_transactions_correlation_id");
@@ -517,9 +518,11 @@ namespace Maliev.PaymentService.Infrastructure.Data.Migrations
                         .HasColumnName("provider_response");
 
                     b.Property<Guid?>("RefundTransactionId")
-                        .HasColumnType("uuid");
+                        .HasColumnType("uuid")
+                        .HasColumnName("refund_transaction_id");
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_transaction_logs");
 
                     b.HasIndex("CorrelationId")
                         .HasDatabaseName("ix_transaction_logs_correlation_id");
@@ -533,7 +536,8 @@ namespace Maliev.PaymentService.Infrastructure.Data.Migrations
                     b.HasIndex("PaymentTransactionId")
                         .HasDatabaseName("ix_transaction_logs_payment_transaction_id");
 
-                    b.HasIndex("RefundTransactionId");
+                    b.HasIndex("RefundTransactionId")
+                        .HasDatabaseName("ix_transaction_logs_refund_transaction_id");
 
                     b.ToTable("transaction_logs", (string)null);
                 });
@@ -687,7 +691,8 @@ namespace Maliev.PaymentService.Infrastructure.Data.Migrations
                         .WithMany()
                         .HasForeignKey("PaymentProviderId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("fk_payment_transactions_payment_providers_payment_provider_id");
 
                     b.Navigation("PaymentProvider");
                 });
@@ -698,7 +703,8 @@ namespace Maliev.PaymentService.Infrastructure.Data.Migrations
                         .WithMany("Configurations")
                         .HasForeignKey("PaymentProviderId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("fk_provider_configurations_payment_providers_payment_provider_~");
 
                     b.Navigation("PaymentProvider");
                 });
@@ -730,11 +736,13 @@ namespace Maliev.PaymentService.Infrastructure.Data.Migrations
                         .WithMany("TransactionLogs")
                         .HasForeignKey("PaymentTransactionId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("fk_transaction_logs_payment_transactions_payment_transaction_id");
 
                     b.HasOne("Maliev.PaymentService.Core.Entities.RefundTransaction", null)
                         .WithMany("TransactionLogs")
-                        .HasForeignKey("RefundTransactionId");
+                        .HasForeignKey("RefundTransactionId")
+                        .HasConstraintName("fk_transaction_logs_refund_transactions_refund_transaction_id");
 
                     b.Navigation("PaymentTransaction");
                 });
