@@ -5,6 +5,7 @@ using Maliev.PaymentService.Core.Interfaces;
 using Maliev.PaymentService.Infrastructure.Providers;
 using Maliev.PaymentService.Infrastructure.Resilience;
 using Microsoft.Extensions.Logging;
+using Maliev.MessagingContracts.Contracts;
 
 namespace Maliev.PaymentService.Infrastructure.Services;
 
@@ -130,18 +131,27 @@ public class PaymentService : IPaymentService
             }, cancellationToken);
 
             // Publish PaymentCreated event
-            await _eventPublisher.PublishAsync(new Core.Events.PaymentCreatedEvent
-            {
-                TransactionId = transaction.Id,
-                IdempotencyKey = transaction.IdempotencyKey,
-                Amount = transaction.Amount,
-                Currency = transaction.Currency,
-                CustomerId = transaction.CustomerId,
-                OrderId = transaction.OrderId,
-                ProviderName = provider.Name,
-                CreatedAt = transaction.CreatedAt,
-                CorrelationId = transaction.CorrelationId
-            }, cancellationToken);
+            await _eventPublisher.PublishAsync(new PaymentCreatedEvent(
+                MessageId: Guid.NewGuid(),
+                MessageName: nameof(PaymentCreatedEvent),
+                MessageType: MessageType.Event,
+                MessageVersion: "1.0",
+                PublishedBy: "PaymentService",
+                ConsumedBy: Array.Empty<string>(),
+                CorrelationId: Guid.TryParse(request.CorrelationId, out var correlId) ? correlId : Guid.NewGuid(),
+                CausationId: null,
+                OccurredAtUtc: DateTimeOffset.UtcNow,
+                IsPublic: true,
+                Payload: new PaymentCreatedEventPayload(
+                    TransactionId: transaction.Id,
+                    IdempotencyKey: transaction.IdempotencyKey,
+                    Amount: (double)transaction.Amount,
+                    Currency: transaction.Currency,
+                    CustomerId: transaction.CustomerId,
+                    OrderId: transaction.OrderId,
+                    ProviderName: provider.Name
+                )
+            ), cancellationToken);
 
             // Process payment through provider with resilience
             ProviderPaymentResult? providerResult = null;
@@ -188,20 +198,30 @@ public class PaymentService : IPaymentService
                     _circuitBreakerStateManager.RecordStateChange(provider.Name, false, DateTime.UtcNow);
 
                     // Publish PaymentFailed event
-                    await _eventPublisher.PublishAsync(new Core.Events.PaymentFailedEvent
-                    {
-                        TransactionId = transaction.Id,
-                        IdempotencyKey = transaction.IdempotencyKey,
-                        Amount = transaction.Amount,
-                        Currency = transaction.Currency,
-                        CustomerId = transaction.CustomerId,
-                        OrderId = transaction.OrderId,
-                        ProviderName = provider.Name,
-                        ErrorMessage = providerResult.ErrorMessage ?? "Unknown error",
-                        ProviderErrorCode = providerResult.ErrorCode,
-                        FailedAt = DateTime.UtcNow,
-                        CorrelationId = transaction.CorrelationId
-                    }, cancellationToken);
+                    await _eventPublisher.PublishAsync(new PaymentFailedEvent(
+                        MessageId: Guid.NewGuid(),
+                        MessageName: nameof(PaymentFailedEvent),
+                        MessageType: MessageType.Event,
+                        MessageVersion: "1.0",
+                        PublishedBy: "PaymentService",
+                        ConsumedBy: Array.Empty<string>(),
+                        CorrelationId: Guid.TryParse(transaction.CorrelationId, out var correlIdFail1) ? correlIdFail1 : Guid.NewGuid(),
+                        CausationId: null,
+                        OccurredAtUtc: DateTimeOffset.UtcNow,
+                        IsPublic: true,
+                        Payload: new PaymentFailedEventPayload(
+                            TransactionId: transaction.Id,
+                            IdempotencyKey: transaction.IdempotencyKey,
+                            Amount: (double)transaction.Amount,
+                            Currency: transaction.Currency,
+                            CustomerId: transaction.CustomerId,
+                            OrderId: transaction.OrderId,
+                            ProviderName: provider.Name,
+                            ErrorMessage: providerResult.ErrorMessage ?? "Unknown error",
+                            ProviderErrorCode: providerResult.ErrorCode,
+                            FailedAt: DateTimeOffset.UtcNow
+                        )
+                    ), cancellationToken);
                 }
 
                 await _paymentRepository.UpdateAsync(transaction, cancellationToken);
@@ -271,20 +291,30 @@ public class PaymentService : IPaymentService
                 }, cancellationToken);
 
                 // Publish PaymentFailed event
-                await _eventPublisher.PublishAsync(new Core.Events.PaymentFailedEvent
-                {
-                    TransactionId = transaction.Id,
-                    IdempotencyKey = transaction.IdempotencyKey,
-                    Amount = transaction.Amount,
-                    Currency = transaction.Currency,
-                    CustomerId = transaction.CustomerId,
-                    OrderId = transaction.OrderId,
-                    ProviderName = provider.Name,
-                    ErrorMessage = ex.Message,
-                    ProviderErrorCode = null,
-                    FailedAt = DateTime.UtcNow,
-                    CorrelationId = transaction.CorrelationId
-                }, cancellationToken);
+                await _eventPublisher.PublishAsync(new PaymentFailedEvent(
+                    MessageId: Guid.NewGuid(),
+                    MessageName: nameof(PaymentFailedEvent),
+                    MessageType: MessageType.Event,
+                    MessageVersion: "1.0",
+                    PublishedBy: "PaymentService",
+                    ConsumedBy: Array.Empty<string>(),
+                    CorrelationId: Guid.TryParse(transaction.CorrelationId, out var correlIdFail2) ? correlIdFail2 : Guid.NewGuid(),
+                    CausationId: null,
+                    OccurredAtUtc: DateTimeOffset.UtcNow,
+                    IsPublic: true,
+                    Payload: new PaymentFailedEventPayload(
+                        TransactionId: transaction.Id,
+                        IdempotencyKey: transaction.IdempotencyKey,
+                        Amount: (double)transaction.Amount,
+                        Currency: transaction.Currency,
+                        CustomerId: transaction.CustomerId,
+                        OrderId: transaction.OrderId,
+                        ProviderName: provider.Name,
+                        ErrorMessage: ex.Message,
+                        ProviderErrorCode: null,
+                        FailedAt: DateTimeOffset.UtcNow
+                    )
+                ), cancellationToken);
 
                 // Record metrics for failed payment
                 stopwatch.Stop();
