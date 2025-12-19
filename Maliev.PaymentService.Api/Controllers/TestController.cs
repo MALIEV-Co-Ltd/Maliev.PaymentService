@@ -1,4 +1,4 @@
-using Maliev.MessagingContracts;
+using Maliev.MessagingContracts.Generated;
 using Maliev.PaymentService.Core.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
