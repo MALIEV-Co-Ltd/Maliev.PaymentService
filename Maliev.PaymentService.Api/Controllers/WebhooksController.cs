@@ -13,7 +13,7 @@ namespace Maliev.PaymentService.Api.Controllers;
 /// Handles webhook validation, deduplication, and processing.
 /// </summary>
 [ApiController]
-[Route("payments/v1/webhooks")]
+[Route("payment/v1/webhooks")]
 public class WebhooksController : ControllerBase
 {
     private readonly IProviderRepository _providerRepository;
@@ -338,7 +338,7 @@ public class WebhooksController : ControllerBase
 
         var rawPayload = JsonSerializer.Serialize(testPayload);
 
-        // Create webhook event
+        // Create webhook event (don't set PaymentTransactionId for test webhooks to avoid FK constraints)
         var webhookEvent = new WebhookEvent
         {
             Id = Guid.NewGuid(),
@@ -351,7 +351,8 @@ public class WebhooksController : ControllerBase
             UserAgent = "Test",
             ProcessingStatus = WebhookProcessingStatus.Pending,
             ProcessingAttempts = 0,
-            PaymentTransactionId = request.TransactionId,
+            PaymentTransactionId = null, // Don't set for test webhooks - will be extracted during processing
+            CorrelationId = request.TransactionId, // Store transaction ID in correlation instead for testing
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
             RowVersion = Array.Empty<byte>()
@@ -359,7 +360,7 @@ public class WebhooksController : ControllerBase
 
         await _webhookRepository.AddAsync(webhookEvent);
 
-        // Process immediately for testing
+        // Process immediately for testing - this will publish events based on the test payload
         var result = await _processingService.ProcessWebhookAsync(webhookEvent);
 
         return Ok(new WebhookReceivedResponse

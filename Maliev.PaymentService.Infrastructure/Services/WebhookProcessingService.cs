@@ -2,6 +2,7 @@ using System.Text.Json;
 using Maliev.PaymentService.Core.Entities;
 using Maliev.PaymentService.Core.Enums;
 using Maliev.PaymentService.Core.Interfaces;
+using Maliev.MessagingContracts.Contracts;
 using Microsoft.Extensions.Logging;
 
 namespace Maliev.PaymentService.Infrastructure.Services;
@@ -272,19 +273,28 @@ public class WebhookProcessingService : IWebhookProcessingService
         // Publish event if payment completed
         if (newStatus == PaymentStatus.Completed)
         {
-            await _eventPublisher.PublishAsync(new Core.Events.PaymentCompletedEvent
-            {
-                TransactionId = transaction.Id,
-                IdempotencyKey = transaction.IdempotencyKey,
-                Amount = transaction.Amount,
-                Currency = transaction.Currency,
-                CustomerId = transaction.CustomerId,
-                OrderId = transaction.OrderId,
-                ProviderName = transaction.ProviderName,
-                ProviderTransactionId = transaction.ProviderTransactionId,
-                CompletedAt = transaction.CompletedAt ?? DateTime.UtcNow,
-                CorrelationId = transaction.CorrelationId
-            }, cancellationToken);
+            var payload = new PaymentCompletedEventPayload(
+                OrderId: Guid.TryParse(transaction.OrderId, out var orderId) ? orderId : Guid.Empty,
+                PaymentId: transaction.Id,
+                Amount: (double)transaction.Amount,
+                Currency: transaction.Currency
+            );
+
+            var publicEvent = new PaymentCompletedEvent(
+                MessageId: Guid.NewGuid(),
+                MessageName: "PaymentCompletedEvent",
+                MessageType: MessageType.Event,
+                MessageVersion: "1.0",
+                PublishedBy: "PaymentService",
+                ConsumedBy: new[] { "NotificationService" },
+                CorrelationId: Guid.TryParse(transaction.CorrelationId, out var correlId) ? correlId : Guid.NewGuid(),
+                CausationId: null,
+                OccurredAtUtc: DateTimeOffset.UtcNow,
+                IsPublic: true,
+                Payload: payload
+            );
+
+            await _eventPublisher.PublishAsync(publicEvent, cancellationToken);
         }
 
         _logger.LogInformation(

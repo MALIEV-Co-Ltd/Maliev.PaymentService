@@ -49,6 +49,6 @@ ENV ASPNETCORE_ENVIRONMENT=Production
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:8080/payments/liveness || exit 1
+  CMD curl -f http://localhost:8080/payment/liveness || exit 1
 
 ENTRYPOINT ["dotnet", "Maliev.PaymentService.Api.dll"]

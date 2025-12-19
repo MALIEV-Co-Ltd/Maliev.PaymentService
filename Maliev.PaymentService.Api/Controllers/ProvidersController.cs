@@ -12,7 +12,7 @@ namespace Maliev.PaymentService.Api.Controllers;
 /// Handles provider registration, updates, and queries.
 /// </summary>
 [ApiController]
-[Route("payments/v1/providers")]
+[Route("payment/v1/providers")]
 [Authorize]
 public class ProvidersController : ControllerBase
 {

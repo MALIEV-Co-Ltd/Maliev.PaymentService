@@ -1,5 +1,6 @@
 using Maliev.PaymentService.Api.Middleware;
 using Maliev.PaymentService.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -9,15 +10,10 @@ builder.AddGoogleSecretManagerVolume(); // Load secrets from /mnt/secrets if ava
 
 // --- Infrastructure & Observability ---
 builder.AddServiceDefaults(); // OpenTelemetry, health checks, resilience
-builder.AddServiceMeters("payment-gateway"); // Register service meters for OpenTelemetry business metrics
+builder.AddServiceMeters("payments-meter"); // Register service meters for OpenTelemetry business metrics
 
-builder.AddRedisDistributedCache(instanceName: "Payment:"); // Redis with in-memory fallback
-builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(sp => 
-{
-    var configuration = sp.GetRequiredService<IConfiguration>();
-    var connectionString = configuration.GetConnectionString("redis") ?? "localhost:6379";
-    return StackExchange.Redis.ConnectionMultiplexer.Connect(connectionString);
-});
+builder.AddRedisDistributedCache(instanceName: "payment:"); // Redis with in-memory fallback
+builder.AddRedisConnectionMultiplexer(); // Register IConnectionMultiplexer for IdempotencyService
 builder.AddMassTransitWithRabbitMq(); // RabbitMQ message bus (non-blocking startup)
 builder.AddPostgresDbContext<PaymentDbContext>(
     connectionStringName: "PaymentDbContext",
@@ -118,6 +114,37 @@ if (!app.Environment.IsEnvironment("Testing"))
     try
     {
         await app.MigrateDatabaseAsync<PaymentDbContext>();
+
+        // Seed test payment provider for development/testing
+        if (app.Environment.IsDevelopment())
+        {
+            using var scope = app.Services.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
+
+            if (!await dbContext.PaymentProviders.AnyAsync())
+            {
+                var testProvider = new Maliev.PaymentService.Core.Entities.PaymentProvider
+                {
+                    Id = Guid.NewGuid(),
+                    Name = "stripe",
+                    DisplayName = "Stripe (Test)",
+                    Status = Maliev.PaymentService.Core.Enums.ProviderStatus.Active,
+                    SupportedCurrencies = new List<string> { "THB", "USD", "EUR" },
+                    Priority = 1,
+                    Credentials = new Dictionary<string, string>
+                    {
+                        { "ApiKey", "sk_test_development_key" }
+                    },
+                    Configurations = new List<Maliev.PaymentService.Core.Entities.ProviderConfiguration>(),
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+
+                dbContext.PaymentProviders.Add(testProvider);
+                await dbContext.SaveChangesAsync();
+                logger.LogInformation("Seeded test payment provider: {ProviderName}", testProvider.Name);
+            }
+        }
     }
     catch (Exception ex)
     {
@@ -143,10 +170,10 @@ app.UseAuthorization();
 app.MapControllers();
 
 // Map Aspire default endpoints (/health, /alive, /metrics)
-app.MapDefaultEndpoints(servicePrefix: "payments");
+app.MapDefaultEndpoints(servicePrefix: "payment");
 
 // Map OpenAPI and Scalar documentation (dev/staging only)
-app.MapApiDocumentation(servicePrefix: "payments");
+app.MapApiDocumentation(servicePrefix: "payment");
 
 Log.ServiceStarted(logger);
 await app.RunAsync();
