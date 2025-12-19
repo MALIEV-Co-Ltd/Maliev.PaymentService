@@ -2,7 +2,7 @@ using System.Text.Json;
 using Maliev.PaymentService.Core.Entities;
 using Maliev.PaymentService.Core.Enums;
 using Maliev.PaymentService.Core.Interfaces;
-using Maliev.MessagingContracts.Contracts;
+using Maliev.MessagingContracts;
 using Microsoft.Extensions.Logging;
 
 namespace Maliev.PaymentService.Infrastructure.Services;

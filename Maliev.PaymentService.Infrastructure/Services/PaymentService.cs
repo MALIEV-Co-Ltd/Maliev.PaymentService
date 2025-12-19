@@ -5,7 +5,7 @@ using Maliev.PaymentService.Core.Interfaces;
 using Maliev.PaymentService.Infrastructure.Providers;
 using Maliev.PaymentService.Infrastructure.Resilience;
 using Microsoft.Extensions.Logging;
-using Maliev.MessagingContracts.Contracts;
+using Maliev.MessagingContracts;
 
 namespace Maliev.PaymentService.Infrastructure.Services;
 
