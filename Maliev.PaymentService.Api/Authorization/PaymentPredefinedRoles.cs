@@ -67,8 +67,8 @@ public static class PaymentPredefinedRoles
     /// </summary>
     public static IReadOnlyList<string> GetPermissions(string roleName)
     {
-        return RolePermissions.TryGetValue(roleName, out var permissions) 
-            ? permissions.AsReadOnly() 
+        return RolePermissions.TryGetValue(roleName, out var permissions)
+            ? permissions.AsReadOnly()
             : new List<string>().AsReadOnly();
     }
 

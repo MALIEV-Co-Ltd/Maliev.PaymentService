@@ -159,7 +159,7 @@ public class PaymentTransactionConfiguration : IEntityTypeConfiguration<PaymentT
             .WithOne(l => l.PaymentTransaction)
             .HasForeignKey(l => l.PaymentTransactionId)
             .OnDelete(DeleteBehavior.Cascade);
-        
+
         // Ensures that transactions for soft-deleted providers are not retrieved
         builder.HasQueryFilter(t => t.PaymentProvider != null && t.PaymentProvider.DeletedAt == null);
     }

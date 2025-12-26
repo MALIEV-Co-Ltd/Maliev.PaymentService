@@ -67,13 +67,13 @@ public class AuthorizationBenchmarkTests : IClassFixture<IntegrationTestWebAppFa
 
         // Act & Measure
         var sw = Stopwatch.StartNew();
-        
+
         // 1. Revoke
         await cache.SetStringAsync(revocationKey, "true");
-        
+
         // 2. Attempt access
         var response = await _client.PostAsJsonAsync("payment/v1/payments", new { });
-        
+
         sw.Stop();
 
         _output.WriteLine($"Revocation enforcement took: {sw.ElapsedMilliseconds}ms");

@@ -31,7 +31,7 @@ public class RoleAccessTests : IClassFixture<IntegrationTestWebAppFactory>
         var userId = $"test-user-{role}";
         var permissions = PaymentPredefinedRoles.GetPermissions(role).ToArray();
         var token = _factory.CreateTestJwtToken(userId: userId, permissions: permissions);
-        
+
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 

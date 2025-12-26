@@ -36,7 +36,7 @@ public class PermissionAuthorizationHandler : AuthorizationHandler<PermissionReq
             return;
         }
 
-        var userId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? 
+        var userId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value ??
                      user.FindFirst("sub")?.Value ?? "unknown";
 
         // Check if permission is critical
@@ -52,7 +52,7 @@ public class PermissionAuthorizationHandler : AuthorizationHandler<PermissionReq
 
             if (!string.IsNullOrEmpty(isRevoked))
             {
-                _logger.LogWarning("Authorization failed: Permission {Permission} revoked for User {UserId}", 
+                _logger.LogWarning("Authorization failed: Permission {Permission} revoked for User {UserId}",
                     requirement.Permission, userId);
                 return;
             }
@@ -72,7 +72,7 @@ public class PermissionAuthorizationHandler : AuthorizationHandler<PermissionReq
         {
             // If not in cache, extract from JWT claims
             permissions = user.FindAll("permissions").Select(c => c.Value).ToList();
-            
+
             if (!permissions.Any())
             {
                 // Fallback to "scope" if permissions claim is missing
@@ -92,7 +92,7 @@ public class PermissionAuthorizationHandler : AuthorizationHandler<PermissionReq
             return;
         }
 
-        _logger.LogWarning("Authorization failed: User {UserId} lacks permission {Permission}", 
+        _logger.LogWarning("Authorization failed: User {UserId} lacks permission {Permission}",
             userId, requirement.Permission);
     }
 }

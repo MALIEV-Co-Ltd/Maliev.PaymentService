@@ -66,7 +66,7 @@ public class ProviderConfigurationConfiguration : IEntityTypeConfiguration<Provi
 
         builder.HasIndex(c => c.IsActive)
             .HasDatabaseName("ix_provider_configurations_is_active");
-        
+
         // Ensures that configurations for soft-deleted providers are not retrieved
         builder.HasQueryFilter(pc => pc.PaymentProvider != null && pc.PaymentProvider.DeletedAt == null);
     }

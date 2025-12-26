@@ -59,7 +59,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         // Check if provider already exists (for idempotency across multiple tests)
         var existingProvider = await _dbContext!.PaymentProviders
             .FirstOrDefaultAsync(p => p.Name == "stripe");
-        
+
         if (existingProvider != null)
         {
             return; // Provider already seeded
@@ -632,7 +632,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
 
         var userId = "revoked-user";
         var token = _factory.CreateTestJwtToken(userId: userId, permissions: new[] { "payment.payments.process" });
-        
+
         var revokedClient = _factory.CreateClient();
         revokedClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         revokedClient.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
