@@ -1,3 +1,5 @@
+using Asp.Versioning;
+using Maliev.PaymentService.Api.Authorization;
 using Maliev.PaymentService.Api.Models.Requests;
 using Maliev.PaymentService.Api.Models.Responses;
 using Maliev.PaymentService.Core.Enums;
@@ -13,13 +15,15 @@ namespace Maliev.PaymentService.Api.Controllers;
 /// Controller for payment processing operations.
 /// </summary>
 [ApiController]
-[Route("payment/v1/payments")]
-[Authorize]
+[ApiVersion("1.0")]
+[Route("payment/v{version:apiVersion}/payments")]
+[RequirePermission(PaymentPermissions.PaymentsRead)]
 public class PaymentsController : ControllerBase
 {
     private readonly IPaymentService _paymentService;
     private readonly IRefundService _refundService;
     private readonly IPaymentRoutingService _routingService;
+    private readonly IMetricsService _metricsService;
     private readonly IDistributedCache _cache;
     private readonly ILogger<PaymentsController> _logger;
 
@@ -29,18 +33,21 @@ public class PaymentsController : ControllerBase
     /// <param name="paymentService">Payment processing service</param>
     /// <param name="refundService">Refund processing service</param>
     /// <param name="routingService">Payment provider routing service</param>
+    /// <param name="metricsService">Metrics collection service</param>
     /// <param name="cache">Distributed cache for performance</param>
     /// <param name="logger">Logger instance</param>
     public PaymentsController(
         IPaymentService paymentService,
         IRefundService refundService,
         IPaymentRoutingService routingService,
+        IMetricsService metricsService,
         IDistributedCache cache,
         ILogger<PaymentsController> logger)
     {
         _paymentService = paymentService;
         _refundService = refundService;
         _routingService = routingService;
+        _metricsService = metricsService;
         _cache = cache;
         _logger = logger;
     }
@@ -53,13 +60,16 @@ public class PaymentsController : ControllerBase
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Created payment transaction</returns>
     [HttpPost]
+    [RequirePermission(PaymentPermissions.PaymentsProcess)]
     [ProducesResponseType(typeof(PaymentResponse), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(PaymentResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<PaymentResponse>> ProcessPayment(
         [FromBody] PaymentRequest request,
         CancellationToken cancellationToken)
     {
+        var startTime = DateTime.UtcNow;
         try
         {
             // Validate Idempotency-Key header
@@ -108,6 +118,18 @@ public class PaymentsController : ControllerBase
             // Map to response
             var response = MapToPaymentResponse(transaction);
 
+            var duration = (DateTime.UtcNow - startTime).TotalSeconds;
+            _metricsService.RecordPaymentDuration(transaction.PaymentProvider?.Name ?? "unknown", duration);
+
+            // Return 200 OK if idempotent request (existing transaction)
+            if (transaction.CreatedAt < DateTime.UtcNow.AddSeconds(-1))
+            {
+                _logger.LogInformation(
+                    "Returning existing payment {TransactionId} for idempotent request {IdempotencyKey}",
+                    transaction.Id, idempotencyKey);
+                return Ok(response);
+            }
+
             return CreatedAtAction(
                 nameof(GetPaymentById),
                 new { id = transaction.Id },
@@ -140,6 +162,7 @@ public class PaymentsController : ControllerBase
         Guid id,
         CancellationToken cancellationToken)
     {
+        var startTime = DateTime.UtcNow;
         try
         {
             // Try to get from cache first
@@ -148,10 +171,10 @@ public class PaymentsController : ControllerBase
 
             if (!string.IsNullOrEmpty(cachedValue))
             {
-                var cachedResponse = JsonSerializer.Deserialize<PaymentResponse>(cachedValue);
-                if (cachedResponse != null)
+                if (JsonSerializer.Deserialize<PaymentResponse>(cachedValue) is { } cachedResponse)
                 {
                     _logger.LogDebug("Payment {TransactionId} retrieved from cache", id);
+                    _metricsService.RecordPaymentStatusCacheHit(cachedResponse.SelectedProvider ?? "unknown");
                     return Ok(cachedResponse);
                 }
             }
@@ -165,6 +188,9 @@ public class PaymentsController : ControllerBase
             }
 
             var response = MapToPaymentResponse(transaction);
+
+            var duration = (DateTime.UtcNow - startTime).TotalSeconds;
+            _metricsService.RecordPaymentStatusQuery(transaction.PaymentProvider?.Name ?? "unknown", duration);
 
             // Cache the result
             var cacheDuration = transaction.Status switch
@@ -208,6 +234,7 @@ public class PaymentsController : ControllerBase
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Refund transaction details</returns>
     [HttpPost("{id:guid}/refund")]
+    [RequirePermission(PaymentPermissions.PaymentsRefund)]
     [ProducesResponseType(typeof(RefundResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -217,6 +244,7 @@ public class PaymentsController : ControllerBase
         [FromBody] RefundRequest request,
         CancellationToken cancellationToken)
     {
+        var startTime = DateTime.UtcNow;
         try
         {
             // Validate Idempotency-Key header
@@ -251,6 +279,12 @@ public class PaymentsController : ControllerBase
                 CreatedAt = refundTransaction.CreatedAt,
                 UpdatedAt = refundTransaction.UpdatedAt
             };
+
+            var duration = (DateTime.UtcNow - startTime).TotalSeconds;
+            _metricsService.RecordRefundTransaction(
+                refundTransaction.Provider?.Name ?? "unknown",
+                refundTransaction.Status.ToString(),
+                refundTransaction.Amount);
 
             // Invalidate payment cache since refund affects payment state
             var cacheKey = $"payment:{id}";
@@ -295,25 +329,4 @@ public class PaymentsController : ControllerBase
             CompletedAt = transaction.CompletedAt
         };
     }
-}
-
-/// <summary>
-/// Request model for refund operations.
-/// </summary>
-public class RefundRequest
-{
-    /// <summary>
-    /// Amount to refund (must be greater than 0).
-    /// </summary>
-    public decimal Amount { get; set; }
-
-    /// <summary>
-    /// Reason for the refund.
-    /// </summary>
-    public string? Reason { get; set; }
-
-    /// <summary>
-    /// Type of refund: "full" or "partial".
-    /// </summary>
-    public string RefundType { get; set; } = "partial";
 }

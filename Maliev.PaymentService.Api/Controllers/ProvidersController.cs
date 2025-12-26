@@ -1,3 +1,5 @@
+using Asp.Versioning;
+using Maliev.PaymentService.Api.Authorization;
 using Maliev.PaymentService.Api.Models.Requests;
 using Maliev.PaymentService.Api.Models.Responses;
 using Maliev.PaymentService.Core.Entities;
@@ -12,8 +14,9 @@ namespace Maliev.PaymentService.Api.Controllers;
 /// Handles provider registration, updates, and queries.
 /// </summary>
 [ApiController]
-[Route("payment/v1/providers")]
-[Authorize]
+[ApiVersion("1.0")]
+[Route("payment/v{version:apiVersion}/providers")]
+[RequirePermission(PaymentPermissions.ProvidersView)]
 public class ProvidersController : ControllerBase
 {
     private readonly IProviderManagementService _providerService;
@@ -80,6 +83,7 @@ public class ProvidersController : ControllerBase
     /// <response code="201">Provider successfully registered. Returns provider details.</response>
     /// <response code="400">Invalid request. Missing required fields or invalid configuration.</response>
     [HttpPost]
+    [RequirePermission(PaymentPermissions.ProvidersManage)]
     [ProducesResponseType(typeof(ProviderResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ProviderResponse>> RegisterProvider([FromBody] RegisterProviderRequest request)
@@ -202,6 +206,7 @@ public class ProvidersController : ControllerBase
     /// Updates a payment provider.
     /// </summary>
     [HttpPut("{id}")]
+    [RequirePermission(PaymentPermissions.ProvidersManage)]
     [ProducesResponseType(typeof(ProviderResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ProviderResponse>> UpdateProvider(Guid id, [FromBody] UpdateProviderRequest request)
@@ -242,6 +247,7 @@ public class ProvidersController : ControllerBase
     /// Updates a provider's operational status.
     /// </summary>
     [HttpPatch("{id}/status")]
+    [RequirePermission(PaymentPermissions.ProvidersManage)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> UpdateProviderStatus(Guid id, [FromBody] UpdateProviderStatusRequest request)
@@ -264,6 +270,7 @@ public class ProvidersController : ControllerBase
     /// Deletes a payment provider (soft delete).
     /// </summary>
     [HttpDelete("{id}")]
+    [RequirePermission(PaymentPermissions.ProvidersManage)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> DeleteProvider(Guid id)
     {

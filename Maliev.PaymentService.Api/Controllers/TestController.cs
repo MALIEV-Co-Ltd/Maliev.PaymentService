@@ -1,5 +1,8 @@
+using Asp.Versioning;
 using Maliev.MessagingContracts.Generated;
+using Maliev.PaymentService.Api.Authorization;
 using Maliev.PaymentService.Core.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Maliev.PaymentService.Api.Controllers;
@@ -9,7 +12,9 @@ namespace Maliev.PaymentService.Api.Controllers;
 /// Only available in non-production environments.
 /// </summary>
 [ApiController]
-[Route("payment/v1/test")]
+[ApiVersion("1.0")]
+[Route("payment/v{version:apiVersion}/test")]
+[AllowAnonymous]
 public class TestController : ControllerBase
 {
     private readonly IEventPublisher _eventPublisher;
