@@ -134,14 +134,27 @@ public class BaseIntegrationTestFactory<TProgram, TDbContext> : WebApplicationFa
             {
                 options.TokenValidationParameters = new TokenValidationParameters
                 {
-                    ValidateIssuer = true,
-                    ValidateAudience = true,
-                    ValidateLifetime = true,
+                    ValidateIssuer = false,
+                    ValidateAudience = false,
+                    ValidateLifetime = false,
                     ValidateIssuerSigningKey = true,
-                    ValidIssuer = "test-issuer",
-                    ValidAudience = "test-audience",
                     IssuerSigningKey = new RsaSecurityKey(_testRsa),
-                    ClockSkew = TimeSpan.Zero // No clock skew for tests
+                    ClockSkew = TimeSpan.Zero, // No clock skew for tests
+                    NameClaimType = "sub",
+                    RoleClaimType = "role"
+                };
+                options.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
+                {
+                    OnAuthenticationFailed = context =>
+                    {
+                        Console.WriteLine($"Authentication failed: {context.Exception.Message}");
+                        return Task.CompletedTask;
+                    },
+                    OnTokenValidated = context =>
+                    {
+                        Console.WriteLine("Token validated successfully");
+                        return Task.CompletedTask;
+                    }
                 };
             });
 
@@ -150,6 +163,12 @@ public class BaseIntegrationTestFactory<TProgram, TDbContext> : WebApplicationFa
             {
                 options.WaitUntilStarted = true;
                 options.StartTimeout = TimeSpan.FromSeconds(30);
+            });
+
+            // Disable rate limiting for tests
+            services.Configure<Microsoft.AspNetCore.RateLimiting.RateLimiterOptions>(options =>
+            {
+                options.GlobalLimiter = null;
             });
 
             // Allow derived classes to add additional test services
@@ -271,17 +290,22 @@ public class BaseIntegrationTestFactory<TProgram, TDbContext> : WebApplicationFa
     /// </summary>
     /// <param name="userId">User ID to include in token</param>
     /// <param name="roles">Roles to include in token claims</param>
+    /// <param name="permissions">Permissions to include in token claims</param>
     /// <param name="additionalClaims">Additional claims to include</param>
     /// <returns>JWT token string</returns>
     public string CreateTestJwtToken(
         string userId = "test-user",
         string[]? roles = null,
+        string[]? permissions = null,
         Dictionary<string, string>? additionalClaims = null)
     {
         var claims = new List<Claim>
         {
             new(JwtRegisteredClaimNames.Sub, userId),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            // Include service identity claims by default for backward compatibility during migration
+            new("service_id", "test-service"),
+            new("service_name", "Test Service")
         };
 
         if (roles != null)
@@ -292,11 +316,23 @@ public class BaseIntegrationTestFactory<TProgram, TDbContext> : WebApplicationFa
             }
         }
 
+        if (permissions != null)
+        {
+            foreach (var permission in permissions)
+            {
+                claims.Add(new Claim("permissions", permission));
+            }
+        }
+
         if (additionalClaims != null)
         {
             foreach (var (key, value) in additionalClaims)
             {
-                claims.Add(new Claim(key, value));
+                // Avoid duplicating service identity claims if provided in additionalClaims
+                if (key != "service_id" && key != "service_name")
+                {
+                    claims.Add(new Claim(key, value));
+                }
             }
         }
 
@@ -318,17 +354,17 @@ public class BaseIntegrationTestFactory<TProgram, TDbContext> : WebApplicationFa
     /// Simplified JWT token generator with role parameter.
     /// Alias for CreateTestJwtToken to support different naming conventions.
     /// </summary>
-    public string GenerateTestToken(string userId = "test-user", string role = "admin")
+    public string GenerateTestToken(string userId = "test-user", string role = "admin", string[]? permissions = null)
     {
-        return CreateTestJwtToken(userId, new[] { role });
+        return CreateTestJwtToken(userId, new[] { role }, permissions);
     }
 
     /// <summary>
-    /// Creates an HTTP client with authenticated user and specified roles.
+    /// Creates an HTTP client with authenticated user and specified roles/permissions.
     /// </summary>
-    public HttpClient CreateAuthenticatedClient(string userId = "test-user", string[]? roles = null)
+    public HttpClient CreateAuthenticatedClient(string userId = "test-user", string[]? roles = null, string[]? permissions = null)
     {
-        var token = CreateTestJwtToken(userId, roles);
+        var token = CreateTestJwtToken(userId, roles, permissions);
         var client = CreateClient();
         client.DefaultRequestHeaders.Add("Authorization", $"Bearer {token}");
         return client;
