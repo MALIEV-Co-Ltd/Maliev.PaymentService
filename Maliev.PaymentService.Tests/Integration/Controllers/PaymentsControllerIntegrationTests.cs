@@ -7,6 +7,7 @@ using Maliev.PaymentService.Core.Enums;
 using Maliev.PaymentService.Infrastructure.Data;
 using Maliev.PaymentService.Tests.Fixtures;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using Xunit.Abstractions;
@@ -32,8 +33,10 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         _output = output;
         _client = _factory.CreateClient();
 
-        // Set JWT authorization header
-        var token = _factory.CreateTestJwtToken();
+        // Set JWT authorization header with administrative permissions and unique user ID
+        var token = _factory.CreateTestJwtToken(
+            userId: "payments-integration-test-admin",
+            permissions: new[] { "payment.*" });
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
     }
 
@@ -56,7 +59,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         // Check if provider already exists (for idempotency across multiple tests)
         var existingProvider = await _dbContext!.PaymentProviders
             .FirstOrDefaultAsync(p => p.Name == "stripe");
-        
+
         if (existingProvider != null)
         {
             return; // Provider already seeded
@@ -108,7 +111,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
     }
 
     [Fact]
-    public async Task ProcessPayment_WithValidRequest_ReturnsCreatedPayment()
+    public async Task ProcessPayment_WithCorrectPermission_ReturnsCreated()
     {
         // Arrange
         var idempotencyKey = Guid.NewGuid().ToString();
@@ -463,6 +466,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
         var createResponse = await _client.PostAsJsonAsync("/payment/v1/payments", createRequest);
+        createResponse.EnsureSuccessStatusCode();
         var payment = await createResponse.Content.ReadFromJsonAsync<PaymentResponse>();
 
         // Manually update payment status to Completed (in real scenario, webhook would do this)
@@ -513,6 +517,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
         var createResponse = await _client.PostAsJsonAsync("/payment/v1/payments", createRequest);
+        createResponse.EnsureSuccessStatusCode();
         var payment = await createResponse.Content.ReadFromJsonAsync<PaymentResponse>();
 
         // Try to refund without completing payment
@@ -555,6 +560,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
         var createResponse = await _client.PostAsJsonAsync("/payment/v1/payments", createRequest);
+        createResponse.EnsureSuccessStatusCode();
         var payment = await createResponse.Content.ReadFromJsonAsync<PaymentResponse>();
 
         await UpdatePaymentStatusToCompleted(payment!.TransactionId);
@@ -576,6 +582,79 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
 
         // Assert
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ProcessPayment_WithMissingPermission_ReturnsForbidden()
+    {
+        // Arrange
+        var request = new PaymentRequest
+        {
+            Amount = 100.00m,
+            Currency = "THB",
+            CustomerId = "cust_123",
+            OrderId = "order_123",
+            PreferredProvider = "stripe",
+            Description = "Test payment",
+            ReturnUrl = "https://example.com/return",
+            CancelUrl = "https://example.com/cancel"
+        };
+
+        // Create client with token lacking necessary permission
+        var unauthorizedClient = _factory.CreateClient();
+        var token = _factory.CreateTestJwtToken(permissions: new[] { "payment.payments.read" }); // Has read but not process
+        unauthorizedClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        unauthorizedClient.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
+
+        // Act
+        var response = await unauthorizedClient.PostAsJsonAsync("payment/v1/payments", request);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ProcessPayment_WithRevokedCriticalPermission_ReturnsForbidden()
+    {
+        // Arrange
+        var request = new PaymentRequest
+        {
+            Amount = 100.00m,
+            Currency = "THB",
+            CustomerId = "cust_123",
+            OrderId = "order_123",
+            PreferredProvider = "stripe",
+            Description = "Test payment",
+            ReturnUrl = "https://example.com/return",
+            CancelUrl = "https://example.com/cancel"
+        };
+
+        var userId = "revoked-user";
+        var token = _factory.CreateTestJwtToken(userId: userId, permissions: new[] { "payment.payments.process" });
+
+        var revokedClient = _factory.CreateClient();
+        revokedClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        revokedClient.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
+
+        // Manually add revocation to cache (simulating IAM revocation)
+        var cache = _factory.Services.GetRequiredService<Microsoft.Extensions.Caching.Distributed.IDistributedCache>();
+        var revocationKey = $"revoked:user:{userId}:permission:payment.payments.process";
+        await cache.SetStringAsync(revocationKey, "true");
+
+        try
+        {
+            // Act
+            var response = await revokedClient.PostAsJsonAsync("payment/v1/payments", request);
+
+            // Assert
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+        finally
+        {
+            // Cleanup revocation from cache
+            await cache.RemoveAsync(revocationKey);
+        }
     }
 
     private async Task UpdatePaymentStatusToCompleted(Guid transactionId)

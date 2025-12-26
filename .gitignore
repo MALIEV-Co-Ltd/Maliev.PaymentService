@@ -398,6 +398,9 @@ FodyWeavers.xsd
 *.sln.iml
 .idea/
 
+.claude/settings.local.json
+.gemini/settings.local.json
+
 # macOS
 .DS_Store
 
@@ -418,3 +421,13 @@ docker-compose.dev.yml
 *SUMMARY*.md
 *AUDIT*.md
 *.Improvements.md
+
+# Test Outputs
+*test-output.txt
+*_error.txt
+
+
+# Test Outputs
+*test-output.txt
+*_error.txt
+

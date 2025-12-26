@@ -1,19 +1,23 @@
-using System.Text.Json;
+using Asp.Versioning;
+using Maliev.PaymentService.Api.Authorization;
 using Maliev.PaymentService.Api.Models.Requests;
 using Maliev.PaymentService.Api.Models.Responses;
 using Maliev.PaymentService.Core.Entities;
 using Maliev.PaymentService.Core.Enums;
 using Maliev.PaymentService.Core.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Text.Json;
 
 namespace Maliev.PaymentService.Api.Controllers;
 
 /// <summary>
-/// API controller for receiving webhooks from payment providers.
-/// Handles webhook validation, deduplication, and processing.
+/// Controller for receiving and processing payment provider webhooks.
+/// Webhooks are authenticated via signature verification.
 /// </summary>
 [ApiController]
-[Route("payment/v1/webhooks")]
+[ApiVersion("1.0")]
+[Route("payment/v{version:apiVersion}/webhooks")]
 public class WebhooksController : ControllerBase
 {
     private readonly IProviderRepository _providerRepository;
@@ -116,6 +120,7 @@ public class WebhooksController : ControllerBase
     /// <response code="200">Webhook received and queued for processing. Returns event ID.</response>
     /// <response code="400">Invalid request. Unknown provider or malformed payload.</response>
     /// <response code="401">Unauthorized. Signature validation failed.</response>
+    [AllowAnonymous] // Webhooks are authenticated via signature verification
     [HttpPost("{provider}")]
     [ProducesResponseType(typeof(WebhookReceivedResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
@@ -288,6 +293,7 @@ public class WebhooksController : ControllerBase
     /// Only available when not in Production.
     /// </summary>
     [HttpPost("{provider}/test")]
+    [RequirePermission(PaymentPermissions.GatewayMonitor)]
     [ProducesResponseType(typeof(WebhookReceivedResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<WebhookReceivedResponse>> TestWebhook(

@@ -27,8 +27,10 @@ public class ProvidersControllerIntegrationTests : IClassFixture<IntegrationTest
         _factory = factory;
         _client = _factory.CreateClient();
 
-        // Set JWT authorization header
-        var token = _factory.CreateTestJwtToken();
+        // Set JWT authorization header with administrative permissions and unique user ID
+        var token = _factory.CreateTestJwtToken(
+            userId: "providers-integration-test-admin",
+            permissions: new[] { "payment.*" });
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
     }
 
@@ -147,6 +149,7 @@ public class ProvidersControllerIntegrationTests : IClassFixture<IntegrationTest
             }
         };
         var createResponse = await _client.PostAsJsonAsync("/payment/v1/providers", registerRequest);
+        createResponse.EnsureSuccessStatusCode();
         var createdProvider = await createResponse.Content.ReadFromJsonAsync<ProviderResponse>();
 
         // Act
@@ -189,6 +192,7 @@ public class ProvidersControllerIntegrationTests : IClassFixture<IntegrationTest
             }
         };
         var createResponse = await _client.PostAsJsonAsync("/payment/v1/providers", registerRequest);
+        createResponse.EnsureSuccessStatusCode();
         var createdProvider = await createResponse.Content.ReadFromJsonAsync<ProviderResponse>();
 
         var updateRequest = new UpdateProviderRequest
@@ -231,6 +235,7 @@ public class ProvidersControllerIntegrationTests : IClassFixture<IntegrationTest
             }
         };
         var createResponse = await _client.PostAsJsonAsync("/payment/v1/providers", registerRequest);
+        createResponse.EnsureSuccessStatusCode();
         var createdProvider = await createResponse.Content.ReadFromJsonAsync<ProviderResponse>();
 
         var statusRequest = new UpdateProviderStatusRequest
@@ -268,6 +273,7 @@ public class ProvidersControllerIntegrationTests : IClassFixture<IntegrationTest
             }
         };
         var createResponse = await _client.PostAsJsonAsync("/payment/v1/providers", registerRequest);
+        createResponse.EnsureSuccessStatusCode();
         var createdProvider = await createResponse.Content.ReadFromJsonAsync<ProviderResponse>();
 
         // Act

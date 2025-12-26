@@ -1,7 +1,11 @@
-using Maliev.PaymentService.Api.Middleware;
+using Maliev.PaymentService.Api.Authorization;
+using Maliev.PaymentService.Api.Services;
 using Maliev.PaymentService.Infrastructure.Data;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using System.Threading.RateLimiting;
+using Maliev.Aspire.ServiceDefaults;
+
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -10,14 +14,20 @@ builder.AddGoogleSecretManagerVolume(); // Load secrets from /mnt/secrets if ava
 
 // --- Infrastructure & Observability ---
 builder.AddServiceDefaults(); // OpenTelemetry, health checks, resilience
+builder.AddStandardMiddleware(options =>
+{
+    options.EnableRequestLogging = true;
+});
 builder.AddServiceMeters("payments-meter"); // Register service meters for OpenTelemetry business metrics
 
 builder.AddRedisDistributedCache(instanceName: "payment:"); // Redis with in-memory fallback
 builder.AddRedisConnectionMultiplexer(); // Register IConnectionMultiplexer for IdempotencyService
 builder.AddMassTransitWithRabbitMq(); // RabbitMQ message bus (non-blocking startup)
 builder.AddPostgresDbContext<PaymentDbContext>(
-    connectionStringName: "PaymentDbContext",
+    connectionName: "PaymentDbContext",
     enableDynamicJson: true); // Enable dynamic JSON for polymorphic payment provider data
+
+builder.AddIAMServiceClient(); // IAM service client for permission registration
 
 // --- API Configuration ---
 builder.AddDefaultCors(); // CORS from CORS:AllowedOrigins config
@@ -26,20 +36,17 @@ builder.AddDefaultApiVersioning(); // API versioning with URL segment reader
 // JWT Authentication (tests override via PostConfigureAll with dynamic RSA keys)
 builder.AddJwtAuthentication();
 
+// Permission-based Authorization
+builder.Services.AddPermissionAuthorization();
+
+builder.Services.AddIAMRegistration<PaymentIAMRegistrationService>();
+
 // Add OpenAPI (must be in Program.cs for XML comments to work via source generator)
 if (!builder.Environment.IsProduction())
 {
-    builder.Services.AddEndpointsApiExplorer();
-    builder.Services.AddOpenApi("v1", options =>
-    {
-        options.AddDocumentTransformer((document, context, cancellationToken) =>
-        {
-            document.Info.Title = "MALIEV Payment Gateway Service API";
-            document.Info.Version = "v1";
-            document.Info.Description = "Payment processing gateway service. Handles payment initiation with idempotency keys, multi-provider support, payment status tracking, full and partial refund processing, and webhook endpoints for provider callbacks.";
-            return Task.CompletedTask;
-        });
-    });
+    builder.AddStandardOpenApi(
+        title: "MALIEV Payment Gateway Service API",
+        description: "Payment processing gateway service. Handles payment initiation with idempotency keys, multi-provider support, payment status tracking, full and partial refund processing, and webhook endpoints for provider callbacks.");
 }
 
 // Rate Limiting
@@ -154,9 +161,7 @@ if (!app.Environment.IsEnvironment("Testing"))
 }
 
 // Middleware Pipeline
-app.UseCorrelationIdMiddleware();
-app.UseExceptionHandlingMiddleware();
-app.UseRequestLoggingMiddleware();
+app.UseStandardMiddleware();
 
 app.UseHttpsRedirection();
 app.UseRouting();

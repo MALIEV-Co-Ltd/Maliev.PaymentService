@@ -11,7 +11,7 @@ public class TestIdempotencyService : IIdempotencyService
 {
     // Key: operationType:idempotencyKey, Value: result
     private readonly ConcurrentDictionary<string, string> _store = new();
-    
+
     // Key: operationType:idempotencyKey, Value: lockValue
     private readonly ConcurrentDictionary<string, string> _locks = new();
 
@@ -45,7 +45,7 @@ public class TestIdempotencyService : IIdempotencyService
     {
         var key = GetKey(operationType, idempotencyKey);
         var lockValue = Guid.NewGuid().ToString();
-        
+
         // TryAdd is atomic, similar to Redis SET NX
         return Task.FromResult(_locks.TryAdd(key, lockValue));
     }
