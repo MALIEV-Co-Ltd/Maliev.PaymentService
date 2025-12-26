@@ -426,3 +426,8 @@ docker-compose.dev.yml
 *test-output.txt
 *_error.txt
 
+
+# Test Outputs
+*test-output.txt
+*_error.txt
+
