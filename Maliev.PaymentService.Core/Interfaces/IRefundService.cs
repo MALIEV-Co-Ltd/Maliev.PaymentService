@@ -12,7 +12,7 @@ public interface IRefundService
     /// Validates refund amount, checks remaining refundable amount, calls provider adapter.
     /// </summary>
     /// <param name="paymentTransactionId">ID of the payment to refund</param>
-    /// <param name="amount">Refund amount (must be > 0 and <= remaining refundable)</param>
+    /// <param name="amount">Refund amount. Must be positive and not exceed the remaining refundable amount.</param>
     /// <param name="reason">Reason for refund (customer-facing)</param>
     /// <param name="refundType">"full" or "partial"</param>
     /// <param name="cancellationToken">Cancellation token</param>

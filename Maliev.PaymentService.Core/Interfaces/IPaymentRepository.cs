@@ -49,7 +49,7 @@ public interface IPaymentRepository
     /// <param name="transaction">Payment transaction with updated data</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Updated payment transaction</returns>
-    /// <exception cref="DbUpdateConcurrencyException">Thrown when row version mismatch occurs</exception>
+    /// <exception>Thrown when row version mismatch occurs (concurrency exception)</exception>
     Task<PaymentTransaction> UpdateAsync(PaymentTransaction transaction, CancellationToken cancellationToken = default);
 
     /// <summary>

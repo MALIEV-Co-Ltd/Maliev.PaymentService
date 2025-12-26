@@ -29,7 +29,7 @@ public class RefundTransaction
     public string? ProviderRefundId { get; set; }
 
     /// <summary>
-    /// Refund amount (must be > 0 and <= remaining refundable amount).
+    /// Refund amount. Must be positive and not exceed the remaining refundable amount.
     /// </summary>
     public required decimal Amount { get; set; }
 
