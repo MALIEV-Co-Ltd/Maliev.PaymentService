@@ -55,7 +55,6 @@ jobs:
         run: dotnet build Maliev.PaymentService.sln --no-restore --configuration Release
 
       - name: Run tests
-        continue-on-error: true
         run: dotnet test Maliev.PaymentService.sln --no-build --configuration Release --verbosity normal
         env:
           ConnectionStrings__PaymentDbContext: "Server=localhost;Port=5432;Database=payment_service_test_db;User Id=postgres;Password=postgres;"
