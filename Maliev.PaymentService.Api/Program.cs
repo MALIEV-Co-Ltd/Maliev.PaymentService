@@ -115,48 +115,37 @@ var metricsService = app.Services.GetRequiredService<Maliev.PaymentService.Core.
 
 var logger = app.Services.GetRequiredService<ILogger<Program>>();
 
-// Run database migrations on startup (skip in Testing environment)
-if (!app.Environment.IsEnvironment("Testing"))
+// Run database migrations on startup
+await app.MigrateDatabaseAsync<PaymentDbContext>();
+
+// Seed test payment provider for development/testing
+if (app.Environment.IsDevelopment())
 {
-    try
-    {
-        await app.MigrateDatabaseAsync<PaymentDbContext>();
+    using var scope = app.Services.CreateScope();
+    var dbContext = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
 
-        // Seed test payment provider for development/testing
-        if (app.Environment.IsDevelopment())
+    if (!await dbContext.PaymentProviders.AnyAsync())
+    {
+        var testProvider = new Maliev.PaymentService.Core.Entities.PaymentProvider
         {
-            using var scope = app.Services.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
-
-            if (!await dbContext.PaymentProviders.AnyAsync())
+            Id = Guid.NewGuid(),
+            Name = "stripe",
+            DisplayName = "Stripe (Test)",
+            Status = Maliev.PaymentService.Core.Enums.ProviderStatus.Active,
+            SupportedCurrencies = new List<string> { "THB", "USD", "EUR" },
+            Priority = 1,
+            Credentials = new Dictionary<string, string>
             {
-                var testProvider = new Maliev.PaymentService.Core.Entities.PaymentProvider
-                {
-                    Id = Guid.NewGuid(),
-                    Name = "stripe",
-                    DisplayName = "Stripe (Test)",
-                    Status = Maliev.PaymentService.Core.Enums.ProviderStatus.Active,
-                    SupportedCurrencies = new List<string> { "THB", "USD", "EUR" },
-                    Priority = 1,
-                    Credentials = new Dictionary<string, string>
-                    {
-                        { "ApiKey", "sk_test_development_key" }
-                    },
-                    Configurations = new List<Maliev.PaymentService.Core.Entities.ProviderConfiguration>(),
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
-                };
+                { "ApiKey", "sk_test_development_key" }
+            },
+            Configurations = new List<Maliev.PaymentService.Core.Entities.ProviderConfiguration>(),
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
 
-                dbContext.PaymentProviders.Add(testProvider);
-                await dbContext.SaveChangesAsync();
-                logger.LogInformation("Seeded test payment provider: {ProviderName}", testProvider.Name);
-            }
-        }
-    }
-    catch (Exception ex)
-    {
-        Log.MigrationFailed(logger, ex);
-        // Don't throw - allow app to start for debugging
+        dbContext.PaymentProviders.Add(testProvider);
+        await dbContext.SaveChangesAsync();
+        logger.LogInformation("Seeded test payment provider: {ProviderName}", testProvider.Name);
     }
 }
 

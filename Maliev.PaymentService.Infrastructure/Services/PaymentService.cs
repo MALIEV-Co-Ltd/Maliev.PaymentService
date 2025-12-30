@@ -218,7 +218,7 @@ public class PaymentService : IPaymentService
                             OrderId: transaction.OrderId,
                             ProviderName: provider.Name,
                             ErrorMessage: providerResult.ErrorMessage ?? "Unknown error",
-                            ProviderErrorCode: providerResult.ErrorCode,
+                            ProviderErrorCode: providerResult.ErrorCode ?? "UNKNOWN",
                             FailedAt: DateTimeOffset.UtcNow
                         )
                     ), cancellationToken);
@@ -311,7 +311,7 @@ public class PaymentService : IPaymentService
                         OrderId: transaction.OrderId,
                         ProviderName: provider.Name,
                         ErrorMessage: ex.Message,
-                        ProviderErrorCode: null,
+                        ProviderErrorCode: string.Empty,
                         FailedAt: DateTimeOffset.UtcNow
                     )
                 ), cancellationToken);
