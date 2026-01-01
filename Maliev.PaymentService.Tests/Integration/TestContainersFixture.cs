@@ -27,7 +27,7 @@ public class TestContainersFixture : IAsyncLifetime
 
         // RabbitMQ 7.0 container for message queue tests
         _rabbitMqContainer = new RabbitMqBuilder()
-            .WithImage("rabbitmq:3-management-alpine")
+            .WithImage("rabbitmq:4.2-alpine")
             .WithUsername("guest")
             .WithPassword("guest")
             .WithCleanUp(true)
@@ -35,7 +35,7 @@ public class TestContainersFixture : IAsyncLifetime
 
         // Redis 7.2 container for caching and idempotency tests
         _redisContainer = new RedisBuilder()
-            .WithImage("redis:7-alpine")
+            .WithImage("redis:8.4-alpine")
             .WithCleanUp(true)
             .Build();
     }

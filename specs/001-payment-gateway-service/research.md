@@ -857,7 +857,7 @@ public class TestContainersFixture : IAsyncLifetime
 **Usage Pattern**:
 ```csharp
 private readonly RabbitMqContainer _rabbitMqContainer = new RabbitMqBuilder()
-    .WithImage("rabbitmq:7.0-management-alpine")
+    .WithImage("rabbitmq:4.2-alpine")
     .WithUsername("guest")
     .WithPassword("guest")
     .Build();
@@ -951,7 +951,7 @@ public class IntegrationTestFixture : IAsyncLifetime
             .Build();
 
         _rabbitMq = new RabbitMqBuilder()
-            .WithImage("rabbitmq:7.0-management-alpine")
+            .WithImage("rabbitmq:4.2-alpine")
             .Build();
 
         _redis = new RedisBuilder()
