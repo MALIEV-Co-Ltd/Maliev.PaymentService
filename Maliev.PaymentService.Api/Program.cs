@@ -22,7 +22,11 @@ builder.AddServiceMeters("payments-meter"); // Register service meters for OpenT
 
 builder.AddRedisDistributedCache(instanceName: "payment:"); // Redis with in-memory fallback
 builder.AddRedisConnectionMultiplexer(); // Register IConnectionMultiplexer for IdempotencyService
-builder.AddMassTransitWithRabbitMq(); // RabbitMQ message bus (non-blocking startup)
+builder.AddMassTransitWithRabbitMq(x =>
+{
+    x.AddConsumer<Maliev.PaymentService.Api.Consumers.OrderAcceptedEventConsumer>();
+    x.AddConsumer<Maliev.PaymentService.Api.Consumers.InvoiceCreatedEventConsumer>();
+}); // RabbitMQ message bus (non-blocking startup)
 builder.AddPostgresDbContext<PaymentDbContext>(
     connectionName: "PaymentDbContext",
     enableDynamicJson: true); // Enable dynamic JSON for polymorphic payment provider data

@@ -43,6 +43,7 @@ public class TestController : ControllerBase
 
         var payload = new PaymentCompletedEventPayload(
             OrderId: request.OrderId,
+            OrderNumber: request.OrderId.ToString(),
             PaymentId: request.PaymentId,
             Amount: request.Amount,
             Currency: request.Currency
