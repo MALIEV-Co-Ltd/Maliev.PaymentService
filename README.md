@@ -34,15 +34,31 @@ A production-ready payment gateway service built with .NET 10, featuring multi-p
 
 ## Technology Stack
 
+## Constitution Rules
+
+**Banned Libraries** (NOT used in this service):
+- ❌ AutoMapper - Uses explicit manual mapping
+- ❌ FluentValidation - Uses Data Annotations for validation
+- ❌ FluentAssertions - Uses xUnit `Assert.*` methods
+- ❌ In-memory test DB - Uses Testcontainers with real PostgreSQL
+
+**Mandatory Practices**:
+- ✅ **TreatWarningsAsErrors** enabled in all `.csproj` files
+- ✅ **XML Documentation** on ALL public methods, properties, and classes
+- ✅ **No Secrets in Code** - All secrets via environment variables
+- ✅ **No Test Config in Program.js** - Test configuration in test fixtures only
+- ✅ **IAM Integration** - Uses GCP-style permission naming: `payment.{resource}.{action}`
+
+## Technology Stack
 - **.NET 10 (C# 13)**: Latest .NET framework with modern language features
 - **ASP.NET Core 10.0**: Web API framework
-- **Entity Framework Core 9.0**: ORM with PostgreSQL provider
+- **Entity Framework Core 10.x**: ORM with PostgreSQL provider
 - **PostgreSQL 18**: Primary database
 - **Redis 7.2**: Caching and idempotency storage
 - **RabbitMQ 3.13 / MassTransit**: Event messaging
 - **Prometheus**: Metrics collection
 - **Serilog**: Structured logging
-- **FluentValidation**: Request validation
+- **Data Annotations**: Request validation
 - **Polly**: Resilience and transient fault handling
 - **xUnit**: Unit and integration testing
 
@@ -78,7 +94,7 @@ curl http://localhost:8080/payments/liveness
 curl http://localhost:8080/metrics
 
 # Access RabbitMQ Management UI
-# http://localhost:15672 (user: payment_user, password: dev_rabbitmq_password)
+# http://localhost:15672 (user: payment_user, password: YOUR_RABBITMQ_PASSWORD)
 ```
 
 The API will be available at:
@@ -104,7 +120,7 @@ Update `appsettings.Development.json` with your local service endpoints:
 ```json
 {
   "ConnectionStrings": {
-    "PaymentDatabase": "Host=localhost;Port=5432;Database=payment_gateway;Username=your_user;Password=your_password"
+    "PaymentDatabase": "Host=localhost;Port=5432;Database=payment_gateway;Username=your_user;Password=YOUR_PASSWORD"
   },
   "Redis": {
     "Configuration": "localhost:6379",
@@ -168,7 +184,7 @@ dotnet test /p:CollectCoverage=true /p:CoverletOutputFormat=opencover
 ```http
 POST /payments/v1/payments
 Content-Type: application/json
-Authorization: Bearer {your-jwt-token}
+Authorization: Bearer YOUR_JWT_TOKEN
 Idempotency-Key: {unique-request-id}
 X-Correlation-Id: {optional-correlation-id}
 
@@ -211,7 +227,7 @@ X-Correlation-Id: {optional-correlation-id}
 
 ```http
 GET /payments/v1/payments/{transactionId}
-Authorization: Bearer {your-jwt-token}
+Authorization: Bearer YOUR_JWT_TOKEN
 ```
 
 **Response (200 OK):**
@@ -232,7 +248,7 @@ Authorization: Bearer {your-jwt-token}
 ```http
 POST /payments/v1/payments/{transactionId}/refund
 Content-Type: application/json
-Authorization: Bearer {your-jwt-token}
+Authorization: Bearer YOUR_JWT_TOKEN
 Idempotency-Key: {unique-refund-request-id}
 
 {

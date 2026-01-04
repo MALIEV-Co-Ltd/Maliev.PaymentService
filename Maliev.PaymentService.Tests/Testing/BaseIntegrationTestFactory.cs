@@ -165,6 +165,9 @@ public class BaseIntegrationTestFactory<TProgram, TDbContext> : WebApplicationFa
                 options.GlobalLimiter = null;
             });
 
+            // Add MassTransit test harness for testing message publishing/consuming
+            services.AddMassTransitTestHarness();
+
             // Allow derived classes to add additional test services
             ConfigureAdditionalServices(services);
         });
