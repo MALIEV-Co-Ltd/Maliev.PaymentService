@@ -1,3 +1,6 @@
+using System.Collections.Frozen;
+using System.Collections.Generic;
+
 namespace Maliev.PaymentService.Api.Authorization;
 
 /// <summary>
@@ -41,17 +44,29 @@ public static class PaymentPermissions
     public const string GatewayMonitor = "payment.gateway.monitor";
 
     /// <summary>
-    /// List of permissions that require real-time revocation checking.
+    /// Collection of all defined payment permissions with descriptions.
     /// </summary>
-    public static readonly IReadOnlyList<string> CriticalPermissions = new List<string>
+    public static readonly IReadOnlyDictionary<string, string> AllWithDescriptions = new Dictionary<string, string>
     {
-        PaymentsProcess,
-        PaymentsRefund,
-        PaymentsVoid
-    }.AsReadOnly();
+        { PaymentsCreate, "Create payment records" },
+        { PaymentsRead, "Read payment details" },
+        { PaymentsUpdate, "Update payment information" },
+        { PaymentsProcess, "Process payments" },
+        { PaymentsRefund, "Refund payments" },
+        { PaymentsVoid, "Void payments" },
+        { PaymentsReconcile, "Reconcile payment transactions" },
+        { TransactionsRead, "Read transaction details" },
+        { TransactionsQuery, "Query transaction history" },
+        { TransactionsExport, "Export transaction data" },
+        { ProvidersManage, "Manage payment providers" },
+        { ProvidersView, "View provider configurations" },
+        { ProvidersTest, "Test provider connections" },
+        { GatewayConfigure, "Configure payment gateway" },
+        { GatewayMonitor, "Monitor gateway health" }
+    };
 
     /// <summary>
-    /// Gets all defined permissions.
+    /// Gets all defined permissions using reflection to ensure none are missed.
     /// </summary>
     public static IEnumerable<string> GetAll()
     {
@@ -60,4 +75,14 @@ public static class PaymentPermissions
             .Where(f => f.IsLiteral && !f.IsInitOnly && f.FieldType == typeof(string))
             .Select(f => (string)f.GetValue(null)!);
     }
+
+    /// <summary>
+    /// Collection of permissions that require real-time revocation checking.
+    /// </summary>
+    public static readonly IReadOnlySet<string> CriticalPermissions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        PaymentsProcess,
+        PaymentsRefund,
+        PaymentsVoid
+    }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 }

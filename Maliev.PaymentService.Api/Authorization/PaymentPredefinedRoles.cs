@@ -1,79 +1,77 @@
 namespace Maliev.PaymentService.Api.Authorization;
 
 /// <summary>
-/// Defines predefined roles and their associated permissions for the Payment Service.
+/// Predefined roles for the Payment Service.
+/// Roles follow the GCP format: roles.payment.{role-name}
 /// </summary>
 public static class PaymentPredefinedRoles
 {
-    /// <summary>Full administrative access to all payment operations.</summary>
-    public const string Admin = "payment-admin";
-    /// <summary>Can process, refund, and void payments.</summary>
-    public const string Processor = "payment-processor";
-    /// <summary>Can reconcile and export payment data.</summary>
-    public const string Accountant = "payment-accountant";
-    /// <summary>Read-only access to payments.</summary>
-    public const string Viewer = "payment-viewer";
-    /// <summary>Can manage providers and monitor gateway.</summary>
-    public const string Operations = "payment-operations";
+    /// <summary>Role for administrators with full access.</summary>
+    public const string Admin = "roles.payment.admin";
+    /// <summary>Role for payment processors.</summary>
+    public const string Processor = "roles.payment.processor";
+    /// <summary>Role for accountants with reconciliation access.</summary>
+    public const string Accountant = "roles.payment.accountant";
+    /// <summary>Role for users with read-only access.</summary>
+    public const string Viewer = "roles.payment.viewer";
+    /// <summary>Role for operations managing providers and gateway.</summary>
+    public const string Operations = "roles.payment.operations";
 
-    private static readonly Dictionary<string, List<string>> RolePermissions = new()
+    /// <summary>
+    /// Represents a predefined role definition.
+    /// </summary>
+    public record RoleDefinition(string RoleId, string Description, string[] Permissions);
+
+    /// <summary>
+    /// Collection of all predefined roles for the Payment Service.
+    /// </summary>
+    public static readonly IReadOnlyList<RoleDefinition> All = new List<RoleDefinition>
     {
+        new(Admin, "Full administrative access to all payment operations", PaymentPermissions.GetAll().ToArray()),
+
+        new(Processor, "Can process, refund, and void payments", new[]
         {
-            Admin, new List<string> { "payment.*" }
-        },
+            PaymentPermissions.PaymentsCreate,
+            PaymentPermissions.PaymentsRead,
+            PaymentPermissions.PaymentsProcess,
+            PaymentPermissions.PaymentsRefund,
+            PaymentPermissions.PaymentsVoid,
+            PaymentPermissions.TransactionsRead
+        }),
+
+        new(Accountant, "Can reconcile and export payment data", new[]
         {
-            Processor, new List<string>
-            {
-                PaymentPermissions.PaymentsCreate,
-                PaymentPermissions.PaymentsRead,
-                PaymentPermissions.PaymentsProcess,
-                PaymentPermissions.PaymentsRefund,
-                PaymentPermissions.PaymentsVoid,
-                PaymentPermissions.TransactionsRead
-            }
-        },
+            PaymentPermissions.PaymentsRead,
+            PaymentPermissions.PaymentsReconcile,
+            PaymentPermissions.TransactionsRead,
+            PaymentPermissions.TransactionsQuery,
+            PaymentPermissions.TransactionsExport
+        }),
+
+        new(Viewer, "Read-only access to payments", new[]
         {
-            Accountant, new List<string>
-            {
-                PaymentPermissions.PaymentsRead,
-                PaymentPermissions.PaymentsReconcile,
-                PaymentPermissions.TransactionsRead,
-                PaymentPermissions.TransactionsQuery,
-                PaymentPermissions.TransactionsExport
-            }
-        },
+            PaymentPermissions.PaymentsRead,
+            PaymentPermissions.TransactionsRead
+        }),
+
+        new(Operations, "Can manage providers and monitor gateway", new[]
         {
-            Viewer, new List<string>
-            {
-                PaymentPermissions.PaymentsRead,
-                PaymentPermissions.TransactionsRead
-            }
-        },
-        {
-            Operations, new List<string>
-            {
-                PaymentPermissions.PaymentsRead,
-                PaymentPermissions.ProvidersManage,
-                PaymentPermissions.ProvidersView,
-                PaymentPermissions.ProvidersTest,
-                PaymentPermissions.GatewayConfigure,
-                PaymentPermissions.GatewayMonitor
-            }
-        }
+            PaymentPermissions.PaymentsRead,
+            PaymentPermissions.ProvidersManage,
+            PaymentPermissions.ProvidersView,
+            PaymentPermissions.ProvidersTest,
+            PaymentPermissions.GatewayConfigure,
+            PaymentPermissions.GatewayMonitor
+        })
     };
 
     /// <summary>
-    /// Gets the permissions associated with a role.
+    /// Gets the permissions associated with a role name.
     /// </summary>
-    public static IReadOnlyList<string> GetPermissions(string roleName)
+    /// <param name="roleId">The role identifier.</param>
+    /// <returns>Array of permission IDs.</returns>
+    public static string[] GetPermissions(string roleId)
     {
-        return RolePermissions.TryGetValue(roleName, out var permissions)
-            ? permissions.AsReadOnly()
-            : new List<string>().AsReadOnly();
+        return All.FirstOrDefault(r => r.RoleId == roleId)?.Permissions ?? Array.Empty<string>();
     }
-
-    /// <summary>
-    /// Gets all defined roles and their permissions.
-    /// </summary>
-    public static IReadOnlyDictionary<string, List<string>> GetAll() => RolePermissions;
 }
