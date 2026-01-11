@@ -31,7 +31,11 @@ builder.AddPostgresDbContext<PaymentDbContext>(
     connectionName: "PaymentDbContext",
     enableDynamicJson: true); // Enable dynamic JSON for polymorphic payment provider data
 
-builder.AddIAMServiceClient(); // IAM service client for permission registration
+const string ServiceName = "payment";
+builder.AddIAMServiceClient(ServiceName);
+
+// IAM Registration Service
+builder.Services.AddIAMRegistration<PaymentIAMRegistrationService>(ServiceName);
 
 // --- API Configuration ---
 builder.AddDefaultCors(); // CORS from CORS:AllowedOrigins config
@@ -42,8 +46,6 @@ builder.AddJwtAuthentication();
 
 // Permission-based Authorization
 builder.Services.AddPermissionAuthorization();
-
-builder.Services.AddIAMRegistration<PaymentIAMRegistrationService>();
 
 // Add OpenAPI (must be in Program.cs for XML comments to work via source generator)
 if (!builder.Environment.IsProduction())
@@ -154,9 +156,12 @@ if (app.Environment.IsDevelopment())
 }
 
 // Middleware Pipeline
-app.UseStandardMiddleware();
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
 
-app.UseHttpsRedirection();
+app.UseStandardMiddleware();
 app.UseRouting();
 app.UseCors();
 app.UseRateLimiter();
@@ -190,4 +195,3 @@ public partial class Program
         public static partial void MigrationFailed(ILogger logger, Exception exception);
     }
 }
-

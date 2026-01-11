@@ -12,12 +12,12 @@ public class PaymentIAMRegistrationService : IAMRegistrationService
     /// <summary>
     /// Initializes a new instance of the <see cref="PaymentIAMRegistrationService"/> class.
     /// </summary>
-    /// <param name="httpClientFactory">Factory for creating HTTP clients.</param>
+    /// <param name="configuration">The application configuration.</param>
     /// <param name="logger">Logger instance.</param>
     public PaymentIAMRegistrationService(
-        IHttpClientFactory httpClientFactory,
+        IConfiguration configuration,
         ILogger<PaymentIAMRegistrationService> logger)
-        : base(httpClientFactory, logger, "payment")
+        : base(configuration, logger, "payment")
     {
     }
 
@@ -27,10 +27,10 @@ public class PaymentIAMRegistrationService : IAMRegistrationService
     /// <returns>Collection of permission registrations.</returns>
     protected override IEnumerable<PermissionRegistration> GetPermissions()
     {
-        return PaymentPermissions.GetAll().Select(p => new PermissionRegistration
+        return PaymentPermissions.AllWithDescriptions.Select(p => new PermissionRegistration
         {
-            PermissionId = p,
-            Description = GetPermissionDescription(p)
+            PermissionId = p.Key,
+            Description = p.Value
         });
     }
 
@@ -40,35 +40,12 @@ public class PaymentIAMRegistrationService : IAMRegistrationService
     /// <returns>Collection of role registrations.</returns>
     protected override IEnumerable<RoleRegistration> GetPredefinedRoles()
     {
-        return PaymentPredefinedRoles.GetAll().Select(r => new RoleRegistration
+        return PaymentPredefinedRoles.All.Select(r => new RoleRegistration
         {
-            RoleId = $"roles.payment.{r.Key}",
-            Description = $"Predefined {r.Key} role for Payment Service",
-            PermissionIds = r.Value,
+            RoleId = r.RoleId,
+            Description = r.Description,
+            PermissionIds = r.Permissions.ToList(),
             IsCustom = false
         });
-    }
-
-    private static string GetPermissionDescription(string permission)
-    {
-        return permission switch
-        {
-            PaymentPermissions.PaymentsCreate => "Create payment records",
-            PaymentPermissions.PaymentsRead => "Read payment details",
-            PaymentPermissions.PaymentsUpdate => "Update payment information",
-            PaymentPermissions.PaymentsProcess => "Process payments",
-            PaymentPermissions.PaymentsRefund => "Refund payments",
-            PaymentPermissions.PaymentsVoid => "Void payments",
-            PaymentPermissions.PaymentsReconcile => "Reconcile payment transactions",
-            PaymentPermissions.TransactionsRead => "Read transaction details",
-            PaymentPermissions.TransactionsQuery => "Query transaction history",
-            PaymentPermissions.TransactionsExport => "Export transaction data",
-            PaymentPermissions.ProvidersManage => "Manage payment providers",
-            PaymentPermissions.ProvidersView => "View provider configurations",
-            PaymentPermissions.ProvidersTest => "Test provider connections",
-            PaymentPermissions.GatewayConfigure => "Configure payment gateway",
-            PaymentPermissions.GatewayMonitor => "Monitor gateway health",
-            _ => $"Permission: {permission}"
-        };
     }
 }
