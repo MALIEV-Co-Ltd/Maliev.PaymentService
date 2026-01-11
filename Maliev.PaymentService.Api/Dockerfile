@@ -2,26 +2,30 @@
 # See https://aka.ms/customizecontainer to learn how to customize your debug container and how Visual Studio uses this Dockerfile to build your images for faster debugging.
 
 # This stage is used when running from VS in fast mode (Default for Debug configuration)
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS base
-RUN apk add --no-cache curl
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
 USER $APP_UID
 WORKDIR /app
 EXPOSE 8080
 EXPOSE 8081
 
 # This stage is used to build the service project
-FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
+
+# Copy nuget.config and project files
+COPY ["nuget.config", "."]
 COPY ["Maliev.PaymentService.Api/Maliev.PaymentService.Api.csproj", "Maliev.PaymentService.Api/"]
 COPY ["Maliev.PaymentService.Core/Maliev.PaymentService.Core.csproj", "Maliev.PaymentService.Core/"]
 COPY ["Maliev.PaymentService.Infrastructure/Maliev.PaymentService.Infrastructure.csproj", "Maliev.PaymentService.Infrastructure/"]
-COPY ["nuget.config", "."]
+
+# Restore with GitHub Packages authentication using BuildKit secrets
 RUN --mount=type=secret,id=nuget_username \
-  --mount=type=secret,id=nuget_password \
-  NUGET_USERNAME=$(cat /run/secrets/nuget_username) \
-  NUGET_PASSWORD=$(cat /run/secrets/nuget_password) \
-  dotnet restore "./Maliev.PaymentService.Api/Maliev.PaymentService.Api.csproj"
+    --mount=type=secret,id=nuget_password \
+    NUGET_USERNAME=$(cat /run/secrets/nuget_username) \
+    NUGET_PASSWORD=$(cat /run/secrets/nuget_password) \
+    dotnet restore "./Maliev.PaymentService.Api/Maliev.PaymentService.Api.csproj"
+
 COPY . .
 WORKDIR "/src/Maliev.PaymentService.Api"
 RUN dotnet build "./Maliev.PaymentService.Api.csproj" -c $BUILD_CONFIGURATION -o /app/build
