@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using Maliev.PaymentService.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Maliev.PaymentService.Infrastructure.Migrations
 {
     [DbContext(typeof(PaymentDbContext))]
-    partial class PaymentDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260106135254_FixTransactionLogMapping")]
+    partial class FixTransactionLogMapping
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -735,8 +738,7 @@ namespace Maliev.PaymentService.Infrastructure.Migrations
                     b.HasOne("Maliev.PaymentService.Core.Entities.PaymentTransaction", "PaymentTransaction")
                         .WithMany("TransactionLogs")
                         .HasForeignKey("PaymentTransactionId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
+                        .OnDelete(DeleteBehavior.Cascade)
                         .HasConstraintName("fk_transaction_logs_payment_transactions_payment_transaction_id");
 
                     b.HasOne("Maliev.PaymentService.Core.Entities.RefundTransaction", null)

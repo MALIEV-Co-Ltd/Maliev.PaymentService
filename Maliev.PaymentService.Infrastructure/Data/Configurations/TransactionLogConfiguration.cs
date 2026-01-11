@@ -24,6 +24,15 @@ public class TransactionLogConfiguration : IEntityTypeConfiguration<TransactionL
             .HasColumnName("payment_transaction_id")
             .IsRequired();
 
+        // Relationships
+        // The relationship is marked as required to ensure data integrity.
+        // We use Restrict delete behavior to preserve immutable audit logs.
+        builder.HasOne(l => l.PaymentTransaction)
+            .WithMany(t => t.TransactionLogs)
+            .HasForeignKey(l => l.PaymentTransactionId)
+            .IsRequired()
+            .OnDelete(DeleteBehavior.Restrict);
+
         builder.Property(l => l.PreviousStatus)
             .HasColumnName("previous_status")
             .HasConversion<string?>()
