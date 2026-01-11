@@ -12,15 +12,20 @@ EXPOSE 8081
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
+
+# Copy nuget.config and project files
+COPY ["nuget.config", "."]
 COPY ["Maliev.PaymentService.Api/Maliev.PaymentService.Api.csproj", "Maliev.PaymentService.Api/"]
 COPY ["Maliev.PaymentService.Core/Maliev.PaymentService.Core.csproj", "Maliev.PaymentService.Core/"]
 COPY ["Maliev.PaymentService.Infrastructure/Maliev.PaymentService.Infrastructure.csproj", "Maliev.PaymentService.Infrastructure/"]
-COPY ["nuget.config", "."]
+
+# Restore with GitHub Packages authentication using BuildKit secrets
 RUN --mount=type=secret,id=nuget_username \
-  --mount=type=secret,id=nuget_password \
-  NUGET_USERNAME=$(cat /run/secrets/nuget_username) \
-  NUGET_PASSWORD=$(cat /run/secrets/nuget_password) \
-  dotnet restore "./Maliev.PaymentService.Api/Maliev.PaymentService.Api.csproj"
+    --mount=type=secret,id=nuget_password \
+    NUGET_USERNAME=$(cat /run/secrets/nuget_username) \
+    NUGET_PASSWORD=$(cat /run/secrets/nuget_password) \
+    dotnet restore "./Maliev.PaymentService.Api/Maliev.PaymentService.Api.csproj"
+
 COPY . .
 WORKDIR "/src/Maliev.PaymentService.Api"
 RUN dotnet build "./Maliev.PaymentService.Api.csproj" -c $BUILD_CONFIGURATION -o /app/build
