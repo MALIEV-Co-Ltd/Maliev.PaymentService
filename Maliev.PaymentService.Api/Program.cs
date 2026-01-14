@@ -1,3 +1,4 @@
+#pragma warning disable CA1848 // For improved performance, use the LoggerMessage delegates
 using Maliev.PaymentService.Api.Authorization;
 using Maliev.PaymentService.Api.Services;
 using Maliev.PaymentService.Infrastructure.Data;
