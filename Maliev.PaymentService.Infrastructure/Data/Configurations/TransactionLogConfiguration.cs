@@ -85,5 +85,8 @@ public class TransactionLogConfiguration : IEntityTypeConfiguration<TransactionL
             .HasDatabaseName("ix_transaction_logs_correlation_id");
 
         // No row version - immutable logs
+
+        // Apply matching query filter to resolve strict relationship requirement
+        builder.HasQueryFilter(l => l.PaymentTransaction!.PaymentProvider!.DeletedAt == null);
     }
 }
