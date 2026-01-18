@@ -1,5 +1,4 @@
 using Maliev.PaymentService.Core.Entities;
-using Maliev.PaymentService.Core.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 

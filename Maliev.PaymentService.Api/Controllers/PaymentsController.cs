@@ -4,7 +4,6 @@ using Maliev.PaymentService.Api.Models.Requests;
 using Maliev.PaymentService.Api.Models.Responses;
 using Maliev.PaymentService.Core.Enums;
 using Maliev.PaymentService.Core.Interfaces;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Distributed;
 using System.Text.Json;

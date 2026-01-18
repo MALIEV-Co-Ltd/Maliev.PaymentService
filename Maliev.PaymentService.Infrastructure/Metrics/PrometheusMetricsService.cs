@@ -1,6 +1,6 @@
-using System.Diagnostics.Metrics;
 using Maliev.PaymentService.Core.Interfaces;
 using Microsoft.Extensions.Configuration;
+using System.Diagnostics.Metrics;
 
 namespace Maliev.PaymentService.Infrastructure.Metrics;
 

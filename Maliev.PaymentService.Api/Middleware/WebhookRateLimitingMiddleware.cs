@@ -40,21 +40,23 @@ public class WebhookRateLimitingMiddleware
     {
         // Only apply to webhook endpoints
         var path = context.Request.Path.Value?.ToLowerInvariant();
-        if (path == null || !path.StartsWith("/api/v1/webhooks/"))
+        if (path == null || (!path.Contains("/webhooks/")))
         {
             await _next(context);
             return;
         }
 
-        // Extract provider from path: /api/v1/webhooks/{provider}
+        // Extract provider from path: /payment/v1/webhooks/{provider}
         var pathSegments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        if (pathSegments.Length < 4)
+        // Find segments after 'webhooks'
+        int webhooksIndex = Array.IndexOf(pathSegments, "webhooks");
+        if (webhooksIndex == -1 || pathSegments.Length <= webhooksIndex + 1)
         {
             await _next(context);
             return;
         }
 
-        var provider = pathSegments[3];
+        var provider = pathSegments[webhooksIndex + 1];
         var sourceIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         var cacheKey = $"webhook_ratelimit:{provider}:{sourceIp}";
 

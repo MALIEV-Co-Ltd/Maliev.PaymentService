@@ -1,11 +1,11 @@
-using System.Diagnostics;
+using Maliev.MessagingContracts.Generated;
 using Maliev.PaymentService.Core.Entities;
 using Maliev.PaymentService.Core.Enums;
 using Maliev.PaymentService.Core.Interfaces;
 using Maliev.PaymentService.Infrastructure.Providers;
 using Maliev.PaymentService.Infrastructure.Resilience;
 using Microsoft.Extensions.Logging;
-using Maliev.MessagingContracts.Generated;
+using System.Diagnostics;
 
 namespace Maliev.PaymentService.Infrastructure.Services;
 
