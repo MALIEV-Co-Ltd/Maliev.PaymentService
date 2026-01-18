@@ -42,7 +42,7 @@ public class PaymentIAMRegistrationServiceTests
 
     private class TestPaymentIAMRegistrationService : PaymentIAMRegistrationService
     {
-        public TestPaymentIAMRegistrationService(IConfiguration configuration, ILogger<PaymentIAMRegistrationService> logger) 
+        public TestPaymentIAMRegistrationService(IConfiguration configuration, ILogger<PaymentIAMRegistrationService> logger)
             : base(configuration, logger) { }
 
         public IEnumerable<Maliev.Aspire.ServiceDefaults.IAM.PermissionRegistration> ExposeGetPermissions() => GetPermissions();

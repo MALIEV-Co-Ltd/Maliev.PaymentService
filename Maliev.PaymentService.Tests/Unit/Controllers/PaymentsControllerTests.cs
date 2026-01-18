@@ -32,7 +32,7 @@ public class PaymentsControllerTests
             _metricsServiceMock.Object,
             _cacheMock.Object,
             _loggerMock.Object);
-            
+
         var httpContext = new DefaultHttpContext();
         _controller.ControllerContext = new ControllerContext
         {
@@ -89,7 +89,7 @@ public class PaymentsControllerTests
         var provider = CreateTestProvider("stripe");
         _routingServiceMock.Setup(x => x.SelectProviderAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(provider);
-        
+
         var existingTransaction = new PaymentTransaction
         {
             Id = Guid.NewGuid(),

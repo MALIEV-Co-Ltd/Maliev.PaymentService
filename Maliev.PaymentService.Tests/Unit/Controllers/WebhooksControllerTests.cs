@@ -32,7 +32,7 @@ public class WebhooksControllerTests
             _processingServiceMock.Object,
             _metricsServiceMock.Object,
             _loggerMock.Object);
-            
+
         _controller.ControllerContext = new ControllerContext
         {
             HttpContext = new DefaultHttpContext()
@@ -87,7 +87,7 @@ public class WebhooksControllerTests
 
         var payload = new { id = "evt_1", type = "payment_intent.succeeded" };
         var json = JsonSerializer.SerializeToElement(payload);
-        
+
         _controller.Request.Headers["Stripe-Signature"] = "t=123,v1=sig";
 
         // Act
@@ -109,7 +109,7 @@ public class WebhooksControllerTests
 
         var payload = new { id = "ev_1", type = "charge.complete" };
         var json = JsonSerializer.SerializeToElement(payload);
-        
+
         _controller.Request.Headers["X-Omise-Signature"] = "omise-sig";
 
         // Act
@@ -131,7 +131,7 @@ public class WebhooksControllerTests
 
         var payload = new { event_id = "scb_1", type = "BILL_PAYMENT" };
         var json = JsonSerializer.SerializeToElement(payload);
-        
+
         _controller.Request.Headers["X-SCB-Signature"] = "scb-sig";
 
         // Act
@@ -151,9 +151,9 @@ public class WebhooksControllerTests
         _validationServiceMock.Setup(x => x.ValidateWebhookAsync(It.IsAny<PaymentProvider>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<string>()))
             .ReturnsAsync(true);
 
-        var existingEvent = new WebhookEvent 
-        { 
-            Id = Guid.NewGuid(), 
+        var existingEvent = new WebhookEvent
+        {
+            Id = Guid.NewGuid(),
             CreatedAt = DateTime.UtcNow,
             ProviderId = provider.Id,
             ProviderEventId = "dup_1",

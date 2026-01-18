@@ -38,7 +38,7 @@ public class WebhookRateLimitingMiddlewareTests : IClassFixture<IntegrationTestW
         // Arrange
         var provider = "limited-provider";
         var cache = _factory.Services.GetRequiredService<IDistributedCache>();
-        
+
         // Set for multiple possible IP representations in TestServer
         await cache.SetStringAsync($"webhook_ratelimit:{provider}:127.0.0.1", "100");
         await cache.SetStringAsync($"webhook_ratelimit:{provider}:unknown", "100");
@@ -49,7 +49,7 @@ public class WebhookRateLimitingMiddlewareTests : IClassFixture<IntegrationTestW
 
         // Assert
         Assert.Equal(HttpStatusCode.TooManyRequests, response.StatusCode);
-        
+
         // Cleanup
         await cache.RemoveAsync($"webhook_ratelimit:{provider}:127.0.0.1");
         await cache.RemoveAsync($"webhook_ratelimit:{provider}:unknown");

@@ -24,7 +24,7 @@ public class WebhooksControllerIntegrationTests : IClassFixture<IntegrationTestW
     {
         _factory = factory;
         _client = _factory.CreateClient();
-        
+
         var token = _factory.CreateTestJwtToken(
             userId: "webhooks-test-admin",
             permissions: new[] { "payment.*" });
@@ -142,15 +142,15 @@ public class WebhooksControllerIntegrationTests : IClassFixture<IntegrationTestW
         var secret = "whsec_test";
         var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         var signedPayload = $"{timestamp}.{rawPayload}";
-        
+
         var keyBytes = System.Text.Encoding.UTF8.GetBytes(secret);
         var dataBytes = System.Text.Encoding.UTF8.GetBytes(signedPayload);
         using var hmac = new System.Security.Cryptography.HMACSHA256(keyBytes);
         var hashBytes = hmac.ComputeHash(dataBytes);
         var signature = BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
-        
+
         var headerValue = $"t={timestamp},v1={signature}";
-        
+
         _client.DefaultRequestHeaders.Remove("Stripe-Signature");
         _client.DefaultRequestHeaders.Add("Stripe-Signature", headerValue);
 
@@ -174,14 +174,14 @@ public class WebhooksControllerIntegrationTests : IClassFixture<IntegrationTestW
         var secret = "whsec_test";
         var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         var signedPayload = $"{timestamp}.{rawPayload}";
-        
+
         var keyBytes = System.Text.Encoding.UTF8.GetBytes(secret);
         var dataBytes = System.Text.Encoding.UTF8.GetBytes(signedPayload);
         using var hmac = new System.Security.Cryptography.HMACSHA256(keyBytes);
         var hashBytes = hmac.ComputeHash(dataBytes);
         var signature = BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
         var headerValue = $"t={timestamp},v1={signature}";
-        
+
         _client.DefaultRequestHeaders.Remove("Stripe-Signature");
         _client.DefaultRequestHeaders.Add("Stripe-Signature", headerValue);
 

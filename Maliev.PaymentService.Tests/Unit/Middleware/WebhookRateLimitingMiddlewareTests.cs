@@ -69,7 +69,7 @@ public class WebhookRateLimitingMiddlewareTests
         var context = new DefaultHttpContext();
         context.Request.Path = "/payment/v1/webhooks/stripe";
         context.Response.Body = new MemoryStream();
-        
+
         _cacheMock.Setup(x => x.GetAsync(It.IsAny<string>(), default))
             .ReturnsAsync(System.Text.Encoding.UTF8.GetBytes("100"));
 

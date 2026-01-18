@@ -170,10 +170,10 @@ try
     app.UseStandardMiddleware();
     app.UseRouting();
     app.UseCors();
-    
+
     // Custom rate limiting for webhooks
     app.UseMiddleware<Maliev.PaymentService.Api.Middleware.WebhookRateLimitingMiddleware>();
-    
+
     app.UseRateLimiter();
 
     app.UseAuthentication();
