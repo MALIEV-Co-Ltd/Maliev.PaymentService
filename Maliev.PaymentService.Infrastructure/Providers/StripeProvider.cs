@@ -1,6 +1,5 @@
 using System.Security.Cryptography;
 using System.Text;
-using Maliev.PaymentService.Core.Enums;
 
 namespace Maliev.PaymentService.Infrastructure.Providers;
 

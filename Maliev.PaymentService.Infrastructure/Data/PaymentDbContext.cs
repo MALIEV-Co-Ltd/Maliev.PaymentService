@@ -1,6 +1,6 @@
+using Maliev.Aspire.ServiceDefaults.Database;
 using Maliev.PaymentService.Core.Entities;
 using Microsoft.EntityFrameworkCore;
-using Maliev.Aspire.ServiceDefaults.Database;
 
 namespace Maliev.PaymentService.Infrastructure.Data;
 

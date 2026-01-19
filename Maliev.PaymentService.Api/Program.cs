@@ -1,11 +1,8 @@
-using Maliev.PaymentService.Api.Authorization;
+using Maliev.Aspire.ServiceDefaults;
 using Maliev.PaymentService.Api.Services;
 using Maliev.PaymentService.Infrastructure.Data;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 using System.Threading.RateLimiting;
-using Maliev.Aspire.ServiceDefaults;
 
 
 // Initialize bootstrap logging
@@ -173,6 +170,10 @@ try
     app.UseStandardMiddleware();
     app.UseRouting();
     app.UseCors();
+
+    // Custom rate limiting for webhooks
+    app.UseMiddleware<Maliev.PaymentService.Api.Middleware.WebhookRateLimitingMiddleware>();
+
     app.UseRateLimiter();
 
     app.UseAuthentication();

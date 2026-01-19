@@ -4,7 +4,6 @@ using Maliev.PaymentService.Api.Models.Requests;
 using Maliev.PaymentService.Api.Models.Responses;
 using Maliev.PaymentService.Core.Entities;
 using Maliev.PaymentService.Core.Interfaces;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Maliev.PaymentService.Api.Controllers;
@@ -211,36 +210,44 @@ public class ProvidersController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ProviderResponse>> UpdateProvider(Guid id, [FromBody] UpdateProviderRequest request)
     {
-        var existingProvider = await _providerService.GetProviderByIdAsync(id, decryptCredentials: true);
-
-        if (existingProvider == null)
+        try
         {
-            return NotFound();
+            var existingProvider = await _providerService.GetProviderByIdAsync(id, decryptCredentials: true);
+
+            if (existingProvider == null)
+            {
+                return NotFound();
+            }
+
+            // Update only provided fields
+            if (request.DisplayName != null)
+                existingProvider.DisplayName = request.DisplayName;
+
+            if (request.Status.HasValue)
+                existingProvider.Status = request.Status.Value;
+
+            if (request.SupportedCurrencies != null)
+                existingProvider.SupportedCurrencies = request.SupportedCurrencies;
+
+            if (request.Priority.HasValue)
+                existingProvider.Priority = request.Priority.Value;
+
+            if (request.Credentials != null)
+                existingProvider.Credentials = request.Credentials;
+
+            existingProvider.UpdatedAt = DateTime.UtcNow;
+
+            var result = await _providerService.UpdateProviderAsync(existingProvider);
+
+            _logger.LogInformation("Updated provider: {ProviderName} (ID: {ProviderId})", result.Name, result.Id);
+
+            return Ok(MapToResponse(result));
         }
-
-        // Update only provided fields
-        if (request.DisplayName != null)
-            existingProvider.DisplayName = request.DisplayName;
-
-        if (request.Status.HasValue)
-            existingProvider.Status = request.Status.Value;
-
-        if (request.SupportedCurrencies != null)
-            existingProvider.SupportedCurrencies = request.SupportedCurrencies;
-
-        if (request.Priority.HasValue)
-            existingProvider.Priority = request.Priority.Value;
-
-        if (request.Credentials != null)
-            existingProvider.Credentials = request.Credentials;
-
-        existingProvider.UpdatedAt = DateTime.UtcNow;
-
-        var result = await _providerService.UpdateProviderAsync(existingProvider);
-
-        _logger.LogInformation("Updated provider: {ProviderName} (ID: {ProviderId})", result.Name, result.Id);
-
-        return Ok(MapToResponse(result));
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating provider {ProviderId}", id);
+            return StatusCode(500, new { error = "An error occurred while updating the provider" });
+        }
     }
 
     /// <summary>
@@ -264,6 +271,11 @@ public class ProvidersController : ControllerBase
         {
             return NotFound();
         }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating status for provider {ProviderId}", id);
+            return StatusCode(500, new { error = "An error occurred while updating the provider status" });
+        }
     }
 
     /// <summary>
@@ -274,12 +286,21 @@ public class ProvidersController : ControllerBase
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> DeleteProvider(Guid id)
     {
-        await _providerService.DeleteProviderAsync(id);
+        try
+        {
+            await _providerService.DeleteProviderAsync(id);
 
-        _logger.LogInformation("Deleted provider: ID {ProviderId}", id);
+            _logger.LogInformation("Deleted provider: ID {ProviderId}", id);
 
-        return NoContent();
+            return NoContent();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting provider {ProviderId}", id);
+            return StatusCode(500, new { error = "An error occurred while deleting the provider" });
+        }
     }
+
 
     private static ProviderResponse MapToResponse(PaymentProvider provider)
     {

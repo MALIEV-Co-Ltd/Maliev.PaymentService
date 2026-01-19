@@ -1,9 +1,9 @@
-using System.Text.Json;
+using Maliev.MessagingContracts.Generated;
 using Maliev.PaymentService.Core.Entities;
 using Maliev.PaymentService.Core.Enums;
 using Maliev.PaymentService.Core.Interfaces;
-using Maliev.MessagingContracts.Generated;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
 
 namespace Maliev.PaymentService.Infrastructure.Services;
 

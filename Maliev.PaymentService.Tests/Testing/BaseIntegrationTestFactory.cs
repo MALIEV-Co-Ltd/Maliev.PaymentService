@@ -17,6 +17,9 @@ using Testcontainers.RabbitMq;
 using Testcontainers.Redis;
 using Xunit;
 
+// Disable parallel execution to prevent race conditions on the shared singleton database
+[assembly: CollectionBehavior(DisableTestParallelization = true)]
+
 namespace Maliev.PaymentService.Tests.Testing;
 
 /// <summary>
@@ -29,11 +32,13 @@ public class BaseIntegrationTestFactory<TProgram, TDbContext> : WebApplicationFa
     where TProgram : class
     where TDbContext : DbContext
 {
-    private readonly PostgreSqlContainer _postgresContainer;
-    private readonly RedisContainer _redisContainer;
-    private readonly RabbitMqContainer _rabbitmqContainer;
+    private static PostgreSqlContainer? _postgresContainer;
+    private static RedisContainer? _redisContainer;
+    private static RabbitMqContainer? _rabbitmqContainer;
+    private static bool _containersStarted;
+    private static readonly SemaphoreSlim _initLock = new(1, 1);
+
     private readonly RSA _testRsa;
-    private bool _containersStarted;
 
     /// <summary>
     /// Override this property if your DbContext connection string has a different name.
@@ -43,18 +48,6 @@ public class BaseIntegrationTestFactory<TProgram, TDbContext> : WebApplicationFa
 
     public BaseIntegrationTestFactory()
     {
-        _postgresContainer = new PostgreSqlBuilder()
-            .WithImage("postgres:18-alpine")
-            .Build();
-
-        _redisContainer = new RedisBuilder()
-            .WithImage("redis:8.4-alpine")
-            .Build();
-
-        _rabbitmqContainer = new RabbitMqBuilder()
-            .WithImage("rabbitmq:4.2-alpine")
-            .Build();
-
         _testRsa = RSA.Create(2048);
 
         // Set environment variable EARLY so Program.cs picks it up during WebApplication.CreateBuilder
@@ -63,42 +56,86 @@ public class BaseIntegrationTestFactory<TProgram, TDbContext> : WebApplicationFa
 
     public async Task InitializeAsync()
     {
-        if (_containersStarted)
-            return;
-
-        // Start all containers in parallel
-        await Task.WhenAll(
-            _postgresContainer.StartAsync(),
-            _redisContainer.StartAsync(),
-            _rabbitmqContainer.StartAsync()
-        );
-
-        // Set environment variables immediately after containers start
-        // This ensures they are available when Program.Main runs (which happens when .Server is accessed)
-        Environment.SetEnvironmentVariable($"ConnectionStrings__{DbConnectionStringName}", _postgresContainer.GetConnectionString());
-        Environment.SetEnvironmentVariable("ConnectionStrings__redis", _redisContainer.GetConnectionString());
-        Environment.SetEnvironmentVariable("ConnectionStrings__rabbitmq", _rabbitmqContainer.GetConnectionString());
-
-        // Wait for Redis to be ready
-        using (var connection = await StackExchange.Redis.ConnectionMultiplexer.ConnectAsync(_redisContainer.GetConnectionString()))
+        await _initLock.WaitAsync();
+        try
         {
-            await connection.GetDatabase().PingAsync();
+            if (!_containersStarted)
+            {
+                _postgresContainer = new PostgreSqlBuilder()
+                    .WithImage("postgres:18-alpine")
+                    .Build();
+
+                _redisContainer = new RedisBuilder()
+                    .WithImage("redis:8.4-alpine")
+                    .Build();
+
+                _rabbitmqContainer = new RabbitMqBuilder()
+                    .WithImage("rabbitmq:4.2-alpine")
+                    .Build();
+
+                // Start all containers in parallel
+                await Task.WhenAll(
+                    _postgresContainer.StartAsync(),
+                    _redisContainer.StartAsync(),
+                    _rabbitmqContainer.StartAsync()
+                );
+
+                // Ensure PostgreSQL is fully ready and accepting connections
+                var postgresReady = false;
+                var retryCount = 0;
+                const int maxRetries = 60;
+                while (!postgresReady && retryCount < maxRetries)
+                {
+                    try
+                    {
+                        await using var conn = new Npgsql.NpgsqlConnection(_postgresContainer.GetConnectionString());
+                        await conn.OpenAsync();
+                        await using var cmd = conn.CreateCommand();
+                        cmd.CommandText = "SELECT 1";
+                        await cmd.ExecuteScalarAsync();
+                        postgresReady = true;
+                    }
+                    catch
+                    {
+                        retryCount++;
+                        await Task.Delay(1000);
+                    }
+                }
+
+                if (!postgresReady)
+                {
+                    throw new InvalidOperationException("PostgreSQL Testcontainer failed to become ready (Ping failed) after 60 seconds.");
+                }
+
+                // Wait for Redis to be ready
+                using (var connection = await StackExchange.Redis.ConnectionMultiplexer.ConnectAsync(_redisContainer.GetConnectionString()))
+                {
+                    await connection.GetDatabase().PingAsync();
+                }
+
+                // Apply database migrations
+                await ApplyMigrationsAsync();
+
+                _containersStarted = true;
+            }
+        }
+        finally
+        {
+            _initLock.Release();
         }
 
-        // Apply database migrations
-        await ApplyMigrationsAsync();
-
-        _containersStarted = true;
+        // Set environment variables immediately after containers start
+        Environment.SetEnvironmentVariable($"ConnectionStrings__{DbConnectionStringName}", _postgresContainer!.GetConnectionString());
+        Environment.SetEnvironmentVariable("ConnectionStrings__redis", _redisContainer!.GetConnectionString());
+        Environment.SetEnvironmentVariable("ConnectionStrings__rabbitmq", _rabbitmqContainer!.GetConnectionString());
     }
 
     public new async Task DisposeAsync()
     {
-        await _postgresContainer.DisposeAsync();
-        await _redisContainer.DisposeAsync();
-        await _rabbitmqContainer.DisposeAsync();
+        await base.DisposeAsync(); // Stop the Host
+        // Static containers are NOT disposed here to allow reuse across tests
         _testRsa.Dispose();
         Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", null); // Cleanup
-        await base.DisposeAsync();
     }
 
 
@@ -109,11 +146,6 @@ public class BaseIntegrationTestFactory<TProgram, TDbContext> : WebApplicationFa
         {
             InitializeAsync().GetAwaiter().GetResult();
         }
-
-        // Set environment variables BEFORE host builder processes configuration
-        // Note: Connection strings are now injected via ConfigureAppConfiguration in ConfigureWebHost
-        // to ensure they are available during host building causing Program.cs to see them.
-
 
         // Export RSA public key for JWT validation
         var rsaParams = _testRsa.ExportParameters(false);
@@ -133,7 +165,10 @@ public class BaseIntegrationTestFactory<TProgram, TDbContext> : WebApplicationFa
             var randomKey = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["Jwt:SecurityKey"] = randomKey
+                ["Jwt:SecurityKey"] = randomKey,
+                [$"ConnectionStrings:{DbConnectionStringName}"] = _postgresContainer!.GetConnectionString(),
+                ["ConnectionStrings:redis"] = _redisContainer!.GetConnectionString(),
+                ["ConnectionStrings:rabbitmq"] = _rabbitmqContainer!.GetConnectionString()
             });
         });
 
@@ -211,7 +246,7 @@ public class BaseIntegrationTestFactory<TProgram, TDbContext> : WebApplicationFa
     /// </summary>
     public TDbContext CreateDbContext()
     {
-        var connectionString = _postgresContainer.GetConnectionString();
+        var connectionString = _postgresContainer!.GetConnectionString();
         var optionsBuilder = new DbContextOptionsBuilder<TDbContext>();
         optionsBuilder.UseNpgsql(connectionString);
         return (TDbContext)Activator.CreateInstance(typeof(TDbContext), optionsBuilder.Options)!;
@@ -251,7 +286,9 @@ public class BaseIntegrationTestFactory<TProgram, TDbContext> : WebApplicationFa
         {
             try
             {
+#pragma warning disable EF1002
                 await context.Database.ExecuteSqlRawAsync($"TRUNCATE TABLE \"{tableName}\" RESTART IDENTITY CASCADE");
+#pragma warning restore EF1002
             }
             catch (Npgsql.PostgresException ex) when (ex.SqlState == "42P01")
             {
@@ -306,9 +343,6 @@ public class BaseIntegrationTestFactory<TProgram, TDbContext> : WebApplicationFa
         {
             new(JwtRegisteredClaimNames.Sub, userId),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-            // Include service identity claims by default for backward compatibility during migration
-            new("service_id", "test-service"),
-            new("service_name", "Test Service")
         };
 
         if (roles != null)
@@ -331,11 +365,7 @@ public class BaseIntegrationTestFactory<TProgram, TDbContext> : WebApplicationFa
         {
             foreach (var (key, value) in additionalClaims)
             {
-                // Avoid duplicating service identity claims if provided in additionalClaims
-                if (key != "service_id" && key != "service_name")
-                {
-                    claims.Add(new Claim(key, value));
-                }
+                claims.Add(new Claim(key, value));
             }
         }
 
@@ -357,13 +387,13 @@ public class BaseIntegrationTestFactory<TProgram, TDbContext> : WebApplicationFa
     /// Simplified JWT token generator with role parameter.
     /// Alias for CreateTestJwtToken to support different naming conventions.
     /// </summary>
-    public string GenerateTestToken(string userId = "test-user", string role = "admin", string[]? permissions = null)
+    public string GenerateTestToken(string userId = "test-user", string role = "admin")
     {
-        return CreateTestJwtToken(userId, new[] { role }, permissions);
+        return CreateTestJwtToken(userId, new[] { role });
     }
 
     /// <summary>
-    /// Creates an HTTP client with authenticated user and specified roles/permissions.
+    /// Creates an HTTP client with authenticated user and specified roles and permissions.
     /// </summary>
     public HttpClient CreateAuthenticatedClient(string userId = "test-user", string[]? roles = null, string[]? permissions = null)
     {
