@@ -17,7 +17,7 @@ public class TestContainersFixture : IAsyncLifetime
     public TestContainersFixture()
     {
         // PostgreSQL 18 container for database tests
-        _postgresContainer = new PostgreSqlBuilder().WithName("postgres:18-alpine")
+        _postgresContainer = new PostgreSqlBuilder().WithImage("postgres:18-alpine")
             .WithDatabase("payment_gateway_test")
             .WithUsername("test_user")
             .WithPassword("test_password")
@@ -25,14 +25,14 @@ public class TestContainersFixture : IAsyncLifetime
             .Build();
 
         // RabbitMQ 7.0 container for message queue tests
-        _rabbitMqContainer = new RabbitMqBuilder().WithName("rabbitmq:4.2-alpine")
+        _rabbitMqContainer = new RabbitMqBuilder().WithImage("rabbitmq:4.2-alpine")
             .WithUsername("guest")
             .WithPassword("guest")
             .WithCleanUp(true)
             .Build();
 
         // Redis 7.2 container for caching and idempotency tests
-        _redisContainer = new RedisBuilder().WithName("redis:8.4-alpine")
+        _redisContainer = new RedisBuilder().WithImage("redis:8.4-alpine")
             .WithCleanUp(true)
             .Build();
     }
