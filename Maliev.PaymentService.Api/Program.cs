@@ -2,9 +2,6 @@ using Maliev.Aspire.ServiceDefaults;
 using Maliev.PaymentService.Api.Services;
 using Maliev.PaymentService.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
-using System.Threading.RateLimiting;
-
-
 // Initialize bootstrap logging
 using var loggerFactory = LoggerFactory.Create(logBuilder => logBuilder.AddConsole());
 var bootstrapLogger = loggerFactory.CreateLogger("Program");
@@ -26,8 +23,7 @@ try
     });
     builder.AddServiceMeters("payments-meter"); // Register service meters for OpenTelemetry business metrics
 
-    builder.AddRedisDistributedCache(instanceName: "payment:"); // Redis with in-memory fallback
-    builder.AddRedisConnectionMultiplexer(); // Register IConnectionMultiplexer for IdempotencyService
+    builder.AddStandardCache("payment:"); // Redis + in-memory fallback, memory-optimized (includes IConnectionMultiplexer)
     builder.AddMassTransitWithRabbitMq(x =>
     {
         x.AddConsumer<Maliev.PaymentService.Api.Consumers.OrderAcceptedEventConsumer>();
@@ -44,7 +40,7 @@ try
     builder.Services.AddIAMRegistration<PaymentIAMRegistrationService>(ServiceName);
 
     // --- API Configuration ---
-    builder.AddDefaultCors(); // CORS from CORS:AllowedOrigins config
+    builder.AddStandardCors(); // CORS with fail-fast validation
     builder.AddDefaultApiVersioning(); // API versioning with URL segment reader
 
     // JWT Authentication (tests override via PostConfigureAll with dynamic RSA keys)
@@ -62,19 +58,7 @@ try
     }
 
     // Rate Limiting
-    builder.Services.AddRateLimiter(options =>
-    {
-        options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
-            RateLimitPartition.GetFixedWindowLimiter(
-                partitionKey: httpContext.User.Identity?.Name ?? httpContext.Request.Headers.Host.ToString(),
-                factory: partition => new FixedWindowRateLimiterOptions
-                {
-                    AutoReplenishment = true,
-                    PermitLimit = 100,
-                    Window = TimeSpan.FromMinutes(1)
-                }));
-    });
-
+    builder.AddStandardRateLimiting(); // Memory-optimized for low-spec nodes
     // Register metrics service
     builder.Services.AddSingleton<Maliev.PaymentService.Core.Interfaces.IMetricsService, Maliev.PaymentService.Infrastructure.Metrics.PrometheusMetricsService>();
 

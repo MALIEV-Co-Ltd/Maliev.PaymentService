@@ -16,6 +16,8 @@ using Testcontainers.PostgreSql;
 using Testcontainers.RabbitMq;
 using Testcontainers.Redis;
 using Xunit;
+using System.Collections.Concurrent;
+using Moq;
 
 // Disable parallel execution to prevent race conditions on the shared singleton database
 [assembly: CollectionBehavior(DisableTestParallelization = true)]
@@ -39,6 +41,9 @@ public class BaseIntegrationTestFactory<TProgram, TDbContext> : WebApplicationFa
     private static readonly SemaphoreSlim _initLock = new(1, 1);
 
     private readonly RSA _testRsa;
+
+    // Store permissions for test users
+    private readonly ConcurrentDictionary<string, IEnumerable<string>> _userPermissions = new();
 
     /// <summary>
     /// Override this property if your DbContext connection string has a different name.
@@ -157,6 +162,10 @@ public class BaseIntegrationTestFactory<TProgram, TDbContext> : WebApplicationFa
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        builder.UseSetting("CORS:AllowedOrigins:0", "http://localhost:3000");
+        builder.UseSetting("Features:FailOpenOnIAMError", "true");
+        builder.UseSetting("IAM:RegistrationDelaySeconds", "0");
+
         builder.ConfigureAppConfiguration((context, config) =>
         {
             var randomKey = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
@@ -171,6 +180,23 @@ public class BaseIntegrationTestFactory<TProgram, TDbContext> : WebApplicationFa
 
         builder.ConfigureTestServices(services =>
         {
+            // Register Redis connection multiplexer for tests
+            services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(sp =>
+            {
+                return StackExchange.Redis.ConnectionMultiplexer.Connect(_redisContainer!.GetConnectionString());
+            });
+
+            // Mock IIamServiceClient to return permissions from our dictionary
+            var mockIamClient = new Moq.Mock<Maliev.Aspire.ServiceDefaults.IAM.IIamServiceClient>();
+            _ = mockIamClient.Setup(x => x.GetUserPermissionsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync((string userId, CancellationToken _) =>
+                    _userPermissions.TryGetValue(userId, out IEnumerable<string>? perms) ? perms : Array.Empty<string>());
+
+            _ = mockIamClient.Setup(x => x.CheckPermissionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(false); // Fallback to claims check in PermissionAuthorizationHandler
+
+            services.AddScoped(_ => mockIamClient.Object);
+
             // Configure JWT Bearer authentication with test RSA key
             services.PostConfigureAll<Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerOptions>(options =>
             {
@@ -193,6 +219,25 @@ public class BaseIntegrationTestFactory<TProgram, TDbContext> : WebApplicationFa
                     },
                     OnTokenValidated = context =>
                     {
+                        if (context.Principal?.Identity is ClaimsIdentity identity)
+                        {
+                            // Add ClaimTypes.NameIdentifier claim from "sub"
+                            Claim? subClaim = identity.FindFirst(JwtRegisteredClaimNames.Sub) ?? identity.FindFirst("sub");
+                            if (subClaim != null && !identity.HasClaim(c => c.Type == ClaimTypes.NameIdentifier))
+                            {
+                                identity.AddClaim(new Claim(ClaimTypes.NameIdentifier, subClaim.Value));
+                            }
+
+                            // Add ClaimTypes.Role claims from "role"
+                            var roleClaims = identity.FindAll("role").ToList();
+                            foreach (Claim? roleClaim in roleClaims)
+                            {
+                                if (!identity.HasClaim(c => c.Type == ClaimTypes.Role && c.Value == roleClaim.Value))
+                                {
+                                    identity.AddClaim(new Claim(ClaimTypes.Role, roleClaim.Value));
+                                }
+                            }
+                        }
                         return Task.CompletedTask;
                     }
                 };
@@ -336,6 +381,11 @@ public class BaseIntegrationTestFactory<TProgram, TDbContext> : WebApplicationFa
         string[]? permissions = null,
         Dictionary<string, string>? additionalClaims = null)
     {
+        if (permissions != null)
+        {
+            _userPermissions[userId] = permissions;
+        }
+
         var claims = new List<Claim>
         {
             new(JwtRegisteredClaimNames.Sub, userId),
