@@ -20,6 +20,8 @@ public static class MassTransitConfiguration
 
         services.AddMassTransit(x =>
         {
+            x.DisableUsageTelemetry();
+
             // Configure RabbitMQ transport
             x.UsingRabbitMq((context, cfg) =>
             {
