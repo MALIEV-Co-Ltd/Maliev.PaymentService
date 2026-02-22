@@ -41,6 +41,8 @@ public static class PaymentPermissions
     public const string GatewayConfigure = "payment.gateway.configure";
     /// <summary>Permission to monitor gateway health.</summary>
     public const string GatewayMonitor = "payment.gateway.monitor";
+    /// <summary>Permission to upload payment slip on behalf of customer.</summary>
+    public const string PaymentsSlipUpload = "payment.slip.upload";
 
     /// <summary>
     /// Collection of all defined payment permissions with descriptions.
@@ -61,7 +63,8 @@ public static class PaymentPermissions
         { ProvidersView, "View provider configurations" },
         { ProvidersTest, "Test provider connections" },
         { GatewayConfigure, "Configure payment gateway" },
-        { GatewayMonitor, "Monitor gateway health" }
+        { GatewayMonitor, "Monitor gateway health" },
+        { PaymentsSlipUpload, "Upload bank transfer slips" }
     };
 
     /// <summary>

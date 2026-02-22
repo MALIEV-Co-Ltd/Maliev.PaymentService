@@ -1,4 +1,5 @@
 using Asp.Versioning;
+using Maliev.MessagingContracts.Generated;
 using Maliev.PaymentService.Api.Authorization;
 using Maliev.PaymentService.Api.Models.Requests;
 using Maliev.PaymentService.Api.Models.Responses;
@@ -25,6 +26,10 @@ public class PaymentsController : ControllerBase
     private readonly IMetricsService _metricsService;
     private readonly IDistributedCache _cache;
     private readonly ILogger<PaymentsController> _logger;
+    private readonly Maliev.PaymentService.Api.Clients.IUploadServiceClient _uploadServiceClient;
+    private readonly Maliev.PaymentService.Api.Clients.IChatbotServiceClient _chatbotServiceClient;
+    private readonly Maliev.PaymentService.Core.Interfaces.IEventPublisher _eventPublisher;
+    private readonly IPaymentRepository _paymentRepository;
 
     /// <summary>
     /// Initializes a new instance of the PaymentsController.
@@ -35,13 +40,21 @@ public class PaymentsController : ControllerBase
     /// <param name="metricsService">Metrics collection service</param>
     /// <param name="cache">Distributed cache for performance</param>
     /// <param name="logger">Logger instance</param>
+    /// <param name="uploadServiceClient">Upload service client</param>
+    /// <param name="chatbotServiceClient">Chatbot service client</param>
+    /// <param name="eventPublisher">Event publisher</param>
+    /// <param name="paymentRepository">Payment repository</param>
     public PaymentsController(
         IPaymentService paymentService,
         IRefundService refundService,
         IPaymentRoutingService routingService,
         IMetricsService metricsService,
         IDistributedCache cache,
-        ILogger<PaymentsController> logger)
+        ILogger<PaymentsController> logger,
+        Maliev.PaymentService.Api.Clients.IUploadServiceClient uploadServiceClient,
+        Maliev.PaymentService.Api.Clients.IChatbotServiceClient chatbotServiceClient,
+        Maliev.PaymentService.Core.Interfaces.IEventPublisher eventPublisher,
+        IPaymentRepository paymentRepository)
     {
         _paymentService = paymentService;
         _refundService = refundService;
@@ -49,6 +62,10 @@ public class PaymentsController : ControllerBase
         _metricsService = metricsService;
         _cache = cache;
         _logger = logger;
+        _uploadServiceClient = uploadServiceClient;
+        _chatbotServiceClient = chatbotServiceClient;
+        _eventPublisher = eventPublisher;
+        _paymentRepository = paymentRepository;
     }
 
     /// <summary>
@@ -300,6 +317,217 @@ public class PaymentsController : ControllerBase
         {
             _logger.LogError(ex, "Error processing refund for payment {PaymentId}", id);
             return StatusCode(500, new { error = "An error occurred while processing the refund" });
+        }
+    }
+
+    /// <summary>
+    /// Uploads a bank transfer slip for payment verification.
+    /// </summary>
+    /// <param name="id">Payment transaction ID</param>
+    /// <param name="file">Slip image file</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Slip upload and verification result</returns>
+    [HttpPost("{id:guid}/slip")]
+    [Consumes("multipart/form-data")]
+    [Microsoft.AspNetCore.Authorization.Authorize]
+    [ProducesResponseType(typeof(SlipUploadResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status502BadGateway)]
+    public async Task<ActionResult<SlipUploadResponse>> UploadSlip(
+        Guid id, 
+        IFormFile file, 
+        CancellationToken cancellationToken)
+    {
+        var startTime = DateTime.UtcNow;
+        try
+        {
+            // 1. Validate file exists
+            if (file == null || file.Length == 0)
+            {
+                return BadRequest(new ErrorResponse 
+                { 
+                    Error = "FILE_REQUIRED", 
+                    Message = "File is required.",
+                    Timestamp = DateTime.UtcNow
+                });
+            }
+
+            // 2. Validate file type and size (<= 10MB)
+            var allowedContentTypes = new[] { "image/jpeg", "image/png", "image/webp" };
+            if (!allowedContentTypes.Contains(file.ContentType.ToLowerInvariant()))
+            {
+                return BadRequest(new ErrorResponse 
+                { 
+                    Error = "UNSUPPORTED_FILE_TYPE", 
+                    Message = "Unsupported file type. Only JPEG, PNG, and WebP images are accepted.",
+                    Timestamp = DateTime.UtcNow
+                });
+            }
+
+            if (file.Length > 10 * 1024 * 1024)
+            {
+                return BadRequest(new ErrorResponse 
+                { 
+                    Error = "FILE_TOO_LARGE", 
+                    Message = "File size exceeds 10 MB limit.",
+                    Timestamp = DateTime.UtcNow
+                });
+            }
+
+            // 3. Get transaction
+            var transaction = await _paymentService.GetPaymentByIdAsync(id, cancellationToken);
+            if (transaction == null)
+            {
+                return NotFound(new ErrorResponse 
+                { 
+                    Error = "PAYMENT_NOT_FOUND", 
+                    Message = $"Payment {id} not found.",
+                    Timestamp = DateTime.UtcNow
+                });
+            }
+
+            // 4. Ownership / Permissions Check
+            var currentUserId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            var isOwner = currentUserId != null && transaction.CustomerId == currentUserId;
+            var hasEmployeePermission = User.HasClaim(c => c.Type == "permissions" && c.Value == PaymentPermissions.PaymentsSlipUpload);
+            
+            if (!isOwner && !hasEmployeePermission)
+            {
+                return StatusCode(403, new ErrorResponse 
+                { 
+                    Error = "ACCESS_DENIED", 
+                    Message = "You do not have permission to upload slips for this payment.",
+                    Timestamp = DateTime.UtcNow
+                });
+            }
+
+            // 5. Precondition check for Status
+            if (transaction.Status != PaymentStatus.Pending && 
+                transaction.Status != PaymentStatus.Processing && 
+                transaction.Status != PaymentStatus.PendingVerification)
+            {
+                return Conflict(new ErrorResponse 
+                { 
+                    Error = "INVALID_STATUS", 
+                    Message = $"Slip cannot be uploaded for a payment in status {transaction.Status}.",
+                    Timestamp = DateTime.UtcNow
+                });
+            }
+
+            // 6. Upload to GCS
+            var timestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
+            var safeFileName = new string(file.FileName.Where(c => char.IsLetterOrDigit(c) || c == '.' || c == '-' || c == '_').ToArray());
+            var uniqueFileName = $"{timestamp}_{safeFileName}";
+            
+            string slipUrl;
+            try
+            {
+                using var stream = file.OpenReadStream();
+                slipUrl = await _uploadServiceClient.UploadSlipAsync(stream, uniqueFileName, file.ContentType, id, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to upload slip for payment {PaymentId}", id);
+                return StatusCode(502, new ErrorResponse 
+                { 
+                    Error = "UPLOAD_SERVICE_UNAVAILABLE", 
+                    Message = "File storage unavailable.",
+                    Timestamp = DateTime.UtcNow
+                });
+            }
+
+            // 7. Analyze with LLM
+            var analysisResult = await _chatbotServiceClient.AnalyzeSlipAsync(slipUrl, cancellationToken);
+
+            // 8. Determine status
+            bool autoVerified = false;
+            string message;
+            
+            if (analysisResult.IsValid && analysisResult.ExtractedAmountThb >= transaction.Amount)
+            {
+                transaction.Status = PaymentStatus.Completed;
+                transaction.CompletedAt = DateTime.UtcNow;
+                autoVerified = true;
+                message = "Payment verified automatically.";
+                
+                // Track metric
+                _metricsService.RecordPaymentDuration("bank_transfer", (DateTime.UtcNow - startTime).TotalSeconds);
+                // Also track auto-verification success (simulated by duration for now as per rules or we can use custom metric)
+                _logger.LogInformation("Auto-verification succeeded for payment {PaymentId}", id);
+            }
+            else
+            {
+                transaction.Status = PaymentStatus.PendingVerification;
+                message = "Slip uploaded. Pending manual review.";
+                _logger.LogInformation("Auto-verification failed/pending for payment {PaymentId}", id);
+            }
+
+            // 9. Update Transaction fields
+            transaction.SlipUrl = slipUrl;
+            transaction.SlipExtractedAmount = analysisResult.ExtractedAmountThb;
+            transaction.SlipBankName = analysisResult.BankName;
+            transaction.SlipTransferDate = analysisResult.TransferDate;
+            transaction.SlipVerificationNotes = analysisResult.Notes;
+            transaction.SlipVerifiedAt = DateTime.UtcNow;
+            transaction.UpdatedAt = DateTime.UtcNow;
+
+            // Save to DB
+            await _paymentRepository.UpdateAsync(transaction, cancellationToken);
+            
+            if (autoVerified)
+            {
+                var payload = new PaymentCompletedEventPayload(
+                    OrderId: Guid.TryParse(transaction.OrderId, out var ordId) ? ordId : Guid.Empty,
+                    OrderNumber: transaction.OrderId ?? "Unknown",
+                    PaymentId: transaction.Id,
+                    Amount: (double)transaction.Amount,
+                    Currency: transaction.Currency
+                );
+
+                var publicEvent = new PaymentCompletedEvent(
+                    MessageId: Guid.NewGuid(),
+                    MessageName: "PaymentCompletedEvent",
+                    MessageType: MessageType.Event,
+                    MessageVersion: "1.0",
+                    PublishedBy: "PaymentService",
+                    ConsumedBy: new[] { "NotificationService" },
+                    CorrelationId: Guid.TryParse(transaction.CorrelationId, out var correlId) ? correlId : Guid.NewGuid(),
+                    CausationId: null,
+                    OccurredAtUtc: DateTimeOffset.UtcNow,
+                    IsPublic: true,
+                    Payload: payload
+                );
+
+                await _eventPublisher.PublishAsync(publicEvent, cancellationToken);
+            }
+
+            // Invalidate cache
+            var cacheKey = $"payment:{id}";
+            await _cache.RemoveAsync(cacheKey, cancellationToken);
+
+            return Ok(new SlipUploadResponse
+            {
+                TransactionId = transaction.Id,
+                Status = transaction.Status.ToString(),
+                SlipUrl = slipUrl,
+                AutoVerified = autoVerified,
+                ExtractedAmountThb = analysisResult.ExtractedAmountThb,
+                Message = message
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error processing slip upload for payment {PaymentId}", id);
+            return StatusCode(500, new ErrorResponse 
+            { 
+                Error = "INTERNAL_ERROR", 
+                Message = "An error occurred while processing the slip upload.",
+                Timestamp = DateTime.UtcNow
+            });
         }
     }
 

@@ -123,6 +123,29 @@ public class PaymentTransactionConfiguration : IEntityTypeConfiguration<PaymentT
             .IsConcurrencyToken()
             .HasDefaultValueSql("'\\x00'::bytea");  // Default empty bytea for PostgreSQL
 
+        builder.Property(p => p.SlipUrl)
+            .HasColumnName("slip_url")
+            .HasMaxLength(2000);
+
+        builder.Property(p => p.SlipExtractedAmount)
+            .HasColumnName("slip_extracted_amount")
+            .HasPrecision(18, 2);
+
+        builder.Property(p => p.SlipBankName)
+            .HasColumnName("slip_bank_name")
+            .HasMaxLength(100);
+
+        builder.Property(p => p.SlipTransferDate)
+            .HasColumnName("slip_transfer_date")
+            .HasMaxLength(20);
+
+        builder.Property(p => p.SlipVerificationNotes)
+            .HasColumnName("slip_verification_notes")
+            .HasMaxLength(500);
+
+        builder.Property(p => p.SlipVerifiedAt)
+            .HasColumnName("slip_verified_at");
+
         // Indexes
         builder.HasIndex(p => p.IdempotencyKey)
             .IsUnique()

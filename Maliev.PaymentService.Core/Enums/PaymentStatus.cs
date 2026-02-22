@@ -33,5 +33,10 @@ public enum PaymentStatus
     /// <summary>
     /// Payment has been partially refunded.
     /// </summary>
-    PartiallyRefunded = 5
+    PartiallyRefunded = 5,
+
+    /// <summary>
+    /// A bank transfer slip has been uploaded; awaiting LLM or manual verification.
+    /// </summary>
+    PendingVerification = 6
 }

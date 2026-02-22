@@ -1,0 +1,208 @@
+openapi: 3.0.3
+info:
+  title: Payment Service - Slip Upload API
+  description: |
+    Bank transfer slip upload endpoint for Thai B2B payment verification.
+    
+    Allows customers to upload transfer slip images which are automatically
+    verified using LLM-based vision analysis.
+  version: 1.0.0
+  contact:
+    name: MALIEV Payment Team
+
+servers:
+  - url: /payment/v1
+    description: Payment Service API
+
+paths:
+  /payments/{id}/slip:
+    post:
+      summary: Upload bank transfer slip
+      description: |
+        Upload a bank transfer slip image for payment verification.
+        
+        **Authorization:**
+        - Customer must own the payment (CustomerId matches authenticated user)
+        - OR employee must have `payments.slip.upload` permission
+        
+        **Verification Flow:**
+        1. Slip uploaded to cloud storage
+        2. LLM vision service analyzes slip
+        3. If valid and amount >= payment amount: status → Completed
+        4. If invalid or amount < payment amount: status → PendingVerification
+        
+        **Graceful Degradation:**
+        If LLM service unavailable, upload succeeds with status PendingVerification.
+      operationId: uploadSlip
+      tags:
+        - Payments
+        - Slip Upload
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Payment transaction ID
+          schema:
+            type: string
+            format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: |
+                    Bank transfer slip image.
+                    
+                    **Accepted formats:** JPEG, PNG, WebP
+                    **Max size:** 10 MB
+            encoding:
+              file:
+                contentType: image/jpeg, image/png, image/webp
+      responses:
+        '200':
+          description: Slip uploaded successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SlipUploadResponse'
+              examples:
+                auto_verified:
+                  summary: Auto-verified payment
+                  value:
+                    transactionId: "550e8400-e29b-41d4-a716-446655440000"
+                    status: "Completed"
+                    slipUrl: "https://storage.googleapis.com/maliev-files/payment-slips/550e8400.../20260222120000_slip.jpg"
+                    autoVerified: true
+                    extractedAmountThb: 15000.00
+                    message: "Payment verified automatically."
+                pending_review:
+                  summary: Pending manual review
+                  value:
+                    transactionId: "550e8400-e29b-41d4-a716-446655440000"
+                    status: "PendingVerification"
+                    slipUrl: "https://storage.googleapis.com/maliev-files/payment-slips/550e8400.../20260222120000_slip.jpg"
+                    autoVerified: false
+                    extractedAmountThb: null
+                    message: "Slip uploaded. Pending manual review."
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_file_type:
+                  summary: Unsupported file type
+                  value:
+                    error: "Unsupported file type. Only JPEG, PNG, and WebP images are accepted."
+                file_too_large:
+                  summary: File exceeds size limit
+                  value:
+                    error: "File size exceeds 10 MB limit."
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Authentication required."
+        '403':
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "You do not have permission to upload slips for this payment."
+        '404':
+          description: Payment not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Payment 550e8400-e29b-41d4-a716-446655440000 not found."
+        '409':
+          description: Invalid payment status for slip upload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Slip cannot be uploaded for a payment in status Completed."
+        '502':
+          description: Upload service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "File storage unavailable."
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token from IAM service
+
+  schemas:
+    SlipUploadResponse:
+      type: object
+      required:
+        - transactionId
+        - status
+        - slipUrl
+        - autoVerified
+        - message
+      properties:
+        transactionId:
+          type: string
+          format: uuid
+          description: Payment transaction ID
+        status:
+          type: string
+          enum: [Completed, PendingVerification]
+          description: Final payment status after verification
+        slipUrl:
+          type: string
+          format: uri
+          description: Cloud storage URL of uploaded slip
+        autoVerified:
+          type: boolean
+          description: True if automatically verified by LLM
+        extractedAmountThb:
+          type: number
+          format: decimal
+          nullable: true
+          description: Amount extracted from slip in THB
+        message:
+          type: string
+          description: User-facing status message
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: Error message
+
+tags:
+  - name: Payments
+    description: Payment processing operations
+  - name: Slip Upload
+    description: Bank transfer slip upload and verification

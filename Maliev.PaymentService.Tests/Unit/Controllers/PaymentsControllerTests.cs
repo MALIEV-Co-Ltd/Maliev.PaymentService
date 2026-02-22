@@ -21,6 +21,10 @@ public class PaymentsControllerTests
     private readonly Mock<IMetricsService> _metricsServiceMock = new();
     private readonly Mock<IDistributedCache> _cacheMock = new();
     private readonly Mock<ILogger<PaymentsController>> _loggerMock = new();
+    private readonly Mock<Maliev.PaymentService.Api.Clients.IUploadServiceClient> _uploadServiceMock = new();
+    private readonly Mock<Maliev.PaymentService.Api.Clients.IChatbotServiceClient> _chatbotServiceMock = new();
+    private readonly Mock<IEventPublisher> _eventPublisherMock = new();
+    private readonly Mock<IPaymentRepository> _paymentRepositoryMock = new();
     private readonly PaymentsController _controller;
 
     public PaymentsControllerTests()
@@ -31,7 +35,11 @@ public class PaymentsControllerTests
             _routingServiceMock.Object,
             _metricsServiceMock.Object,
             _cacheMock.Object,
-            _loggerMock.Object);
+            _loggerMock.Object,
+            _uploadServiceMock.Object,
+            _chatbotServiceMock.Object,
+            _eventPublisherMock.Object,
+            _paymentRepositoryMock.Object);
 
         var httpContext = new DefaultHttpContext();
         _controller.ControllerContext = new ControllerContext

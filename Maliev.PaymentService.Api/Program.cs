@@ -81,6 +81,16 @@ try
     builder.Services.AddHttpClient("PaymentProviders")
         .AddStandardResilienceHandler();
 
+    // Register UploadService client
+    builder.Services.AddHttpClient<Maliev.PaymentService.Api.Clients.IUploadServiceClient, Maliev.PaymentService.Api.Clients.UploadServiceClient>(client =>
+        client.BaseAddress = new Uri(builder.Configuration["UploadService:BaseUrl"] ?? "http://localhost:5003"))
+        .AddStandardResilienceHandler();
+
+    // Register ChatbotService client
+    builder.Services.AddHttpClient<Maliev.PaymentService.Api.Clients.IChatbotServiceClient, Maliev.PaymentService.Api.Clients.ChatbotServiceClient>(client =>
+        client.BaseAddress = new Uri(builder.Configuration["ChatbotService:BaseUrl"] ?? "http://localhost:5004"))
+        .AddStandardResilienceHandler();
+
     // Register provider factory
     builder.Services.AddScoped<Maliev.PaymentService.Infrastructure.Providers.ProviderFactory>();
 

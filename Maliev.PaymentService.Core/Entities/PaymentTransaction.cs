@@ -133,4 +133,34 @@ public class PaymentTransaction
     /// Navigation property to transaction logs (audit trail).
     /// </summary>
     public List<TransactionLog> TransactionLogs { get; set; } = new();
+
+    /// <summary>
+    /// GCS URL of the uploaded bank transfer slip image.
+    /// </summary>
+    public string? SlipUrl { get; set; }
+
+    /// <summary>
+    /// Amount extracted from slip by LLM verification.
+    /// </summary>
+    public decimal? SlipExtractedAmount { get; set; }
+
+    /// <summary>
+    /// Bank name extracted from slip.
+    /// </summary>
+    public string? SlipBankName { get; set; }
+
+    /// <summary>
+    /// Transfer date extracted from slip (ISO 8601).
+    /// </summary>
+    public string? SlipTransferDate { get; set; }
+
+    /// <summary>
+    /// Notes from LLM verification.
+    /// </summary>
+    public string? SlipVerificationNotes { get; set; }
+
+    /// <summary>
+    /// When slip verification was performed.
+    /// </summary>
+    public DateTime? SlipVerifiedAt { get; set; }
 }
