@@ -22,16 +22,16 @@ public class UploadServiceClient : IUploadServiceClient
     public async Task<string> UploadSlipAsync(Stream fileStream, string fileName, string contentType, Guid paymentId, CancellationToken ct)
     {
         using var content = new MultipartFormDataContent();
-        
+
         var streamContent = new StreamContent(fileStream);
         streamContent.Headers.ContentType = new MediaTypeHeaderValue(contentType);
-        
+
         content.Add(streamContent, "file", fileName);
         content.Add(new StringContent("payment-service"), "ServiceName");
         content.Add(new StringContent("payment-slips"), "Path");
 
         var response = await _httpClient.PostAsync("/upload/v1/uploads", content, ct);
-        
+
         response.EnsureSuccessStatusCode();
 
         var result = await response.Content.ReadFromJsonAsync<UploadResponse>(cancellationToken: ct);

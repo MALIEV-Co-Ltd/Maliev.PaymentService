@@ -338,8 +338,8 @@ public class PaymentsController : ControllerBase
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status409Conflict)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status502BadGateway)]
     public async Task<ActionResult<SlipUploadResponse>> UploadSlip(
-        Guid id, 
-        IFormFile file, 
+        Guid id,
+        IFormFile file,
         CancellationToken cancellationToken)
     {
         var startTime = DateTime.UtcNow;
@@ -348,9 +348,9 @@ public class PaymentsController : ControllerBase
             // 1. Validate file exists
             if (file == null || file.Length == 0)
             {
-                return BadRequest(new ErrorResponse 
-                { 
-                    Error = "FILE_REQUIRED", 
+                return BadRequest(new ErrorResponse
+                {
+                    Error = "FILE_REQUIRED",
                     Message = "File is required.",
                     Timestamp = DateTime.UtcNow
                 });
@@ -360,9 +360,9 @@ public class PaymentsController : ControllerBase
             var allowedContentTypes = new[] { "image/jpeg", "image/png", "image/webp" };
             if (!allowedContentTypes.Contains(file.ContentType.ToLowerInvariant()))
             {
-                return BadRequest(new ErrorResponse 
-                { 
-                    Error = "UNSUPPORTED_FILE_TYPE", 
+                return BadRequest(new ErrorResponse
+                {
+                    Error = "UNSUPPORTED_FILE_TYPE",
                     Message = "Unsupported file type. Only JPEG, PNG, and WebP images are accepted.",
                     Timestamp = DateTime.UtcNow
                 });
@@ -370,9 +370,9 @@ public class PaymentsController : ControllerBase
 
             if (file.Length > 10 * 1024 * 1024)
             {
-                return BadRequest(new ErrorResponse 
-                { 
-                    Error = "FILE_TOO_LARGE", 
+                return BadRequest(new ErrorResponse
+                {
+                    Error = "FILE_TOO_LARGE",
                     Message = "File size exceeds 10 MB limit.",
                     Timestamp = DateTime.UtcNow
                 });
@@ -382,9 +382,9 @@ public class PaymentsController : ControllerBase
             var transaction = await _paymentService.GetPaymentByIdAsync(id, cancellationToken);
             if (transaction == null)
             {
-                return NotFound(new ErrorResponse 
-                { 
-                    Error = "PAYMENT_NOT_FOUND", 
+                return NotFound(new ErrorResponse
+                {
+                    Error = "PAYMENT_NOT_FOUND",
                     Message = $"Payment {id} not found.",
                     Timestamp = DateTime.UtcNow
                 });
@@ -394,25 +394,25 @@ public class PaymentsController : ControllerBase
             var currentUserId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
             var isOwner = currentUserId != null && transaction.CustomerId == currentUserId;
             var hasEmployeePermission = User.HasClaim(c => c.Type == "permissions" && c.Value == PaymentPermissions.PaymentsSlipUpload);
-            
+
             if (!isOwner && !hasEmployeePermission)
             {
-                return StatusCode(403, new ErrorResponse 
-                { 
-                    Error = "ACCESS_DENIED", 
+                return StatusCode(403, new ErrorResponse
+                {
+                    Error = "ACCESS_DENIED",
                     Message = "You do not have permission to upload slips for this payment.",
                     Timestamp = DateTime.UtcNow
                 });
             }
 
             // 5. Precondition check for Status
-            if (transaction.Status != PaymentStatus.Pending && 
-                transaction.Status != PaymentStatus.Processing && 
+            if (transaction.Status != PaymentStatus.Pending &&
+                transaction.Status != PaymentStatus.Processing &&
                 transaction.Status != PaymentStatus.PendingVerification)
             {
-                return Conflict(new ErrorResponse 
-                { 
-                    Error = "INVALID_STATUS", 
+                return Conflict(new ErrorResponse
+                {
+                    Error = "INVALID_STATUS",
                     Message = $"Slip cannot be uploaded for a payment in status {transaction.Status}.",
                     Timestamp = DateTime.UtcNow
                 });
@@ -422,7 +422,7 @@ public class PaymentsController : ControllerBase
             var timestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
             var safeFileName = new string(file.FileName.Where(c => char.IsLetterOrDigit(c) || c == '.' || c == '-' || c == '_').ToArray());
             var uniqueFileName = $"{timestamp}_{safeFileName}";
-            
+
             string slipUrl;
             try
             {
@@ -432,9 +432,9 @@ public class PaymentsController : ControllerBase
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to upload slip for payment {PaymentId}", id);
-                return StatusCode(502, new ErrorResponse 
-                { 
-                    Error = "UPLOAD_SERVICE_UNAVAILABLE", 
+                return StatusCode(502, new ErrorResponse
+                {
+                    Error = "UPLOAD_SERVICE_UNAVAILABLE",
                     Message = "File storage unavailable.",
                     Timestamp = DateTime.UtcNow
                 });
@@ -446,14 +446,14 @@ public class PaymentsController : ControllerBase
             // 8. Determine status
             bool autoVerified = false;
             string message;
-            
+
             if (analysisResult.IsValid && analysisResult.ExtractedAmountThb >= transaction.Amount)
             {
                 transaction.Status = PaymentStatus.Completed;
                 transaction.CompletedAt = DateTime.UtcNow;
                 autoVerified = true;
                 message = "Payment verified automatically.";
-                
+
                 // Track metric
                 _metricsService.RecordPaymentDuration("bank_transfer", (DateTime.UtcNow - startTime).TotalSeconds);
                 // Also track auto-verification success (simulated by duration for now as per rules or we can use custom metric)
@@ -477,7 +477,7 @@ public class PaymentsController : ControllerBase
 
             // Save to DB
             await _paymentRepository.UpdateAsync(transaction, cancellationToken);
-            
+
             if (autoVerified)
             {
                 var payload = new PaymentCompletedEventPayload(
@@ -522,9 +522,9 @@ public class PaymentsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error processing slip upload for payment {PaymentId}", id);
-            return StatusCode(500, new ErrorResponse 
-            { 
-                Error = "INTERNAL_ERROR", 
+            return StatusCode(500, new ErrorResponse
+            {
+                Error = "INTERNAL_ERROR",
                 Message = "An error occurred while processing the slip upload.",
                 Timestamp = DateTime.UtcNow
             });

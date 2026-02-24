@@ -31,9 +31,9 @@ public class ChatbotServiceClient : IChatbotServiceClient
                 "/chatbot/v1/vision/analyze-slip",
                 new { imageUrl },
                 ct);
-            
+
             response.EnsureSuccessStatusCode();
-            
+
             return await response.Content.ReadFromJsonAsync<SlipAnalysisResult>(cancellationToken: ct)
                 ?? new SlipAnalysisResult { IsValid = false, Notes = "Empty response from verification service." };
         }

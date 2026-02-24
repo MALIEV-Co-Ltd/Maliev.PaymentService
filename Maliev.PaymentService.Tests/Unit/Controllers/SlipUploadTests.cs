@@ -27,7 +27,7 @@ public class SlipUploadTests
     private readonly Mock<IChatbotServiceClient> _chatbotServiceMock = new();
     private readonly Mock<IEventPublisher> _eventPublisherMock = new();
     private readonly Mock<IPaymentRepository> _paymentRepositoryMock = new();
-    
+
     private readonly PaymentsController _controller;
     private readonly Guid _testPaymentId = Guid.NewGuid();
 
@@ -65,7 +65,7 @@ public class SlipUploadTests
         var fileMock = new Mock<IFormFile>();
         fileMock.Setup(f => f.Length).Returns(1024);
         fileMock.Setup(f => f.ContentType).Returns("image/jpeg");
-        
+
         var result = await _controller.UploadSlip(_testPaymentId, fileMock.Object, default);
 
         var notFoundResult = Assert.IsType<NotFoundObjectResult>(result.Result);
@@ -82,7 +82,7 @@ public class SlipUploadTests
         var fileMock = new Mock<IFormFile>();
         fileMock.Setup(f => f.Length).Returns(1024);
         fileMock.Setup(f => f.ContentType).Returns("image/jpeg");
-        
+
         var result = await _controller.UploadSlip(_testPaymentId, fileMock.Object, default);
 
         var conflictResult = Assert.IsType<ConflictObjectResult>(result.Result);
@@ -165,7 +165,7 @@ public class SlipUploadTests
     {
         var user = new ClaimsPrincipal(new ClaimsIdentity(new Claim[]
         {
-            new Claim(ClaimTypes.NameIdentifier, "customer-999") 
+            new Claim(ClaimTypes.NameIdentifier, "customer-999")
         }, "mock"));
 
         _controller.ControllerContext = new ControllerContext
@@ -269,7 +269,7 @@ public class SlipUploadTests
         Assert.Equal("Completed", response.Status);
         Assert.Equal("https://storage/slip.jpg", response.SlipUrl);
         Assert.True(response.AutoVerified);
-        
+
         _eventPublisherMock.Verify(x => x.PublishAsync(It.IsAny<PaymentCompletedEvent>(), It.IsAny<CancellationToken>()), Times.Once);
         _paymentRepositoryMock.Verify(x => x.UpdateAsync(It.IsAny<PaymentTransaction>(), It.IsAny<CancellationToken>()), Times.Once);
     }

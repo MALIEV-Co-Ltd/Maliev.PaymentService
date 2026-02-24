@@ -242,7 +242,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         // Arrange
         var paymentId = Guid.NewGuid();
         var provider = await _dbContext!.PaymentProviders.FirstAsync(p => p.Name == "stripe");
-        
+
         var payment = new Maliev.PaymentService.Core.Entities.PaymentTransaction
         {
             Id = paymentId,
