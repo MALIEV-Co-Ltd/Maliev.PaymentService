@@ -1,3 +1,4 @@
+using Maliev.MessagingContracts.Contracts.Invoices;
 using Maliev.MessagingContracts.Generated;
 using MassTransit;
 

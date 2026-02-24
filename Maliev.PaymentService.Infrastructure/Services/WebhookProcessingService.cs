@@ -1,3 +1,4 @@
+using Maliev.MessagingContracts.Contracts.Payments;
 using Maliev.MessagingContracts.Generated;
 using Maliev.PaymentService.Core.Entities;
 using Maliev.PaymentService.Core.Enums;

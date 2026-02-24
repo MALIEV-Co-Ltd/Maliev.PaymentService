@@ -1,3 +1,6 @@
+using Maliev.MessagingContracts.Contracts.Invoices;
+using Maliev.MessagingContracts.Contracts.Orders;
+using Maliev.MessagingContracts.Contracts.Payments;
 using Maliev.MessagingContracts.Generated;
 using Maliev.PaymentService.Api.Consumers;
 using MassTransit;
