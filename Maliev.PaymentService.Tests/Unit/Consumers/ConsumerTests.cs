@@ -1,7 +1,7 @@
 using Maliev.MessagingContracts.Contracts.Invoices;
 using Maliev.MessagingContracts.Contracts.Orders;
 using Maliev.MessagingContracts.Contracts.Payments;
-using Maliev.MessagingContracts.Generated;
+using Maliev.MessagingContracts;
 using Maliev.PaymentService.Api.Consumers;
 using MassTransit;
 using Microsoft.Extensions.Logging;
