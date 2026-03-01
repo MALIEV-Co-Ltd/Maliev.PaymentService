@@ -3,7 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Maliev.PaymentService.Api.Models.Requests;
 using Maliev.PaymentService.Api.Models.Responses;
-using Maliev.PaymentService.Core.Enums;
+using Maliev.PaymentService.Domain.Enums;
 using Maliev.PaymentService.Infrastructure.Data;
 using Maliev.PaymentService.Tests.Fixtures;
 using Microsoft.EntityFrameworkCore;
@@ -48,13 +48,13 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         // Get DbContext
         var scope = _factory.Services.CreateScope();
         _dbContext = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
-        var encryptionService = scope.ServiceProvider.GetRequiredService<Maliev.PaymentService.Infrastructure.Encryption.IEncryptionService>();
+        var encryptionService = scope.ServiceProvider.GetRequiredService<Maliev.PaymentService.Application.Interfaces.IEncryptionService>();
 
         // Seed test provider
         await SeedTestProviderAsync(encryptionService);
     }
 
-    private async Task SeedTestProviderAsync(Maliev.PaymentService.Infrastructure.Encryption.IEncryptionService encryptionService)
+    private async Task SeedTestProviderAsync(Maliev.PaymentService.Application.Interfaces.IEncryptionService encryptionService)
     {
         // Check if provider already exists (for idempotency across multiple tests)
         var existingProvider = await _dbContext!.PaymentProviders
@@ -66,7 +66,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         }
 
         var providerId = Guid.NewGuid();
-        var provider = new Maliev.PaymentService.Core.Entities.PaymentProvider
+        var provider = new Maliev.PaymentService.Domain.Entities.PaymentProvider
         {
             Id = providerId,
             Name = "stripe",
@@ -79,7 +79,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
             {
                 { "ApiKey", encryptionService.Encrypt("sk_test_mock_key") }
             },
-            Configurations = new List<Maliev.PaymentService.Core.Entities.ProviderConfiguration>
+            Configurations = new List<Maliev.PaymentService.Domain.Entities.ProviderConfiguration>
             {
                 new()
                 {

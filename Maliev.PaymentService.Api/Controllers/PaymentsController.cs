@@ -1,9 +1,10 @@
 using Asp.Versioning;
 using Maliev.PaymentService.Api.Authorization;
+using Maliev.PaymentService.Application.Authorization;
 using Maliev.PaymentService.Api.Models.Requests;
 using Maliev.PaymentService.Api.Models.Responses;
-using Maliev.PaymentService.Core.Enums;
-using Maliev.PaymentService.Core.Interfaces;
+using Maliev.PaymentService.Domain.Enums;
+using Maliev.PaymentService.Application.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Distributed;
 using System.Text.Json;
@@ -306,7 +307,7 @@ public class PaymentsController : ControllerBase
     /// <summary>
     /// Maps a payment transaction entity to API response model.
     /// </summary>
-    private static PaymentResponse MapToPaymentResponse(Core.Entities.PaymentTransaction transaction)
+    private static PaymentResponse MapToPaymentResponse(Maliev.PaymentService.Domain.Entities.PaymentTransaction transaction)
     {
         return new PaymentResponse
         {

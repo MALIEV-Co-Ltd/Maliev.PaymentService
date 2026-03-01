@@ -1,4 +1,4 @@
-using Maliev.PaymentService.Core.Enums;
+using Maliev.PaymentService.Domain.Enums;
 
 namespace Maliev.PaymentService.Api.Models.Responses;
 

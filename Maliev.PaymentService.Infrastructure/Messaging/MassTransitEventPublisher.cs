@@ -1,4 +1,4 @@
-using Maliev.PaymentService.Core.Interfaces;
+using Maliev.PaymentService.Application.Interfaces;
 using MassTransit;
 
 namespace Maliev.PaymentService.Infrastructure.Messaging;
