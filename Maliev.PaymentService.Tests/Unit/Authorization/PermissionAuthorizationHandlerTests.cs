@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Maliev.PaymentService.Api.Authorization;
+using Maliev.PaymentService.Application.Authorization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;

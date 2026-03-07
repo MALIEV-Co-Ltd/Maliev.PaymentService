@@ -4,7 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Maliev.PaymentService.Api.Models.Requests;
 using Maliev.PaymentService.Api.Models.Responses;
-using Maliev.PaymentService.Core.Enums;
+using Maliev.PaymentService.Domain.Enums;
 using Maliev.PaymentService.Infrastructure.Data;
 using Maliev.PaymentService.Tests.Fixtures;
 using Microsoft.EntityFrameworkCore;
@@ -41,7 +41,7 @@ public class WebhooksControllerIntegrationTests : IClassFixture<IntegrationTestW
 
     private async Task SeedTestProviderAsync()
     {
-        var provider = new Maliev.PaymentService.Core.Entities.PaymentProvider
+        var provider = new Maliev.PaymentService.Domain.Entities.PaymentProvider
         {
             Id = Guid.NewGuid(),
             Name = "stripe",
@@ -53,7 +53,7 @@ public class WebhooksControllerIntegrationTests : IClassFixture<IntegrationTestW
             {
                 { "WebhookSecret", "whsec_test" }
             },
-            Configurations = new List<Maliev.PaymentService.Core.Entities.ProviderConfiguration>(),
+            Configurations = new List<Maliev.PaymentService.Domain.Entities.ProviderConfiguration>(),
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };

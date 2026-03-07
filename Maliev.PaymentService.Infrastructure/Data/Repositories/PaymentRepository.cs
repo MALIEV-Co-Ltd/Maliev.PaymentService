@@ -1,5 +1,5 @@
-using Maliev.PaymentService.Core.Entities;
-using Maliev.PaymentService.Core.Interfaces;
+using Maliev.PaymentService.Domain.Entities;
+using Maliev.PaymentService.Application.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
 namespace Maliev.PaymentService.Infrastructure.Data.Repositories;
@@ -34,6 +34,7 @@ public class PaymentRepository : IPaymentRepository
     public async Task<PaymentTransaction?> GetByIdempotencyKeyAsync(string idempotencyKey, CancellationToken cancellationToken = default)
     {
         return await _context.PaymentTransactions
+            .AsNoTracking()
             .Include(p => p.PaymentProvider)
             .Include(p => p.TransactionLogs)
             .FirstOrDefaultAsync(p => p.IdempotencyKey == idempotencyKey, cancellationToken);
@@ -45,6 +46,7 @@ public class PaymentRepository : IPaymentRepository
     public async Task<IEnumerable<PaymentTransaction>> GetByDateRangeAsync(DateTime startDate, DateTime endDate, CancellationToken cancellationToken = default)
     {
         return await _context.PaymentTransactions
+            .AsNoTracking()
             .Include(p => p.PaymentProvider)
             .Where(p => p.CreatedAt >= startDate && p.CreatedAt <= endDate)
             .OrderByDescending(p => p.CreatedAt)

@@ -3,7 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Maliev.PaymentService.Api.Models.Requests;
 using Maliev.PaymentService.Api.Models.Responses;
-using Maliev.PaymentService.Core.Enums;
+using Maliev.PaymentService.Domain.Enums;
 using Maliev.PaymentService.Infrastructure.Data;
 using Maliev.PaymentService.Tests.Fixtures;
 using Microsoft.Extensions.DependencyInjection;

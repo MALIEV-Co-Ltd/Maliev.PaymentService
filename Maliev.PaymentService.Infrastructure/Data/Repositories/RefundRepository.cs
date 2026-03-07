@@ -1,5 +1,5 @@
-using Maliev.PaymentService.Core.Entities;
-using Maliev.PaymentService.Core.Interfaces;
+using Maliev.PaymentService.Domain.Entities;
+using Maliev.PaymentService.Application.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
 namespace Maliev.PaymentService.Infrastructure.Data.Repositories;
@@ -30,6 +30,7 @@ public class RefundRepository : IRefundRepository
         CancellationToken cancellationToken = default)
     {
         return await _context.RefundTransactions
+            .AsNoTracking()
             .Where(r => r.PaymentTransactionId == paymentTransactionId)
             .OrderByDescending(r => r.CreatedAt)
             .ToListAsync(cancellationToken);

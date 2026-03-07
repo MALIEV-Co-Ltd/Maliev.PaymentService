@@ -1,5 +1,5 @@
 using System.Collections.Concurrent;
-using Maliev.PaymentService.Core.Interfaces;
+using Maliev.PaymentService.Application.Interfaces;
 
 namespace Maliev.PaymentService.Tests.Fixtures;
 

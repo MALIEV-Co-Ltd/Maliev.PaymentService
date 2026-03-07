@@ -1,10 +1,11 @@
 using Asp.Versioning;
 using Maliev.PaymentService.Api.Authorization;
+using Maliev.PaymentService.Application.Authorization;
 using Maliev.PaymentService.Api.Models.Requests;
 using Maliev.PaymentService.Api.Models.Responses;
-using Maliev.PaymentService.Core.Entities;
-using Maliev.PaymentService.Core.Enums;
-using Maliev.PaymentService.Core.Interfaces;
+using Maliev.PaymentService.Domain.Entities;
+using Maliev.PaymentService.Domain.Enums;
+using Maliev.PaymentService.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
@@ -239,8 +240,7 @@ public class WebhooksController : ControllerBase
                 ProcessingStatus = WebhookProcessingStatus.Pending,
                 ProcessingAttempts = 0,
                 CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow,
-                RowVersion = Array.Empty<byte>()
+                UpdatedAt = DateTime.UtcNow
             };
 
             // Save webhook event
@@ -360,8 +360,7 @@ public class WebhooksController : ControllerBase
             PaymentTransactionId = null, // Don't set for test webhooks - will be extracted during processing
             CorrelationId = request.TransactionId, // Store transaction ID in correlation instead for testing
             CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
-            RowVersion = Array.Empty<byte>()
+            UpdatedAt = DateTime.UtcNow
         };
 
         await _webhookRepository.AddAsync(webhookEvent);

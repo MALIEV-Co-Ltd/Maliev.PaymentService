@@ -21,7 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Maliev.PaymentService.Core\Maliev.PaymentService.Core.csproj" />
+    <ProjectReference Include="..\Maliev.PaymentService.Application\Maliev.PaymentService.Application.csproj" />
     <ProjectReference Include="..\Maliev.PaymentService.Infrastructure\Maliev.PaymentService.Infrastructure.csproj" />
   </ItemGroup>
 
