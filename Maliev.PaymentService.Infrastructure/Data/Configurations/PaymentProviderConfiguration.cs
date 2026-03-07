@@ -90,5 +90,11 @@ public class PaymentProviderConfiguration : IEntityTypeConfiguration<PaymentProv
 
         // Query filter for soft delete
         builder.HasQueryFilter(p => p.DeletedAt == null);
+
+        // PostgreSQL xmin for optimistic concurrency
+        builder.Property<uint>("xmin")
+            .HasColumnType("xid")
+            .IsRowVersion()
+            .HasColumnName("xmin");
     }
 }

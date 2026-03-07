@@ -119,11 +119,6 @@ public class RefundTransaction
     public string? UpdatedBy { get; set; }
 
     /// <summary>
-    /// Row version for optimistic concurrency control.
-    /// </summary>
-    public byte[] RowVersion { get; set; } = Array.Empty<byte>();
-
-    /// <summary>
     /// Navigation property to parent payment transaction.
     /// </summary>
     public PaymentTransaction? PaymentTransaction { get; set; }

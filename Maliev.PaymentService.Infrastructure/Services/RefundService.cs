@@ -92,8 +92,7 @@ public class RefundService : IRefundService
             CorrelationId = Guid.NewGuid(),
             InitiatedAt = DateTime.UtcNow,
             CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
-            RowVersion = Array.Empty<byte>()
+            UpdatedAt = DateTime.UtcNow
         };
 
         // Save refund

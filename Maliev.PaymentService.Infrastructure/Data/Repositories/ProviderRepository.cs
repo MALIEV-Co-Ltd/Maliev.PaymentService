@@ -24,6 +24,7 @@ public class ProviderRepository : IProviderRepository
     public async Task<IEnumerable<PaymentProvider>> GetAllAsync(CancellationToken cancellationToken = default)
     {
         return await _context.PaymentProviders
+            .AsNoTracking()
             .Include(p => p.Configurations)
             .OrderBy(p => p.Priority)
             .ToListAsync(cancellationToken);
@@ -45,6 +46,7 @@ public class ProviderRepository : IProviderRepository
     public async Task<PaymentProvider?> GetByNameAsync(string name, CancellationToken cancellationToken = default)
     {
         return await _context.PaymentProviders
+            .AsNoTracking()
             .Include(p => p.Configurations)
             .FirstOrDefaultAsync(p => p.Name.ToLower() == name.ToLower(), cancellationToken);
     }
@@ -55,6 +57,7 @@ public class ProviderRepository : IProviderRepository
     public async Task<IEnumerable<PaymentProvider>> GetActiveByCurrencyAsync(string currency, CancellationToken cancellationToken = default)
     {
         var providers = await _context.PaymentProviders
+            .AsNoTracking()
             .Include(p => p.Configurations)
             .Where(p => p.Status == ProviderStatus.Active)
             .OrderBy(p => p.Priority)
@@ -94,6 +97,7 @@ public class ProviderRepository : IProviderRepository
         {
             provider.DeletedAt = DateTime.UtcNow;
             provider.UpdatedAt = DateTime.UtcNow;
+            _context.PaymentProviders.Update(provider);
             await _context.SaveChangesAsync(cancellationToken);
         }
     }

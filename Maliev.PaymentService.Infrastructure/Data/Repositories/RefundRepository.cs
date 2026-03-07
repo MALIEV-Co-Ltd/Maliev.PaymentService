@@ -30,6 +30,7 @@ public class RefundRepository : IRefundRepository
         CancellationToken cancellationToken = default)
     {
         return await _context.RefundTransactions
+            .AsNoTracking()
             .Where(r => r.PaymentTransactionId == paymentTransactionId)
             .OrderByDescending(r => r.CreatedAt)
             .ToListAsync(cancellationToken);

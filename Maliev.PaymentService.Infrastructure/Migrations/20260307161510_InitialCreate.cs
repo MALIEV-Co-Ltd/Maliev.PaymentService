@@ -1,3 +1,5 @@
+﻿using System;
+using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -23,7 +25,8 @@ namespace Maliev.PaymentService.Infrastructure.Migrations
                     credentials = table.Column<Dictionary<string, string>>(type: "jsonb", nullable: false),
                     created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     updated_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    deleted_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
+                    deleted_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
                 },
                 constraints: table =>
                 {
@@ -56,7 +59,7 @@ namespace Maliev.PaymentService.Infrastructure.Migrations
                     created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     updated_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     completed_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    row_version = table.Column<byte[]>(type: "bytea", nullable: false, defaultValueSql: "'\\x00'::bytea")
+                    xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
                 },
                 constraints: table =>
                 {
@@ -81,7 +84,8 @@ namespace Maliev.PaymentService.Infrastructure.Migrations
                     max_retries = table.Column<int>(type: "integer", nullable: false, defaultValue: 3),
                     timeout_seconds = table.Column<int>(type: "integer", nullable: false, defaultValue: 30),
                     created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    updated_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                    updated_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
                 },
                 constraints: table =>
                 {
@@ -120,7 +124,7 @@ namespace Maliev.PaymentService.Infrastructure.Migrations
                     updated_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     created_by = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true),
                     updated_by = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true),
-                    row_version = table.Column<byte[]>(type: "bytea", nullable: false, defaultValueSql: "'\\x00'::bytea")
+                    xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
                 },
                 constraints: table =>
                 {
@@ -168,7 +172,7 @@ namespace Maliev.PaymentService.Infrastructure.Migrations
                     correlation_id = table.Column<Guid>(type: "uuid", nullable: true),
                     created_at = table.Column<DateTime>(type: "timestamptz", nullable: false),
                     updated_at = table.Column<DateTime>(type: "timestamptz", nullable: false),
-                    row_version = table.Column<byte[]>(type: "bytea", nullable: false, defaultValueSql: "'\\x00'::bytea")
+                    xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
                 },
                 constraints: table =>
                 {
@@ -213,7 +217,7 @@ namespace Maliev.PaymentService.Infrastructure.Migrations
                         column: x => x.payment_transaction_id,
                         principalTable: "payment_transactions",
                         principalColumn: "id",
-                        onDelete: ReferentialAction.Cascade);
+                        onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
                         name: "fk_transaction_logs_refund_transactions_refund_transaction_id",
                         column: x => x.refund_transaction_id,

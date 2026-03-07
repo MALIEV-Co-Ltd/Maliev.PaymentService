@@ -114,11 +114,6 @@ public class WebhookEvent
     public required DateTime UpdatedAt { get; set; }
 
     /// <summary>
-    /// Optimistic concurrency token.
-    /// </summary>
-    public byte[] RowVersion { get; set; } = Array.Empty<byte>();
-
-    /// <summary>
     /// Navigation property to payment provider.
     /// </summary>
     public PaymentProvider? PaymentProvider { get; set; }

@@ -120,11 +120,6 @@ public class PaymentTransaction
     public DateTime? CompletedAt { get; set; }
 
     /// <summary>
-    /// Row version for optimistic concurrency control.
-    /// </summary>
-    public byte[] RowVersion { get; set; } = Array.Empty<byte>();
-
-    /// <summary>
     /// Navigation property to payment provider.
     /// </summary>
     public PaymentProvider? PaymentProvider { get; set; }

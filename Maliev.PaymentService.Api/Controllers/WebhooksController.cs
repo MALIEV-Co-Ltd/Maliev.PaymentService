@@ -240,8 +240,7 @@ public class WebhooksController : ControllerBase
                 ProcessingStatus = WebhookProcessingStatus.Pending,
                 ProcessingAttempts = 0,
                 CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow,
-                RowVersion = Array.Empty<byte>()
+                UpdatedAt = DateTime.UtcNow
             };
 
             // Save webhook event
@@ -361,8 +360,7 @@ public class WebhooksController : ControllerBase
             PaymentTransactionId = null, // Don't set for test webhooks - will be extracted during processing
             CorrelationId = request.TransactionId, // Store transaction ID in correlation instead for testing
             CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
-            RowVersion = Array.Empty<byte>()
+            UpdatedAt = DateTime.UtcNow
         };
 
         await _webhookRepository.AddAsync(webhookEvent);

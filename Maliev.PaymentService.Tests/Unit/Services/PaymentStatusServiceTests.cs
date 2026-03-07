@@ -234,8 +234,7 @@ public class PaymentStatusServiceTests
             CancelUrl = "https://example.com/cancel",
             CorrelationId = Guid.NewGuid().ToString(),
             CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
-            RowVersion = Array.Empty<byte>()
+            UpdatedAt = DateTime.UtcNow
         };
     }
 }
