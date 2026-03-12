@@ -1,4 +1,5 @@
 using Asp.Versioning;
+using Maliev.Aspire.ServiceDefaults.Authorization;
 using Maliev.PaymentService.Api.Authorization;
 using Maliev.PaymentService.Api.Models.Requests;
 using Maliev.PaymentService.Api.Models.Responses;
