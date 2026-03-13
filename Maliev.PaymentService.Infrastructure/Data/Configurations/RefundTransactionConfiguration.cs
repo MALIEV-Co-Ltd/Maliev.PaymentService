@@ -1,5 +1,5 @@
-using Maliev.PaymentService.Core.Entities;
-using Maliev.PaymentService.Core.Enums;
+using Maliev.PaymentService.Domain.Entities;
+using Maliev.PaymentService.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -114,12 +114,6 @@ public class RefundTransactionConfiguration : IEntityTypeConfiguration<RefundTra
             .HasColumnName("updated_by")
             .HasMaxLength(100);
 
-        builder.Property(e => e.RowVersion)
-            .HasColumnName("row_version")
-            .HasColumnType("bytea")
-            .IsConcurrencyToken()
-            .HasDefaultValueSql("'\\x00'::bytea");  // Default empty bytea for PostgreSQL
-
         // Indexes
         builder.HasIndex(e => e.IdempotencyKey)
             .IsUnique()
@@ -165,5 +159,11 @@ public class RefundTransactionConfiguration : IEntityTypeConfiguration<RefundTra
             t.HasCheckConstraint("chk_refund_transactions_type",
                 "refund_type IN ('full', 'partial')");
         });
+
+        // PostgreSQL xmin for optimistic concurrency
+        builder.Property<uint>("xmin")
+            .HasColumnType("xid")
+            .IsRowVersion()
+            .HasColumnName("xmin");
     }
 }

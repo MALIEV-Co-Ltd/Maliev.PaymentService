@@ -1,10 +1,11 @@
 using Asp.Versioning;
 using Maliev.Aspire.ServiceDefaults.Authorization;
 using Maliev.PaymentService.Api.Authorization;
+using Maliev.PaymentService.Application.Authorization;
 using Maliev.PaymentService.Api.Models.Requests;
 using Maliev.PaymentService.Api.Models.Responses;
-using Maliev.PaymentService.Core.Entities;
-using Maliev.PaymentService.Core.Interfaces;
+using Maliev.PaymentService.Domain.Entities;
+using Maliev.PaymentService.Application.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Maliev.PaymentService.Api.Controllers;

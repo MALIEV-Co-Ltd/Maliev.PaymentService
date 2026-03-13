@@ -12,11 +12,11 @@ try
 
     var builder = WebApplication.CreateBuilder(args);
 
-    // --- Secrets & Configuration ---
-    builder.AddGoogleSecretManagerVolume(); // Load secrets from /mnt/secrets if available
-
     // --- Infrastructure & Observability ---
     builder.AddServiceDefaults(); // OpenTelemetry, health checks, resilience
+
+    // --- Secrets & Configuration ---
+    builder.AddGoogleSecretManagerVolume(); // Load secrets from /mnt/secrets if available
     builder.AddStandardMiddleware(options =>
     {
         options.EnableRequestLogging = true;
@@ -60,7 +60,7 @@ try
     // Rate Limiting
     builder.AddStandardRateLimiting(); // Memory-optimized for low-spec nodes
     // Register metrics service
-    builder.Services.AddSingleton<Maliev.PaymentService.Core.Interfaces.IMetricsService, Maliev.PaymentService.Infrastructure.Metrics.PrometheusMetricsService>();
+    builder.Services.AddSingleton<Maliev.PaymentService.Application.Interfaces.IMetricsService, Maliev.PaymentService.Infrastructure.Metrics.PrometheusMetricsService>();
 
     // Configure Data Protection for credential encryption
     builder.Services.AddDataProtection();
@@ -69,13 +69,13 @@ try
     builder.Services.AddSingleton<Maliev.PaymentService.Infrastructure.Resilience.CircuitBreakerStateManager>();
 
     // Register encryption service
-    builder.Services.AddScoped<Maliev.PaymentService.Infrastructure.Encryption.IEncryptionService, Maliev.PaymentService.Infrastructure.Encryption.CredentialEncryptionService>();
+    builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IEncryptionService, Maliev.PaymentService.Infrastructure.Encryption.CredentialEncryptionService>();
 
     // Register repositories
-    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IProviderRepository, Maliev.PaymentService.Infrastructure.Data.Repositories.ProviderRepository>();
-    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IPaymentRepository, Maliev.PaymentService.Infrastructure.Data.Repositories.PaymentRepository>();
-    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IRefundRepository, Maliev.PaymentService.Infrastructure.Data.Repositories.RefundRepository>();
-    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IWebhookRepository, Maliev.PaymentService.Infrastructure.Data.Repositories.WebhookRepository>();
+    builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IProviderRepository, Maliev.PaymentService.Infrastructure.Data.Repositories.ProviderRepository>();
+    builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IPaymentRepository, Maliev.PaymentService.Infrastructure.Data.Repositories.PaymentRepository>();
+    builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IRefundRepository, Maliev.PaymentService.Infrastructure.Data.Repositories.RefundRepository>();
+    builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IWebhookRepository, Maliev.PaymentService.Infrastructure.Data.Repositories.WebhookRepository>();
 
     // Register HttpClient for provider adapters with resilience
     builder.Services.AddHttpClient("PaymentProviders")
@@ -85,29 +85,29 @@ try
     builder.Services.AddScoped<Maliev.PaymentService.Infrastructure.Providers.ProviderFactory>();
 
     // Register services
-    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IProviderManagementService, Maliev.PaymentService.Infrastructure.Services.ProviderManagementService>();
-    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IPaymentRoutingService, Maliev.PaymentService.Infrastructure.Services.PaymentRoutingService>();
-    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IPaymentService, Maliev.PaymentService.Infrastructure.Services.PaymentService>();
-    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IPaymentStatusService, Maliev.PaymentService.Infrastructure.Services.PaymentStatusService>();
-    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IRefundService, Maliev.PaymentService.Infrastructure.Services.RefundService>();
+    builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IProviderManagementService, Maliev.PaymentService.Infrastructure.Services.ProviderManagementService>();
+    builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IPaymentRoutingService, Maliev.PaymentService.Infrastructure.Services.PaymentRoutingService>();
+    builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IPaymentService, Maliev.PaymentService.Infrastructure.Services.PaymentService>();
+    builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IPaymentStatusService, Maliev.PaymentService.Infrastructure.Services.PaymentStatusService>();
+    builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IRefundService, Maliev.PaymentService.Infrastructure.Services.RefundService>();
 
     // Register webhook services
-    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IWebhookValidationService, Maliev.PaymentService.Infrastructure.Services.WebhookValidationService>();
-    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IWebhookProcessingService, Maliev.PaymentService.Infrastructure.Services.WebhookProcessingService>();
+    builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IWebhookValidationService, Maliev.PaymentService.Infrastructure.Services.WebhookValidationService>();
+    builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IWebhookProcessingService, Maliev.PaymentService.Infrastructure.Services.WebhookProcessingService>();
     builder.Services.AddHostedService<Maliev.PaymentService.Infrastructure.Services.WebhookCleanupService>();
 
     // Register idempotency service (uses Redis from AddRedisDistributedCache)
-    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IIdempotencyService, Maliev.PaymentService.Infrastructure.Caching.RedisIdempotencyService>();
+    builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IIdempotencyService, Maliev.PaymentService.Infrastructure.Caching.RedisIdempotencyService>();
 
     // Register event publisher
-    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IEventPublisher, Maliev.PaymentService.Infrastructure.Messaging.MassTransitEventPublisher>();
+    builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IEventPublisher, Maliev.PaymentService.Infrastructure.Messaging.MassTransitEventPublisher>();
 
     builder.Services.AddControllers();
 
     var app = builder.Build();
 
     // Force instantiation of metrics service to ensure OpenTelemetry meters are created
-    var metricsService = app.Services.GetRequiredService<Maliev.PaymentService.Core.Interfaces.IMetricsService>();
+    var metricsService = app.Services.GetRequiredService<Maliev.PaymentService.Application.Interfaces.IMetricsService>();
 
     var logger = app.Services.GetRequiredService<ILogger<Program>>();
 
@@ -122,19 +122,19 @@ try
 
         if (!await dbContext.PaymentProviders.AnyAsync())
         {
-            var testProvider = new Maliev.PaymentService.Core.Entities.PaymentProvider
+            var testProvider = new Maliev.PaymentService.Domain.Entities.PaymentProvider
             {
                 Id = Guid.NewGuid(),
                 Name = "stripe",
                 DisplayName = "Stripe (Test)",
-                Status = Maliev.PaymentService.Core.Enums.ProviderStatus.Active,
+                Status = Maliev.PaymentService.Domain.Enums.ProviderStatus.Active,
                 SupportedCurrencies = new List<string> { "THB", "USD", "EUR" },
                 Priority = 1,
                 Credentials = new Dictionary<string, string>
                 {
                     { "ApiKey", "sk_test_development_key" }
                 },
-                Configurations = new List<Maliev.PaymentService.Core.Entities.ProviderConfiguration>(),
+                Configurations = new List<Maliev.PaymentService.Domain.Entities.ProviderConfiguration>(),
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };

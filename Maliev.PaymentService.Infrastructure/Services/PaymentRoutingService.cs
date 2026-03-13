@@ -1,6 +1,6 @@
-using Maliev.PaymentService.Core.Entities;
-using Maliev.PaymentService.Core.Enums;
-using Maliev.PaymentService.Core.Interfaces;
+using Maliev.PaymentService.Domain.Entities;
+using Maliev.PaymentService.Domain.Enums;
+using Maliev.PaymentService.Application.Interfaces;
 using Maliev.PaymentService.Infrastructure.Resilience;
 using Microsoft.Extensions.Logging;
 

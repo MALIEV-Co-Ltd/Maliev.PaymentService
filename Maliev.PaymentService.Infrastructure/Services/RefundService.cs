@@ -1,6 +1,6 @@
-using Maliev.PaymentService.Core.Entities;
-using Maliev.PaymentService.Core.Enums;
-using Maliev.PaymentService.Core.Interfaces;
+using Maliev.PaymentService.Domain.Entities;
+using Maliev.PaymentService.Domain.Enums;
+using Maliev.PaymentService.Application.Interfaces;
 using Microsoft.Extensions.Logging;
 
 namespace Maliev.PaymentService.Infrastructure.Services;
@@ -92,8 +92,7 @@ public class RefundService : IRefundService
             CorrelationId = Guid.NewGuid(),
             InitiatedAt = DateTime.UtcNow,
             CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
-            RowVersion = Array.Empty<byte>()
+            UpdatedAt = DateTime.UtcNow
         };
 
         // Save refund

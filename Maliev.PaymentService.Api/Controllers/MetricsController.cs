@@ -1,7 +1,8 @@
 using Asp.Versioning;
-using Maliev.PaymentService.Core.Enums;
-using Maliev.PaymentService.Core.Interfaces;
-using Microsoft.AspNetCore.Authorization;
+using Maliev.PaymentService.Api.Authorization;
+using Maliev.PaymentService.Application.Authorization;
+using Maliev.PaymentService.Domain.Enums;
+using Maliev.PaymentService.Application.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Maliev.PaymentService.Api.Controllers;
@@ -12,7 +13,7 @@ namespace Maliev.PaymentService.Api.Controllers;
 [ApiController]
 [ApiVersion("1.0")]
 [Route("payment/v{version:apiVersion}/metrics")]
-[Authorize]
+[RequirePermission(PaymentPermissions.GatewayMonitor)]
 public class MetricsController : ControllerBase
 {
     private readonly IPaymentRepository _paymentRepository;

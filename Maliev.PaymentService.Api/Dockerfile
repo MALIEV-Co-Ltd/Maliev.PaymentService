@@ -16,7 +16,8 @@ WORKDIR /src
 # Copy nuget.config and project files
 COPY ["nuget.config", "."]
 COPY ["Maliev.PaymentService.Api/Maliev.PaymentService.Api.csproj", "Maliev.PaymentService.Api/"]
-COPY ["Maliev.PaymentService.Core/Maliev.PaymentService.Core.csproj", "Maliev.PaymentService.Core/"]
+COPY ["Maliev.PaymentService.Domain/Maliev.PaymentService.Domain.csproj", "Maliev.PaymentService.Domain/"]
+COPY ["Maliev.PaymentService.Application/Maliev.PaymentService.Application.csproj", "Maliev.PaymentService.Application/"]
 COPY ["Maliev.PaymentService.Infrastructure/Maliev.PaymentService.Infrastructure.csproj", "Maliev.PaymentService.Infrastructure/"]
 
 # Restore with GitHub Packages authentication using BuildKit secrets

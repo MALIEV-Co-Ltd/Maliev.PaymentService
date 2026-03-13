@@ -1,4 +1,4 @@
-using Maliev.PaymentService.Core.Entities;
+using Maliev.PaymentService.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -136,12 +136,6 @@ public class WebhookEventConfiguration : IEntityTypeConfiguration<WebhookEvent>
             .HasColumnType("timestamptz")
             .IsRequired();
 
-        builder.Property(e => e.RowVersion)
-            .HasColumnName("row_version")
-            .HasColumnType("bytea")
-            .IsConcurrencyToken()
-            .HasDefaultValueSql("'\\x00'::bytea");  // Default empty bytea for PostgreSQL
-
         // Foreign keys
         builder.HasOne(e => e.PaymentProvider)
             .WithMany()
@@ -166,5 +160,11 @@ public class WebhookEventConfiguration : IEntityTypeConfiguration<WebhookEvent>
             t.HasCheckConstraint("chk_webhook_events_attempts",
                 "processing_attempts >= 0");
         });
+
+        // PostgreSQL xmin for optimistic concurrency
+        builder.Property<uint>("xmin")
+            .HasColumnType("xid")
+            .IsRowVersion()
+            .HasColumnName("xmin");
     }
 }

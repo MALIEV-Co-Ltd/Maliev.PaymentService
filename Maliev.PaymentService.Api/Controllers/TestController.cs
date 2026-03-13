@@ -1,8 +1,12 @@
 using Asp.Versioning;
+<<<<<<< HEAD
 using Maliev.MessagingContracts.Contracts.Payments;
 using Maliev.MessagingContracts.Contracts.Shared;
+=======
+>>>>>>> 69ff5f1588a863eeb63e1f325b2c412971d50277
 using Maliev.MessagingContracts;
-using Maliev.PaymentService.Core.Interfaces;
+using Maliev.MessagingContracts.Contracts.Payments;
+using Maliev.PaymentService.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 

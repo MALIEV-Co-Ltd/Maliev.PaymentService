@@ -1,6 +1,6 @@
 using Maliev.PaymentService.Api.Models.Requests;
 using Maliev.PaymentService.Api.Models.Responses;
-using Maliev.PaymentService.Core.Enums;
+using Maliev.PaymentService.Domain.Enums;
 using Xunit;
 
 namespace Maliev.PaymentService.Tests.Unit.Models;

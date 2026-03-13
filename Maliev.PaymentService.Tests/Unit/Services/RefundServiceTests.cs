@@ -1,6 +1,6 @@
-using Maliev.PaymentService.Core.Entities;
-using Maliev.PaymentService.Core.Enums;
-using Maliev.PaymentService.Core.Interfaces;
+using Maliev.PaymentService.Domain.Entities;
+using Maliev.PaymentService.Domain.Enums;
+using Maliev.PaymentService.Application.Interfaces;
 using Maliev.PaymentService.Infrastructure.Services;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -247,8 +247,7 @@ public class RefundServiceTests
             CorrelationId = Guid.NewGuid().ToString(),
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
-            CompletedAt = status == PaymentStatus.Completed ? DateTime.UtcNow : null,
-            RowVersion = Array.Empty<byte>()
+            CompletedAt = status == PaymentStatus.Completed ? DateTime.UtcNow : null
         };
     }
 
@@ -266,8 +265,7 @@ public class RefundServiceTests
             IdempotencyKey = Guid.NewGuid().ToString(),
             CorrelationId = Guid.NewGuid(),
             CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
-            RowVersion = Array.Empty<byte>()
+            UpdatedAt = DateTime.UtcNow
         };
     }
 }

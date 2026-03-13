@@ -1,4 +1,4 @@
-using Maliev.PaymentService.Core.Entities;
+using Maliev.PaymentService.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -69,5 +69,11 @@ public class ProviderConfigurationConfiguration : IEntityTypeConfiguration<Provi
 
         // Ensures that configurations for soft-deleted providers are not retrieved
         builder.HasQueryFilter(pc => pc.PaymentProvider != null && pc.PaymentProvider.DeletedAt == null);
+
+        // PostgreSQL xmin for optimistic concurrency
+        builder.Property<uint>("xmin")
+            .HasColumnType("xid")
+            .IsRowVersion()
+            .HasColumnName("xmin");
     }
 }

@@ -17,7 +17,9 @@ public class TestContainersFixture : IAsyncLifetime
     public TestContainersFixture()
     {
         // PostgreSQL 18 container for database tests
-        _postgresContainer = new PostgreSqlBuilder().WithImage("postgres:18-alpine")
+        _postgresContainer = 
+                #pragma warning disable CS0618
+        new PostgreSqlBuilder().WithImage("postgres:18-alpine")
             .WithDatabase("payment_gateway_test")
             .WithUsername("test_user")
             .WithPassword("test_password")
@@ -35,6 +37,7 @@ public class TestContainersFixture : IAsyncLifetime
         _redisContainer = new RedisBuilder().WithImage("redis:8.4-alpine")
             .WithCleanUp(true)
             .Build();
+#pragma warning restore CS0618
     }
 
     /// <summary>
@@ -78,3 +81,7 @@ public class TestContainersFixture : IAsyncLifetime
         );
     }
 }
+
+
+
+

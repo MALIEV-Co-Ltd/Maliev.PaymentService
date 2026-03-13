@@ -1,5 +1,5 @@
-using Maliev.PaymentService.Core.Entities;
-using Maliev.PaymentService.Infrastructure.Encryption;
+using Maliev.PaymentService.Domain.Entities;
+using Maliev.PaymentService.Application.Interfaces;
 
 namespace Maliev.PaymentService.Infrastructure.Providers;
 

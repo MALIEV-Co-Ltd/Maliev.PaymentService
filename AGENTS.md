@@ -78,8 +78,8 @@ This project references sibling repositories (`Maliev.Aspire`, `Maliev.Messaging
 ### Database Migrations
 Always create migrations in the Infrastructure project.
 ```bash
-dotnet ef migrations add <MigrationName> --project Maliev.PaymentService.Infrastructure --startup-project Maliev.PaymentService.Api
-dotnet ef database update --project Maliev.PaymentService.Infrastructure --startup-project Maliev.PaymentService.Api
+dotnet ef migrations add <MigrationName> --project Maliev.PaymentService.Infrastructure --startup-project Maliev.PaymentService.Infrastructure
+dotnet ef database update --project Maliev.PaymentService.Infrastructure --startup-project Maliev.PaymentService.Infrastructure
 ```
 
 ### Adding a New Provider
@@ -93,3 +93,23 @@ Before declaring a task complete:
 1. Run `dotnet build` (ensure no warnings).
 2. Run relevant tests.
 3. If modifying DB schema, ensure a migration script is generated.
+
+
+## Database & EF Core — Mandatory Rules
+
+### EF Core Design Package
+- ❌ `Microsoft.EntityFrameworkCore.Design` MUST NOT be in Api projects
+- ✅ It belongs ONLY in the Infrastructure (or Data) project where migrations live
+- Migration commands must target Infrastructure as both project and startup-project (since EF Core Design package is in Infrastructure):
+  ```
+  dotnet ef migrations add <Name> --project Maliev.<Domain>Service.Infrastructure --startup-project Maliev.<Domain>Service.Infrastructure
+  ```
+
+### PostgreSQL xmin Concurrency — Mandatory Pattern
+Use shadow property ONLY. Never add a Xmin/xmin property to domain entities.
+```csharp
+entity.Property<uint>("xmin").HasColumnType("xid").IsRowVersion();
+```
+- ❌ Never use `UseXminAsConcurrencyToken()` (removed in Npgsql EF v7)
+- ❌ Never use entity property `public uint Xmin { get; set; }` or `public uint xmin { get; set; }`
+- ❌ Never use `.Ignore(e => e.Xmin)` — remove the entity property instead

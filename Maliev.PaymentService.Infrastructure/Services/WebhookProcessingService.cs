@@ -1,9 +1,13 @@
+<<<<<<< HEAD
 using Maliev.MessagingContracts.Contracts.Payments;
 using Maliev.MessagingContracts.Contracts.Shared;
+=======
+>>>>>>> 69ff5f1588a863eeb63e1f325b2c412971d50277
 using Maliev.MessagingContracts;
-using Maliev.PaymentService.Core.Entities;
-using Maliev.PaymentService.Core.Enums;
-using Maliev.PaymentService.Core.Interfaces;
+using Maliev.MessagingContracts.Contracts.Payments;
+using Maliev.PaymentService.Domain.Entities;
+using Maliev.PaymentService.Domain.Enums;
+using Maliev.PaymentService.Application.Interfaces;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
 

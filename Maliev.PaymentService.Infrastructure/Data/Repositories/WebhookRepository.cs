@@ -1,6 +1,6 @@
-using Maliev.PaymentService.Core.Entities;
-using Maliev.PaymentService.Core.Enums;
-using Maliev.PaymentService.Core.Interfaces;
+using Maliev.PaymentService.Domain.Entities;
+using Maliev.PaymentService.Domain.Enums;
+using Maliev.PaymentService.Application.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
 namespace Maliev.PaymentService.Infrastructure.Data.Repositories;
@@ -27,6 +27,7 @@ public class WebhookRepository : IWebhookRepository
     public async Task<WebhookEvent?> GetByProviderEventIdAsync(Guid providerId, string providerEventId, CancellationToken cancellationToken = default)
     {
         return await _context.WebhookEvents
+            .AsNoTracking()
             .FirstOrDefaultAsync(
                 w => w.ProviderId == providerId && w.ProviderEventId == providerEventId,
                 cancellationToken);
@@ -49,6 +50,7 @@ public class WebhookRepository : IWebhookRepository
     public async Task<List<WebhookEvent>> GetPendingRetriesAsync(int limit, CancellationToken cancellationToken = default)
     {
         return await _context.WebhookEvents
+            .AsNoTracking()
             .Where(w => w.ProcessingStatus == WebhookProcessingStatus.Failed &&
                        w.NextRetryAt != null &&
                        w.NextRetryAt <= DateTime.UtcNow)

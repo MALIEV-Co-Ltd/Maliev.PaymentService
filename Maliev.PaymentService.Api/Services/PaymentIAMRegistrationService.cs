@@ -1,5 +1,5 @@
 using Maliev.Aspire.ServiceDefaults.IAM;
-using Maliev.PaymentService.Api.Authorization;
+using Maliev.PaymentService.Application.Authorization;
 
 namespace Maliev.PaymentService.Api.Services;
 
