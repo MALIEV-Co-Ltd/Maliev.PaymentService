@@ -1,4 +1,5 @@
 using Asp.Versioning;
+using Maliev.Aspire.ServiceDefaults.Authorization;
 using Maliev.PaymentService.Api.Authorization;
 using Maliev.PaymentService.Application.Authorization;
 using Maliev.PaymentService.Domain.Enums;

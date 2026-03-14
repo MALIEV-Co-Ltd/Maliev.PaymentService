@@ -1,8 +1,3 @@
-<<<<<<< HEAD
-using Maliev.MessagingContracts.Contracts.Payments;
-using Maliev.MessagingContracts.Contracts.Shared;
-=======
->>>>>>> 69ff5f1588a863eeb63e1f325b2c412971d50277
 using Maliev.MessagingContracts;
 using Maliev.MessagingContracts.Contracts.Payments;
 using Maliev.PaymentService.Domain.Entities;
