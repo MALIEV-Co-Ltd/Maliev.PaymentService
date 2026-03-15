@@ -36,10 +36,10 @@ public class MetricsController : ControllerBase
     [ProducesResponseType(typeof(PaymentStatsDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetStats(CancellationToken cancellationToken)
     {
-        var today = DateTime.UtcNow.Date;
+        var today = DateTime.SpecifyKind(DateTime.UtcNow.Date, DateTimeKind.Utc);
         var tomorrow = today.AddDays(1);
         var yesterday = today.AddDays(-1);
-        var monthStart = new DateTime(today.Year, today.Month, 1);
+        var monthStart = new DateTime(today.Year, today.Month, 1, 0, 0, 0, DateTimeKind.Utc);
 
         var todayPayments = await _paymentRepository.GetByDateRangeAsync(today, tomorrow, cancellationToken);
         var yesterdayPayments = await _paymentRepository.GetByDateRangeAsync(yesterday, today, cancellationToken);
