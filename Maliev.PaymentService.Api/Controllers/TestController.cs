@@ -12,7 +12,7 @@ namespace Maliev.PaymentService.Api.Controllers;
 /// Only available in non-production environments.
 /// </summary>
 [ApiController]
-[ApiVersion("1.0")]
+[ApiVersion("1")]
 [Route("payment/v{version:apiVersion}/test")]
 [AllowAnonymous]
 public class TestController : ControllerBase

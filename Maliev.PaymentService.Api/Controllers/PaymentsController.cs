@@ -16,7 +16,7 @@ namespace Maliev.PaymentService.Api.Controllers;
 /// Controller for payment processing operations.
 /// </summary>
 [ApiController]
-[ApiVersion("1.0")]
+[ApiVersion("1")]
 [Route("payment/v{version:apiVersion}/payments")]
 [RequirePermission(PaymentPermissions.PaymentsRead)]
 public class PaymentsController : ControllerBase
