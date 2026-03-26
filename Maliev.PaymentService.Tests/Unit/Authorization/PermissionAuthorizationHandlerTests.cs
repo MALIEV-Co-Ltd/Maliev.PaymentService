@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Maliev.Aspire.ServiceDefaults.Authorization;
 using Maliev.PaymentService.Api.Authorization;
 using Maliev.PaymentService.Application.Authorization;
 using Microsoft.AspNetCore.Authorization;
@@ -12,13 +13,13 @@ namespace Maliev.PaymentService.Tests.Unit.Authorization;
 public class PermissionAuthorizationHandlerTests
 {
     private readonly Mock<IDistributedCache> _cacheMock = new();
-    private readonly Mock<ILogger<PermissionAuthorizationHandler>> _loggerMock = new();
+    private readonly Mock<ILogger<Maliev.PaymentService.Api.Authorization.PermissionAuthorizationHandler>> _loggerMock = new();
 
     [Fact]
     public async Task HandleRequirementAsync_UserNotAuthenticated_DoesNotSucceed()
     {
         // Arrange
-        var handler = new PermissionAuthorizationHandler(_cacheMock.Object, _loggerMock.Object);
+        var handler = new Maliev.PaymentService.Api.Authorization.PermissionAuthorizationHandler(_cacheMock.Object, _loggerMock.Object);
         var requirement = new PermissionRequirement("payment.test");
         var user = new ClaimsPrincipal(new ClaimsIdentity());
         var context = new AuthorizationHandlerContext(new[] { requirement }, user, null);
@@ -34,7 +35,7 @@ public class PermissionAuthorizationHandlerTests
     public async Task HandleRequirementAsync_HasPermissionInClaims_Succeeds()
     {
         // Arrange
-        var handler = new PermissionAuthorizationHandler(_cacheMock.Object, _loggerMock.Object);
+        var handler = new Maliev.PaymentService.Api.Authorization.PermissionAuthorizationHandler(_cacheMock.Object, _loggerMock.Object);
         var requirement = new PermissionRequirement("payment.test");
         var claims = new[] { new Claim("permissions", "payment.test"), new Claim(ClaimTypes.NameIdentifier, "user1") };
         var user = new ClaimsPrincipal(new ClaimsIdentity(claims, "Test"));
@@ -53,7 +54,7 @@ public class PermissionAuthorizationHandlerTests
     public async Task HandleRequirementAsync_HasWildcardPermission_Succeeds()
     {
         // Arrange
-        var handler = new PermissionAuthorizationHandler(_cacheMock.Object, _loggerMock.Object);
+        var handler = new Maliev.PaymentService.Api.Authorization.PermissionAuthorizationHandler(_cacheMock.Object, _loggerMock.Object);
         var requirement = new PermissionRequirement("payment.any");
         var claims = new[] { new Claim("permissions", "payment.*"), new Claim("sub", "user1") };
         var user = new ClaimsPrincipal(new ClaimsIdentity(claims, "Test"));
@@ -72,7 +73,7 @@ public class PermissionAuthorizationHandlerTests
     public async Task HandleRequirementAsync_RevokedCriticalPermission_DoesNotSucceed()
     {
         // Arrange
-        var handler = new PermissionAuthorizationHandler(_cacheMock.Object, _loggerMock.Object);
+        var handler = new Maliev.PaymentService.Api.Authorization.PermissionAuthorizationHandler(_cacheMock.Object, _loggerMock.Object);
         // payment.payments.process is critical
         var requirement = new PermissionRequirement("payment.payments.process");
         var claims = new[] { new Claim("permissions", "payment.payments.process"), new Claim("sub", "user1") };
@@ -94,7 +95,7 @@ public class PermissionAuthorizationHandlerTests
     public async Task HandleRequirementAsync_FallbackToScope_Succeeds()
     {
         // Arrange
-        var handler = new PermissionAuthorizationHandler(_cacheMock.Object, _loggerMock.Object);
+        var handler = new Maliev.PaymentService.Api.Authorization.PermissionAuthorizationHandler(_cacheMock.Object, _loggerMock.Object);
         var requirement = new PermissionRequirement("payment.test");
         // No "permissions" claim, but has "scope"
         var claims = new[] { new Claim("scope", "payment.test"), new Claim("sub", "user1") };
@@ -114,7 +115,7 @@ public class PermissionAuthorizationHandlerTests
     public async Task HandleRequirementAsync_FromCache_Succeeds()
     {
         // Arrange
-        var handler = new PermissionAuthorizationHandler(_cacheMock.Object, _loggerMock.Object);
+        var handler = new Maliev.PaymentService.Api.Authorization.PermissionAuthorizationHandler(_cacheMock.Object, _loggerMock.Object);
         var requirement = new PermissionRequirement("payment.test");
         var claims = new[] { new Claim("sub", "user1") };
         var user = new ClaimsPrincipal(new ClaimsIdentity(claims, "Test"));
@@ -135,7 +136,7 @@ public class PermissionAuthorizationHandlerTests
     public async Task HandleRequirementAsync_LacksPermission_DoesNotSucceed()
     {
         // Arrange
-        var handler = new PermissionAuthorizationHandler(_cacheMock.Object, _loggerMock.Object);
+        var handler = new Maliev.PaymentService.Api.Authorization.PermissionAuthorizationHandler(_cacheMock.Object, _loggerMock.Object);
         var requirement = new PermissionRequirement("payment.needed");
         var claims = new[] { new Claim("permissions", "payment.other"), new Claim("sub", "user1") };
         var user = new ClaimsPrincipal(new ClaimsIdentity(claims, "Test"));
