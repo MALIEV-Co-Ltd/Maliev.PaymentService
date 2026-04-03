@@ -8,63 +8,124 @@ This document provides context and instructions for AI agents working on the `Ma
 - **Cache**: Redis 7
 - **Messaging**: RabbitMQ (via MassTransit)
 - **Architecture**: Clean Architecture / Hexagonal
-  - `Maliev.PaymentService.Api`: Web API, Controllers, Consumers
-  - `Maliev.PaymentService.Core`: Domain Entities, Interfaces, Enums
-  - `Maliev.PaymentService.Infrastructure`: EF Core, Repositories, External Adapters
+  - `Maliev.PaymentService.Api`: Web API, Controllers, Consumers, Middleware
+  - `Maliev.PaymentService.Core`: Domain Entities, Interfaces, Enums, DTOs, Handlers
+  - `Maliev.PaymentService.Infrastructure`: EF Core DbContext, Repositories, External Adapters, HTTP Clients
   - `Maliev.PaymentService.Tests`: xUnit Tests (Unit & Integration)
+  - `Directory.Build.props`: Central package versioning
+  - `Maliev.PaymentService.slnx`: Solution file (.slnx preferred over .sln)
 
-## 2. Build & Test Commands
+## 2. Build, Test & Lint Commands
 
-### Build
-The project uses standard .NET CLI commands. **Note**: Warnings are treated as errors.
-```bash
-dotnet build
+All commands run from within `B:\maliev\Maliev.PaymentService`.
+
+```powershell
+# Build (treats warnings as errors — all must be fixed)
+dotnet build Maliev.PaymentService.slnx
+
+# Run all tests
+dotnet test Maliev.PaymentService.slnx --verbosity normal
+
+# Run a single test method
+dotnet test --filter "FullyQualifiedName~PaymentStatusServiceTests.GetPaymentStatus_ShouldReturnCorrectStatus"
+
+# Run all tests in a class
+dotnet test --filter "FullyQualifiedName~PaymentStatusServiceTests"
+
+# Run with code coverage
+dotnet test Maliev.PaymentService.slnx --collect:"XPlat Code Coverage"
+
+# Format check
+dotnet format Maliev.PaymentService.slnx
+
+# EF Core migrations (Infrastructure project only)
+dotnet ef migrations add <Name> --project Maliev.PaymentService.Infrastructure --startup-project Maliev.PaymentService.Infrastructure
 ```
 
-### Testing
-**Run All Tests:**
-```bash
-dotnet test
-```
+### Integration Tests
 
-**Run a Single Test:**
-Use the `--filter` option with the fully qualified name.
-```bash
-# Syntax: dotnet test --filter "FullyQualifiedName~{Namespace}.{Class}.{Method}"
-dotnet test --filter "FullyQualifiedName~Maliev.PaymentService.Tests.Unit.Services.PaymentStatusServiceTests.GetPaymentStatus_ShouldReturnCorrectStatus"
-```
+Integration tests use **Testcontainers** (PostgreSQL, Redis, RabbitMQ). Ensure Docker is running.
 
-**Run Integration Tests:**
-Integration tests use **Testcontainers**. Ensure Docker is running.
-```bash
+```powershell
 dotnet test --filter "FullyQualifiedName~Integration"
 ```
 
-## 3. Code Style & Guidelines
+## 3. Code Style & Conventions
 
-### Mandatory Rules
-- **No Banned Libraries**:
-  - ❌ **AutoMapper**: Use manual mapping (extension methods or static factories).
-  - ❌ **FluentValidation**: Use standard Data Annotations (`[Required]`, `[EmailAddress]`).
-  - ❌ **FluentAssertions**: Use standard xUnit `Assert` methods (`Assert.Equal`, `Assert.NotNull`).
-  - ❌ **Moq/NSubstitute (excessive)**: Prefer real instances or simple stubs where possible, though Moq is present in dependencies.
-- **Documentation**: All public methods and properties MUST have XML documentation (`/// <summary>`).
-- **Async/Await**: All I/O operations (DB, Http, Message Bus) must be asynchronous.
+### C# Naming & Formatting
+- **Namespaces**: File-scoped (`namespace Maliev.PaymentService.Core.Entities;`)
+- **Classes/Methods/Properties**: `PascalCase`
+- **Private fields**: `_camelCase` (underscore prefix)
+- **Parameters/locals**: `camelCase`
+- **Async methods**: Suffix with `Async` (e.g., `ProcessPaymentAsync`)
+- **Interfaces**: Prefix with `I` (e.g., `IPaymentProviderAdapter`)
+- **Permissions**: GCP-style `{domain}.{plural-resource}.{action}` as `public const string` in a `Permissions` static class
+  - Valid: `payment.transactions.create`, `payment.payments.read`
+  - Invalid: `payment.transaction.create` (singular), `payment.read` (missing resource)
+- **XML docs**: Required on ALL public methods and properties
+- **Nullable**: Enabled (`<Nullable>enable</Nullable>`). Use `?` explicitly
+- **Imports**: System first, then third-party, then local. Alphabetize within groups. Remove unused `using`
+- **Braces**: Allman style (new line) for methods and control structures. Expression-bodied for properties/accessors
+- **Indentation**: 4 spaces, LF line endings, UTF-8, trim trailing whitespace
 
-### Naming Conventions
-- **Classes/Methods**: `PascalCase`
-- **Private Fields**: `_camelCase`
-- **Variables/Parameters**: `camelCase`
-- **Interfaces**: `IPascalCase`
-- **Tests**: `MethodName_StateUnder_ExpectedBehavior` (e.g., `ProcessPayment_WithValidData_ReturnsSuccess`)
+### C# Patterns
+- **DI**: Constructor injection with `private readonly` fields
+- **Controllers**: `[ApiController]`, `[ApiVersion("1")]`, `[Route("payment/v{version:apiVersion}")]`
+- **Logging**: `ILogger<T>` with structured placeholders (never interpolate): `_logger.LogInformation("Processing {PaymentId}", paymentId)`
+- **Error handling**: Global exception middleware. Return `ProblemDetails` / `ErrorResponse` DTOs. Never expose stack traces
+- **JSON**: Check existing conventions in this service for naming policy
+- **Manual mapping**: Static extension methods (`ToDto()`, `ToEntity()`). AutoMapper is banned
+- **Validation**: `System.ComponentModel.DataAnnotations` on DTOs. FluentValidation is banned
 
-### Architecture Patterns
-- **Dependency Injection**: Explicit constructor injection.
-- **IAM Integration**: Permissions must follow `{service}.{resource}.{action}` format (e.g., `payment.transaction.read`).
-- **Idempotency**: All state-changing operations must check/store idempotency keys (Redis).
-- **Configuration**: NO secrets in code. Use `IConfiguration` / `IOptions<T>` patterns.
+### PaymentService-Specific Patterns
+- **Idempotency**: All state-changing operations must check/store idempotency keys (Redis)
+- **Configuration**: NO secrets in code. Use `IConfiguration` / `IOptions<T>` patterns
+- **IAM Integration**: Permissions follow `{domain}.{plural-resource}.{action}` format (e.g., `payment.transactions.read`)
 
-## 4. External Dependencies (Local Dev)
+## 4. Banned Libraries (Build Will Fail)
+
+| Banned | Use Instead |
+|--------|-------------|
+| AutoMapper | Manual mapping extensions |
+| FluentValidation | DataAnnotations or manual validation |
+| FluentAssertions | Standard xUnit `Assert.*` |
+| Swashbuckle/Swagger | Scalar (at `/payment/scalar`) |
+| InMemoryDatabase (EF Core) | Testcontainers with real PostgreSQL |
+
+## 5. Testing Rules
+
+- **Framework**: xUnit with standard `Assert` (`Assert.Equal`, `Assert.NotNull`, etc.)
+- **Naming**: `MethodName_StateUnderTest_ExpectedBehavior` or `HTTP_METHOD_Path_Scenario_ExpectedStatus`
+- **Coverage**: Minimum 80% per service
+- **Integration tests**: `BaseIntegrationTestFactory<TProgram, TDbContext>` with Testcontainers (PostgreSQL, Redis, RabbitMQ). Never InMemoryDatabase
+- **System tests** (Tier 3): `AspireTestFixture` with `[Collection("AspireDomainTests")]` — shared AppHost, never one per class. Tested in `Maliev.Aspire.Tests/`
+- **Eventual consistency**: Use `TestHelpers.WaitForAsync`. Never `Task.Delay`
+- **MassTransit consumers**: Must have consumer tests using `AddMassTransitTestHarness()`
+
+This service covers **Tier 1 (Unit)** and **Tier 2 (Service Integration)**:
+
+| Tier | What to Test | Infrastructure |
+|------|-------------|---------------|
+| **Unit** | Business logic, domain models, service methods with mocked dependencies | None (mocks only) |
+| **Service Integration** | API endpoints, database persistence, permission enforcement, input validation | `BaseIntegrationTestFactory` + Testcontainers (Postgres/Redis/RabbitMQ) |
+
+> Full ecosystem test strategy: `Maliev.Aspire.Tests/TEST_PLAN.md`
+
+## 6. Mandatory Rules
+
+- **`TreatWarningsAsErrors = true`**: Zero warnings allowed. No suppression
+- **`[RequirePermission("domain.resources.action")]`**: On all endpoints, not plain `[Authorize]`
+- **API versioning**: All routes versioned (`v1/`)
+- **Service prefix**: Routes prefixed with service domain (e.g., `/payment`)
+- **Scalar docs**: Configured at `/payment/scalar`
+- **Secrets**: Never hardcoded. Use GCP Secret Manager or environment variables
+- **Async/await**: All the way down. Pass `CancellationToken`
+- **EF Core Design package**: Only in Infrastructure project, never in Api
+- **PostgreSQL xmin**: Shadow property only — `entity.Property<uint>("xmin").HasColumnType("xid").IsRowVersion()`. Never add entity property
+- **Temporary files**: Generate in `/temp` folder, clean up afterwards
+
+## 7. External Dependencies (Local Dev)
+
 This project references sibling repositories (`Maliev.Aspire`, `Maliev.MessagingContracts`) in the parent directory.
 - If build fails due to missing projects, ensure the folder structure is:
   ```text
@@ -73,11 +134,11 @@ This project references sibling repositories (`Maliev.Aspire`, `Maliev.Messaging
   ../Maliev.PaymentService (Current)
   ```
 
-## 5. Common Tasks
+## 8. Common Tasks
 
 ### Database Migrations
 Always create migrations in the Infrastructure project.
-```bash
+```powershell
 dotnet ef migrations add <MigrationName> --project Maliev.PaymentService.Infrastructure --startup-project Maliev.PaymentService.Infrastructure
 dotnet ef database update --project Maliev.PaymentService.Infrastructure --startup-project Maliev.PaymentService.Infrastructure
 ```
@@ -88,55 +149,21 @@ dotnet ef database update --project Maliev.PaymentService.Infrastructure --start
 3. Add configuration class in `Core/Entities` or `Infrastructure/Data/Configurations`.
 4. Register in `Program.cs`.
 
-## 6. Verification
-Before declaring a task complete:
-1. Run `dotnet build` (ensure no warnings).
-2. Run relevant tests.
-3. If modifying DB schema, ensure a migration script is generated.
+## 9. Git Rules
 
-### Testing Strategy (4-Tier Pyramid Context)
+- Each `Maliev.*` folder is an independent git repo. `cd` into it before git commands
+- **Commit early and often** after every meaningful unit of work. Do not accumulate changes
+- **Never use `git checkout` to restore files** — commit first, then `git revert` or `git reset --soft`
+- Feature branches merged to `develop` via PR. Do not push without being asked
 
-This service's tests cover **Tier 1 (Unit)** and **Tier 2 (Service Integration)** of the Maliev testing pyramid:
-
-| Tier | What to Test | Infrastructure |
-|------|-------------|---------------|
-| **Unit** | Business logic, domain models, service methods with mocked dependencies | None (mocks only) |
-| **Service Integration** | API endpoints, database persistence, permission enforcement, input validation | `BaseIntegrationTestFactory` + Testcontainers (Postgres/Redis/RabbitMQ) |
-
-**Tier 3 (System Integration)** — cross-service workflows and event chains — is tested in `Maliev.Aspire.Tests/`.
-
-#### Key Rules
-- Use `BaseIntegrationTestFactory<TProgram, TDbContext>` for integration tests (real Testcontainers, never InMemoryDatabase)
-- Every MassTransit consumer MUST have a consumer test using `services.AddMassTransitTestHarness()`
-- Test naming: `MethodName_StateUnderTest_ExpectedBehavior`
-- Minimum 80% code coverage
-- Use `[Fact]` for single cases, `[Theory]` for parameterized tests
-
-> Full ecosystem test strategy: `Maliev.Aspire.Tests/TEST_PLAN.md`
-
-
-## Git & Version Control — Mandatory Rules
-
-### 🚨 CRITICAL: Always Commit Code Changes (Non-Negotiable)
-- **You MUST commit your changes to the local repository after completing any meaningful unit of work.**
-- **Never accumulate uncommitted changes.** Do not wait until end of session or until something breaks.
-- **Commit early and often** — if a change is meaningful (even a small fix or refactor), commit it.
-- **You do NOT need to push to remote** — local commits are sufficient to protect against accidental loss.
-- **If you are unsure whether to commit, commit anyway.** Extra commits are harmless; lost work is irreversible.
-- This rule applies even if you are just "testing" or "exploring" — use git branches to isolate experimental work and commit those changes too.
-
-### 🚨 CRITICAL: Never Use `git checkout` to Restore Broken Files
-- **NEVER use `git checkout` to restore or recover files.** This operation discards uncommitted changes permanently and will result in data loss.
-- **To undo/recover from broken files: first commit your current changes, then use `git revert` or `git reset --soft` to safely undo.**
-
-## Database & EF Core — Mandatory Rules
+## 10. Database & EF Core — Mandatory Rules
 
 ### EF Core Design Package
-- ❌ `Microsoft.EntityFrameworkCore.Design` MUST NOT be in Api projects
-- ✅ It belongs ONLY in the Infrastructure (or Data) project where migrations live
+- `Microsoft.EntityFrameworkCore.Design` MUST NOT be in Api projects
+- It belongs ONLY in the Infrastructure (or Data) project where migrations live
 - Migration commands must target Infrastructure as both project and startup-project (since EF Core Design package is in Infrastructure):
-  ```
-  dotnet ef migrations add <Name> --project Maliev.<Domain>Service.Infrastructure --startup-project Maliev.<Domain>Service.Infrastructure
+  ```powershell
+  dotnet ef migrations add <Name> --project Maliev.PaymentService.Infrastructure --startup-project Maliev.PaymentService.Infrastructure
   ```
 
 ### PostgreSQL xmin Concurrency — Mandatory Pattern
@@ -144,6 +171,6 @@ Use shadow property ONLY. Never add a Xmin/xmin property to domain entities.
 ```csharp
 entity.Property<uint>("xmin").HasColumnType("xid").IsRowVersion();
 ```
-- ❌ Never use `UseXminAsConcurrencyToken()` (removed in Npgsql EF v7)
-- ❌ Never use entity property `public uint Xmin { get; set; }` or `public uint xmin { get; set; }`
-- ❌ Never use `.Ignore(e => e.Xmin)` — remove the entity property instead
+- Never use `UseXminAsConcurrencyToken()` (removed in Npgsql EF v7)
+- Never use entity property `public uint Xmin { get; set; }` or `public uint xmin { get; set; }`
+- Never use `.Ignore(e => e.Xmin)` — remove the entity property instead
