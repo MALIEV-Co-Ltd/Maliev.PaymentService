@@ -213,3 +213,7 @@ appsettings.Development.json
 docker-compose*.yml
 docker-compose.override.yml
 *.csproj.user
+
+# User-specific files
+*.rsuser
+
