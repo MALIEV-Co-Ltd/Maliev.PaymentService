@@ -91,6 +91,12 @@ public class WebhookValidationService : IWebhookValidationService
             return false;
         }
 
+        if (!TryGetPayPalCertificate(provider, out var certificatePem))
+        {
+            _logger.LogWarning("PayPal provider missing configured webhook certificate/public key");
+            return false;
+        }
+
         return _payPalValidator.ValidateSignature(
             payload,
             transmissionId,
@@ -98,7 +104,32 @@ public class WebhookValidationService : IWebhookValidationService
             transmissionSig,
             certUrl ?? string.Empty,
             authAlgo ?? string.Empty,
-            webhookId);
+            webhookId,
+            certificatePem);
+    }
+
+    private static bool TryGetPayPalCertificate(PaymentProvider provider, out string certificatePem)
+    {
+        if (provider.Credentials.TryGetValue("WebhookCertificatePem", out certificatePem!) &&
+            !string.IsNullOrWhiteSpace(certificatePem))
+        {
+            return true;
+        }
+
+        if (provider.Credentials.TryGetValue("WebhookCertificate", out certificatePem!) &&
+            !string.IsNullOrWhiteSpace(certificatePem))
+        {
+            return true;
+        }
+
+        if (provider.Credentials.TryGetValue("WebhookPublicKeyPem", out certificatePem!) &&
+            !string.IsNullOrWhiteSpace(certificatePem))
+        {
+            return true;
+        }
+
+        certificatePem = string.Empty;
+        return false;
     }
 
     private bool ValidateOmiseWebhook(string payload, Dictionary<string, string> headers, string? sourceIp, PaymentProvider provider)

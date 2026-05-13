@@ -78,6 +78,8 @@ docker run --name payment-redis -p 6379:6379 -d redis:7-alpine
 # Windows PowerShell
 $env:ConnectionStrings__PaymentDbContext="YOUR_POSTGRES_CONNECTION_STRING"
 $env:ConnectionStrings__Cache="YOUR_REDIS_CONNECTION_STRING"
+# Stored provider credentials must include webhook signing material.
+# PayPal webhooks require WebhookId plus WebhookCertificatePem, WebhookCertificate, or WebhookPublicKeyPem.
 ```
 
 4. **Apply Migrations & Run**
@@ -99,7 +101,15 @@ All endpoints are prefixed with `/payments/v1/`.
 | POST | `/payments` | Initiate a new payment transaction |
 | GET | `/payments/{id}` | Retrieve payment status and details |
 | POST | `/payments/{id}/refund` | Process a full or partial refund |
+| POST | `/webhooks/{provider}` | Receive provider webhooks after provider-specific signature validation |
 | GET | `/metrics` | Retrieve Prometheus performance metrics |
+
+## Security Assumptions
+
+- Payment mutations require permission checks and idempotency keys before state changes.
+- Provider webhook payloads must fail closed when signature material is missing or invalid.
+- PayPal webhooks require cryptographic RSA verification of `PAYPAL-TRANSMISSION-SIG` using configured PayPal webhook certificate/public key material; header presence alone is not trusted.
+- Provider credentials and webhook signing material must come from environment/GCP Secret Manager, never tracked config.
 
 ---
 

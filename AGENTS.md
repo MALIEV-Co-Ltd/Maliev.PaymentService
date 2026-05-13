@@ -81,6 +81,7 @@ dotnet test --filter "FullyQualifiedName~Integration"
 - **Idempotency**: All state-changing operations must check/store idempotency keys (Redis)
 - **Configuration**: NO secrets in code. Use `IConfiguration` / `IOptions<T>` patterns
 - **IAM Integration**: Permissions follow `{domain}.{plural-resource}.{action}` format (e.g., `payment.transactions.read`)
+- **Webhook signatures**: Provider webhooks fail closed when signing material is missing. PayPal must verify `PAYPAL-TRANSMISSION-SIG` cryptographically with configured `WebhookCertificatePem`, `WebhookCertificate`, or `WebhookPublicKeyPem`; never accept headers by presence only.
 
 ## 4. Banned Libraries (Build Will Fail)
 

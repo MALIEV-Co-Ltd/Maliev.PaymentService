@@ -1,6 +1,8 @@
+using System.Security.Cryptography;
+using System.Text;
+using Maliev.PaymentService.Application.Interfaces;
 using Maliev.PaymentService.Domain.Entities;
 using Maliev.PaymentService.Domain.Enums;
-using Maliev.PaymentService.Application.Interfaces;
 using Maliev.PaymentService.Infrastructure.Services;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -88,6 +90,31 @@ public class WebhookValidationServiceTests
     }
 
     [Fact]
+    public async Task ValidateWebhookAsync_PayPal_MissingCertificate_ShouldReturnFalse()
+    {
+        var provider = CreateTestProvider("paypal");
+        provider.Credentials["WebhookId"] = "webhook-id";
+        var headers = CreatePayPalHeaders("payload", "webhook-id").Headers;
+
+        var result = await _service.ValidateWebhookAsync(provider, "payload", headers);
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public async Task ValidateWebhookAsync_PayPal_ValidSignatureWithCertificate_ShouldReturnTrue()
+    {
+        var provider = CreateTestProvider("paypal");
+        provider.Credentials["WebhookId"] = "webhook-id";
+        var signedPayload = CreatePayPalHeaders("payload", "webhook-id");
+        provider.Credentials["WebhookPublicKeyPem"] = signedPayload.PublicKeyPem;
+
+        var result = await _service.ValidateWebhookAsync(provider, "payload", signedPayload.Headers);
+
+        Assert.True(result);
+    }
+
+    [Fact]
     public async Task ValidateWebhookAsync_Omise_InvalidIp_ShouldReturnFalse()
     {
         var provider = CreateTestProvider("omise");
@@ -125,5 +152,45 @@ public class WebhookValidationServiceTests
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
+    }
+
+    private static (Dictionary<string, string> Headers, string PublicKeyPem) CreatePayPalHeaders(string payload, string webhookId)
+    {
+        using var rsa = RSA.Create(2048);
+        const string transmissionId = "transmission-id";
+        const string transmissionTime = "2024-01-01T00:00:00Z";
+        var signedData = $"{transmissionId}|{transmissionTime}|{webhookId}|{ComputeCrc32(payload)}";
+        var signature = rsa.SignData(
+            Encoding.UTF8.GetBytes(signedData),
+            HashAlgorithmName.SHA256,
+            RSASignaturePadding.Pkcs1);
+
+        var headers = new Dictionary<string, string>
+        {
+            ["PAYPAL-TRANSMISSION-ID"] = transmissionId,
+            ["PAYPAL-TRANSMISSION-TIME"] = transmissionTime,
+            ["PAYPAL-TRANSMISSION-SIG"] = Convert.ToBase64String(signature),
+            ["PAYPAL-CERT-URL"] = "https://api.paypal.com/cert",
+            ["PAYPAL-AUTH-ALGO"] = "SHA256withRSA"
+        };
+
+        return (headers, rsa.ExportSubjectPublicKeyInfoPem());
+    }
+
+    private static uint ComputeCrc32(string data)
+    {
+        var bytes = Encoding.UTF8.GetBytes(data);
+        uint crc = 0xFFFFFFFF;
+
+        foreach (var b in bytes)
+        {
+            crc ^= b;
+            for (int i = 0; i < 8; i++)
+            {
+                crc = (crc >> 1) ^ (0xEDB88320 & ~((crc & 1) - 1));
+            }
+        }
+
+        return ~crc;
     }
 }

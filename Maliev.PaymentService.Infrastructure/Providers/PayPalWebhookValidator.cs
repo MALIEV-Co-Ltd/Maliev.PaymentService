@@ -1,10 +1,11 @@
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 
 namespace Maliev.PaymentService.Infrastructure.Providers;
 
 /// <summary>
 /// Validates PayPal webhook signatures using certificate-based validation.
-/// Note: This is a simplified implementation. Production should fetch and cache certificates.
 /// </summary>
 public class PayPalWebhookValidator
 {
@@ -18,6 +19,7 @@ public class PayPalWebhookValidator
     /// <param name="certUrl">PAYPAL-CERT-URL header</param>
     /// <param name="authAlgo">PAYPAL-AUTH-ALGO header</param>
     /// <param name="webhookId">Configured webhook ID</param>
+    /// <param name="certificatePem">Configured PayPal webhook certificate/public key PEM.</param>
     /// <returns>True if signature is valid</returns>
     public bool ValidateSignature(
         string payload,
@@ -26,38 +28,49 @@ public class PayPalWebhookValidator
         string transmissionSig,
         string certUrl,
         string authAlgo,
-        string webhookId)
+        string webhookId,
+        string certificatePem)
     {
         if (string.IsNullOrWhiteSpace(payload) ||
             string.IsNullOrWhiteSpace(transmissionId) ||
             string.IsNullOrWhiteSpace(transmissionTime) ||
             string.IsNullOrWhiteSpace(transmissionSig) ||
-            string.IsNullOrWhiteSpace(webhookId))
+            string.IsNullOrWhiteSpace(webhookId) ||
+            string.IsNullOrWhiteSpace(certificatePem))
         {
             return false;
         }
 
-        // Verify cert URL is from PayPal domain
+        if (string.IsNullOrWhiteSpace(certUrl) || string.IsNullOrWhiteSpace(authAlgo))
+        {
+            return false;
+        }
+
         if (!string.IsNullOrWhiteSpace(certUrl) && !IsValidPayPalCertUrl(certUrl))
         {
             return false;
         }
 
-        // For MVP/sandbox, we'll do basic validation
-        // Production implementation should:
-        // 1. Fetch certificate from certUrl
-        // 2. Verify certificate chain
-        // 3. Use public key to verify signature
+        if (!TryGetHashAlgorithm(authAlgo, out var hashAlgorithm))
+        {
+            return false;
+        }
 
-        // Construct expected signed data
         var expectedData = $"{transmissionId}|{transmissionTime}|{webhookId}|{ComputeCrc32(payload)}";
+        var data = Encoding.UTF8.GetBytes(expectedData);
 
-        // In production, verify using RSA with certificate
-        // For now, return true if all required headers are present
-        // This allows testing webhook flow without full certificate infrastructure
+        if (!TryDecodeBase64(transmissionSig, out var signature))
+        {
+            return false;
+        }
 
-        return !string.IsNullOrWhiteSpace(authAlgo) &&
-               authAlgo.StartsWith("SHA", StringComparison.OrdinalIgnoreCase);
+        using var rsa = CreateRsaFromPem(certificatePem);
+        if (rsa == null)
+        {
+            return false;
+        }
+
+        return rsa.VerifyData(data, signature, hashAlgorithm, RSASignaturePadding.Pkcs1);
     }
 
     private bool IsValidPayPalCertUrl(string certUrl)
@@ -73,6 +86,66 @@ public class PayPalWebhookValidator
                 uri.Host.Equals("api-m.paypal.com", StringComparison.OrdinalIgnoreCase) ||
                 uri.Host.Equals("api.sandbox.paypal.com", StringComparison.OrdinalIgnoreCase) ||
                 uri.Host.Equals("api-m.sandbox.paypal.com", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool TryGetHashAlgorithm(string authAlgo, out HashAlgorithmName hashAlgorithm)
+    {
+        hashAlgorithm = default;
+
+        if (authAlgo.Equals("SHA256withRSA", StringComparison.OrdinalIgnoreCase))
+        {
+            hashAlgorithm = HashAlgorithmName.SHA256;
+            return true;
+        }
+
+        if (authAlgo.Equals("SHA384withRSA", StringComparison.OrdinalIgnoreCase))
+        {
+            hashAlgorithm = HashAlgorithmName.SHA384;
+            return true;
+        }
+
+        if (authAlgo.Equals("SHA512withRSA", StringComparison.OrdinalIgnoreCase))
+        {
+            hashAlgorithm = HashAlgorithmName.SHA512;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryDecodeBase64(string value, out byte[] bytes)
+    {
+        try
+        {
+            bytes = Convert.FromBase64String(value);
+            return true;
+        }
+        catch (FormatException)
+        {
+            bytes = [];
+            return false;
+        }
+    }
+
+    private static RSA? CreateRsaFromPem(string pem)
+    {
+        try
+        {
+            if (pem.Contains("BEGIN CERTIFICATE", StringComparison.Ordinal))
+            {
+                using var certificate = X509Certificate2.CreateFromPem(pem);
+                var certificateKey = certificate.GetRSAPublicKey();
+                return certificateKey == null ? null : RSA.Create(certificateKey.ExportParameters(false));
+            }
+
+            var rsa = RSA.Create();
+            rsa.ImportFromPem(pem);
+            return rsa;
+        }
+        catch (CryptographicException)
+        {
+            return null;
+        }
     }
 
     private uint ComputeCrc32(string data)
