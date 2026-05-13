@@ -109,6 +109,7 @@ All endpoints are prefixed with `/payments/v1/`.
 - Payment mutations require permission checks and idempotency keys before state changes.
 - Provider webhook payloads must fail closed when signature material is missing or invalid.
 - PayPal webhooks require cryptographic RSA verification of `PAYPAL-TRANSMISSION-SIG` using configured PayPal webhook certificate/public key material; header presence alone is not trusted.
+- Non-production test/simulation endpoints still require payment processing permission before publishing payment events; environment checks are not a substitute for IAM.
 - Provider credentials and webhook signing material must come from environment/GCP Secret Manager, never tracked config.
 
 ---

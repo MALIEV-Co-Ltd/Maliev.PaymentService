@@ -1,8 +1,9 @@
 using Asp.Versioning;
+using Maliev.Aspire.ServiceDefaults.Authorization;
 using Maliev.MessagingContracts;
 using Maliev.MessagingContracts.Contracts.Payments;
 using Maliev.PaymentService.Application.Interfaces;
-using Microsoft.AspNetCore.Authorization;
+using Maliev.PaymentService.Application.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Maliev.PaymentService.Api.Controllers;
@@ -14,7 +15,7 @@ namespace Maliev.PaymentService.Api.Controllers;
 [ApiController]
 [ApiVersion("1")]
 [Route("payment/v{version:apiVersion}/test")]
-[AllowAnonymous]
+[RequirePermission(PaymentPermissions.PaymentsProcess)]
 public class TestController : ControllerBase
 {
     private readonly IEventPublisher _eventPublisher;
