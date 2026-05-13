@@ -96,8 +96,16 @@ try
     builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IWebhookProcessingService, Maliev.PaymentService.Infrastructure.Services.WebhookProcessingService>();
     builder.Services.AddHostedService<Maliev.PaymentService.Infrastructure.Services.WebhookCleanupService>();
 
-    // Register idempotency service (uses Redis from AddRedisDistributedCache)
-    builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IIdempotencyService, Maliev.PaymentService.Infrastructure.Caching.RedisIdempotencyService>();
+    // Register idempotency service. Redis is required for shared production
+    // idempotency, while local/test hosts use the in-memory fallback.
+    if (builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing"))
+    {
+        builder.Services.AddSingleton<Maliev.PaymentService.Application.Interfaces.IIdempotencyService, Maliev.PaymentService.Infrastructure.Caching.InMemoryIdempotencyService>();
+    }
+    else
+    {
+        builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IIdempotencyService, Maliev.PaymentService.Infrastructure.Caching.RedisIdempotencyService>();
+    }
 
     // Register event publisher
     builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IEventPublisher, Maliev.PaymentService.Infrastructure.Messaging.MassTransitEventPublisher>();
@@ -115,16 +123,18 @@ try
     await app.MigrateDatabaseAsync<PaymentDbContext>();
 
     // Seed test payment provider for development/testing
-    if (app.Environment.IsDevelopment())
+    if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
     {
         using var scope = app.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
+        var encryptionService = scope.ServiceProvider.GetRequiredService<Maliev.PaymentService.Application.Interfaces.IEncryptionService>();
 
         if (!await dbContext.PaymentProviders.AnyAsync())
         {
+            var providerId = Guid.NewGuid();
             var testProvider = new Maliev.PaymentService.Domain.Entities.PaymentProvider
             {
-                Id = Guid.NewGuid(),
+                Id = providerId,
                 Name = "stripe",
                 DisplayName = "Stripe (Test)",
                 Status = Maliev.PaymentService.Domain.Enums.ProviderStatus.Active,
@@ -132,9 +142,23 @@ try
                 Priority = 1,
                 Credentials = new Dictionary<string, string>
                 {
-                    { "ApiKey", "sk_test_development_key" }
+                    { "ApiKey", encryptionService.Encrypt("sk_test_development_key") }
                 },
-                Configurations = new List<Maliev.PaymentService.Domain.Entities.ProviderConfiguration>(),
+                Configurations = new List<Maliev.PaymentService.Domain.Entities.ProviderConfiguration>
+                {
+                    new()
+                    {
+                        Id = Guid.NewGuid(),
+                        PaymentProviderId = providerId,
+                        Region = "global",
+                        ApiBaseUrl = "https://api.stripe.com",
+                        IsActive = true,
+                        MaxRetries = 3,
+                        TimeoutSeconds = 30,
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow
+                    }
+                },
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
