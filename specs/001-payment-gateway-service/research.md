@@ -4,7 +4,7 @@
 
 ## Overview
 
-This document contains research findings for implementing a payment gateway service that integrates with multiple payment providers (Stripe, PayPal, Omise, SCB API) using .NET 10, Entity Framework Core 9.0, and resilience patterns with Polly 8.5.0.
+This document contains research findings for implementing a payment gateway service that integrates with Omise as the primary Thai-market payment provider, with SCB API and Stripe as configured fallbacks, using .NET 10, Entity Framework Core 9.0, and resilience patterns with Polly 8.5.0.
 
 ## 1. Payment Provider Integration Patterns
 
@@ -12,7 +12,7 @@ This document contains research findings for implementing a payment gateway serv
 
 **Adapter Pattern Implementation**:
 - Define `IPaymentProviderAdapter` interface with common payment operations
-- Implement provider-specific adapters (StripeProvider, PayPalProvider, etc.)
+- Implement provider-specific adapters (OmiseProvider, ScbApiProvider, StripeProvider)
 - Use factory pattern (`ProviderFactory`) to instantiate correct provider based on configuration
 - Normalize provider responses to internal domain models
 
@@ -42,21 +42,12 @@ bool ValidateWebhookSignature(string payload, string signature);
 - **Timeout Recommendations**: 30-80 seconds
 - **Webhook Events**: `payment_intent.succeeded`, `payment_intent.failed`, `charge.refunded`
 
-#### PayPal Integration
-- **SDK**: PayPal REST SDK or direct HTTP API
-- **Authentication**: OAuth 2.0 bearer tokens (expires in 9 hours)
-- **Webhook Signature**: CERT-URL and TRANSMISSION-SIG headers validation
-- **Rate Limits**: 500 requests/minute for REST API
-- **Supported Currencies**: 25+ major currencies
-- **Order Flow**: Create Order -> Capture Order (two-step process)
-- **Webhook Events**: `PAYMENT.CAPTURE.COMPLETED`, `PAYMENT.CAPTURE.DENIED`, `PAYMENT.CAPTURE.REFUNDED`
-
 #### Omise Integration
 - **SDK**: Omise.Net or direct HTTP API
 - **Authentication**: Basic auth with secret key
-- **Webhook Signature**: Not provided - use IP whitelist validation
+- **Webhook Signature**: HMAC validation using `Omise-Signature` and the configured webhook secret
 - **Rate Limits**: Not publicly documented (monitor 429 responses)
-- **Supported Currencies**: THB, JPY, SGD, USD, GBP, EUR, AUD, CAD
+- **Supported Currencies**: THB for MALIEV's primary market configuration
 - **3D Secure Support**: Required for certain card types
 - **Webhook Events**: `charge.complete`, `charge.failed`, `refund.created`
 
@@ -199,7 +190,7 @@ services.AddResiliencePipeline("payment-provider", builder =>
 
 ## 3. Webhook Signature Validation Approaches
 
-### 3.1 HMAC Signature Validation (Stripe, SCB)
+### 3.1 HMAC Signature Validation (Omise, Stripe, SCB)
 
 **Algorithm**: HMAC-SHA256
 
@@ -222,40 +213,9 @@ public bool ValidateHmacSignature(string payload, string signature, string secre
 - Verify timestamp within 5 minutes tolerance (replay protection)
 - Construct payload: `{timestamp}.{request_body}`
 
-### 3.2 Certificate Verification (PayPal)
+### 3.2 Omise Signature Header
 
-**Algorithm**: RSA signature with CERT-URL validation
-
-**Implementation Steps**:
-1. Extract CERT-URL from headers
-2. Download certificate from PayPal (cache for 24 hours)
-3. Verify certificate chain against PayPal root CA
-4. Extract public key from certificate
-5. Verify signature using public key
-
-**Security Considerations**:
-- Only allow CERT-URLs from `*.paypal.com` domain
-- Implement certificate caching to avoid repeated downloads
-- Set certificate cache TTL to 24 hours
-
-### 3.3 IP Whitelist Validation (Omise)
-
-**Fallback Strategy** (when signature not available):
-```csharp
-public bool ValidateIpWhitelist(IPAddress clientIp, string[] allowedIpRanges)
-{
-    foreach (var range in allowedIpRanges)
-    {
-        if (IPAddressRange.Parse(range).Contains(clientIp))
-            return true;
-    }
-    return false;
-}
-```
-
-**Omise IP Ranges** (example, verify with provider):
-- `52.77.86.232/32`
-- `54.255.188.165/32`
+Omise webhook handling must fail closed unless the `Omise-Signature` header and the configured webhook secret are both present. The computed HMAC must be compared with a fixed-time comparison to avoid timing leaks. IP allow lists may be used as defense in depth, but they are not a replacement for signature verification.
 
 **Limitations**:
 - Less secure than cryptographic signatures
@@ -410,26 +370,26 @@ public async Task<IPaymentProviderAdapter> SelectProviderAsync(
 
 ### 5.3 Multi-Provider Currency Handling
 
-**Example**: USD supported by Stripe, PayPal, Omise
+**Example**: THB supported by Omise, SCB, and Stripe
 
 **Configuration**:
 ```json
 {
   "providers": [
     {
-      "name": "Stripe",
-      "priority": 1,
-      "supportedCurrencies": ["USD", "EUR", "GBP", "THB", ...]
-    },
-    {
-      "name": "PayPal",
-      "priority": 2,
-      "supportedCurrencies": ["USD", "EUR", "GBP", ...]
-    },
-    {
       "name": "Omise",
+      "priority": 1,
+      "supportedCurrencies": ["THB"]
+    },
+    {
+      "name": "SCB",
+      "priority": 2,
+      "supportedCurrencies": ["THB"]
+    },
+    {
+      "name": "Stripe",
       "priority": 3,
-      "supportedCurrencies": ["THB", "USD", "SGD", ...]
+      "supportedCurrencies": ["USD", "EUR", "GBP", "THB", ...]
     }
   ]
 }
@@ -729,9 +689,9 @@ public async Task CleanupOldWebhooksAsync(CancellationToken ct)
 ### 9.1 Critical Decisions Needed
 
 **Decision 1: Provider SDK vs Direct HTTP**
-- **Recommendation**: Use official SDKs for Stripe and PayPal (well-maintained, typed)
-- **Concern**: Omise and SCB may need direct HTTP implementation
-- **Action**: Evaluate SDK quality before implementation
+- **Recommendation**: Keep Omise as the first implementation path and use direct HTTP if the available SDK does not expose required card, QR, bank payment, and webhook features cleanly.
+- **Concern**: SCB and Stripe fallback paths may need different SDK/direct HTTP tradeoffs.
+- **Action**: Evaluate each provider against the Thai-market payment methods MALIEV actually exposes.
 
 **Decision 2: Synchronous vs Asynchronous Payment Flow**
 - **Recommendation**: Hybrid approach

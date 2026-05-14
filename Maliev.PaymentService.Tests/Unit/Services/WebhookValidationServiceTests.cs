@@ -78,10 +78,10 @@ public class WebhookValidationServiceTests
     }
 
     [Fact]
-    public async Task ValidateWebhookAsync_PayPal_MissingHeaders_ShouldReturnFalse()
+    public async Task ValidateWebhookAsync_Omise_MissingSignature_ShouldReturnFalse()
     {
-        var provider = CreateTestProvider("paypal");
-        provider.Credentials["WebhookId"] = "webhook-id";
+        var provider = CreateTestProvider("omise");
+        provider.Credentials["WebhookSecret"] = "secret";
 
         var result = await _service.ValidateWebhookAsync(
             provider, "payload", new Dictionary<string, string>());
@@ -90,11 +90,10 @@ public class WebhookValidationServiceTests
     }
 
     [Fact]
-    public async Task ValidateWebhookAsync_PayPal_MissingCertificate_ShouldReturnFalse()
+    public async Task ValidateWebhookAsync_Omise_MissingSecret_ShouldReturnFalse()
     {
-        var provider = CreateTestProvider("paypal");
-        provider.Credentials["WebhookId"] = "webhook-id";
-        var headers = CreatePayPalHeaders("payload", "webhook-id").Headers;
+        var provider = CreateTestProvider("omise");
+        var headers = new Dictionary<string, string> { ["Omise-Signature"] = ComputeOmiseSignature("payload", "secret") };
 
         var result = await _service.ValidateWebhookAsync(provider, "payload", headers);
 
@@ -102,27 +101,15 @@ public class WebhookValidationServiceTests
     }
 
     [Fact]
-    public async Task ValidateWebhookAsync_PayPal_ValidSignatureWithCertificate_ShouldReturnTrue()
-    {
-        var provider = CreateTestProvider("paypal");
-        provider.Credentials["WebhookId"] = "webhook-id";
-        var signedPayload = CreatePayPalHeaders("payload", "webhook-id");
-        provider.Credentials["WebhookPublicKeyPem"] = signedPayload.PublicKeyPem;
-
-        var result = await _service.ValidateWebhookAsync(provider, "payload", signedPayload.Headers);
-
-        Assert.True(result);
-    }
-
-    [Fact]
-    public async Task ValidateWebhookAsync_Omise_InvalidIp_ShouldReturnFalse()
+    public async Task ValidateWebhookAsync_Omise_ValidSignature_ShouldReturnTrue()
     {
         var provider = CreateTestProvider("omise");
+        provider.Credentials["WebhookSecret"] = "secret";
+        var headers = new Dictionary<string, string> { ["Omise-Signature"] = ComputeOmiseSignature("payload", "secret") };
 
-        var result = await _service.ValidateWebhookAsync(
-            provider, "payload", new Dictionary<string, string>(), "192.168.1.1");
+        var result = await _service.ValidateWebhookAsync(provider, "payload", headers);
 
-        Assert.False(result);
+        Assert.True(result);
     }
 
     [Fact]
@@ -154,43 +141,9 @@ public class WebhookValidationServiceTests
         };
     }
 
-    private static (Dictionary<string, string> Headers, string PublicKeyPem) CreatePayPalHeaders(string payload, string webhookId)
+    private static string ComputeOmiseSignature(string payload, string secret)
     {
-        using var rsa = RSA.Create(2048);
-        const string transmissionId = "transmission-id";
-        const string transmissionTime = "2024-01-01T00:00:00Z";
-        var signedData = $"{transmissionId}|{transmissionTime}|{webhookId}|{ComputeCrc32(payload)}";
-        var signature = rsa.SignData(
-            Encoding.UTF8.GetBytes(signedData),
-            HashAlgorithmName.SHA256,
-            RSASignaturePadding.Pkcs1);
-
-        var headers = new Dictionary<string, string>
-        {
-            ["PAYPAL-TRANSMISSION-ID"] = transmissionId,
-            ["PAYPAL-TRANSMISSION-TIME"] = transmissionTime,
-            ["PAYPAL-TRANSMISSION-SIG"] = Convert.ToBase64String(signature),
-            ["PAYPAL-CERT-URL"] = "https://api.paypal.com/cert",
-            ["PAYPAL-AUTH-ALGO"] = "SHA256withRSA"
-        };
-
-        return (headers, rsa.ExportSubjectPublicKeyInfoPem());
-    }
-
-    private static uint ComputeCrc32(string data)
-    {
-        var bytes = Encoding.UTF8.GetBytes(data);
-        uint crc = 0xFFFFFFFF;
-
-        foreach (var b in bytes)
-        {
-            crc ^= b;
-            for (int i = 0; i < 8; i++)
-            {
-                crc = (crc >> 1) ^ (0xEDB88320 & ~((crc & 1) - 1));
-            }
-        }
-
-        return ~crc;
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
+        return Convert.ToHexString(hmac.ComputeHash(Encoding.UTF8.GetBytes(payload))).ToLowerInvariant();
     }
 }

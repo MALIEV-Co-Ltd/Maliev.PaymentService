@@ -2,12 +2,12 @@ namespace Maliev.PaymentService.Infrastructure.Providers;
 
 /// <summary>
 /// Interface for payment provider adapters.
-/// Each provider (Stripe, PayPal, etc.) implements this interface for standardized integration.
+/// Each provider (Omise, SCB, Stripe, etc.) implements this interface for standardized integration.
 /// </summary>
 public interface IPaymentProviderAdapter
 {
     /// <summary>
-    /// Provider name (e.g., "stripe", "paypal").
+    /// Provider name (e.g., "omise", "stripe").
     /// </summary>
     string ProviderName { get; }
 

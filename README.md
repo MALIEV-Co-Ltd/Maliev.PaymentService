@@ -4,9 +4,9 @@
 [![.NET Version](https://img.shields.io/badge/.NET-10.0-blue)](https://dotnet.microsoft.com/download/dotnet/10.0)
 [![Database](https://img.shields.io/badge/Database-PostgreSQL%2018-blue)](https://www.postgresql.org/)
 
-Enterprise-grade payment orchestration gateway with multi-provider support and intelligent routing.
+Enterprise-grade payment orchestration gateway with Omise-first routing for the Thai market and fallback provider support where explicitly configured.
 
-**Role in MALIEV Architecture**: The centralized financial gateway for all incoming and outgoing transactions. It abstracts the complexity of multiple payment providers (Stripe, PayPal, etc.) while ensuring transactional integrity, idempotency, and high availability for the platform's revenue streams.
+**Role in MALIEV Architecture**: The centralized financial gateway for all incoming and outgoing transactions. Omise is the primary provider for Thailand because it supports cards, bank payments, and QR-code payment flows better aligned with MALIEV's current market. The service still abstracts provider complexity for configured fallbacks while ensuring transactional integrity, idempotency, and high availability for the platform's revenue streams.
 
 ---
 
@@ -78,8 +78,10 @@ docker run --name payment-redis -p 6379:6379 -d redis:7-alpine
 # Windows PowerShell
 $env:ConnectionStrings__PaymentDbContext="YOUR_POSTGRES_CONNECTION_STRING"
 $env:ConnectionStrings__Cache="YOUR_REDIS_CONNECTION_STRING"
+$env:PaymentProviders__Omise__PublicKey="YOUR_OMISE_PUBLIC_KEY"
+$env:PaymentProviders__Omise__SecretKey="YOUR_OMISE_SECRET_KEY"
+$env:PaymentProviders__Omise__WebhookSecret="YOUR_OMISE_WEBHOOK_SECRET"
 # Stored provider credentials must include webhook signing material.
-# PayPal webhooks require WebhookId plus WebhookCertificatePem, WebhookCertificate, or WebhookPublicKeyPem.
 ```
 
 4. **Apply Migrations & Run**
@@ -108,7 +110,7 @@ All endpoints are prefixed with `/payments/v1/`.
 
 - Payment mutations require permission checks and idempotency keys before state changes.
 - Provider webhook payloads must fail closed when signature material is missing or invalid.
-- PayPal webhooks require cryptographic RSA verification of `PAYPAL-TRANSMISSION-SIG` using configured PayPal webhook certificate/public key material; header presence alone is not trusted.
+- Omise webhooks require cryptographic verification of the `Omise-Signature` header using the configured Omise webhook secret; header presence alone is not trusted.
 - Non-production test/simulation endpoints still require payment processing permission before publishing payment events; environment checks are not a substitute for IAM.
 - Provider credentials and webhook signing material must come from environment/GCP Secret Manager, never tracked config.
 

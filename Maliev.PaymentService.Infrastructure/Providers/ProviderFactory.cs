@@ -54,12 +54,6 @@ public class ProviderFactory
                 decryptedCredentials.GetValueOrDefault("ApiKey", string.Empty),
                 config.ApiBaseUrl),
 
-            "paypal" => new PayPalProvider(
-                httpClient,
-                decryptedCredentials.GetValueOrDefault("ClientId", string.Empty),
-                decryptedCredentials.GetValueOrDefault("ClientSecret", string.Empty),
-                config.ApiBaseUrl),
-
             "omise" => new OmiseProvider(
                 httpClient,
                 decryptedCredentials.GetValueOrDefault("SecretKey", string.Empty),

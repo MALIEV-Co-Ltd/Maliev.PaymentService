@@ -106,15 +106,15 @@ public class ProvidersControllerIntegrationTests : IClassFixture<IntegrationTest
         // Arrange - Register a provider first
         var registerRequest = new RegisterProviderRequest
         {
-            Name = "PayPal",
-            DisplayName = "PayPal",
+            Name = "Omise",
+            DisplayName = "Omise",
             Status = ProviderStatus.Active,
-            SupportedCurrencies = new List<string> { "USD", "EUR" },
-            Priority = 2,
-            Credentials = new Dictionary<string, string> { { "ClientId", "test" }, { "ClientSecret", "secret" } },
+            SupportedCurrencies = new List<string> { "THB" },
+            Priority = 1,
+            Credentials = new Dictionary<string, string> { { "PublicKey", "pkey_test" }, { "SecretKey", "skey_test" } },
             Configurations = new List<RegisterProviderRequest.ProviderConfigurationDto>
             {
-                new() { Region = "US", ApiBaseUrl = "https://api.paypal.com", IsActive = true }
+                new() { Region = "TH", ApiBaseUrl = "https://api.omise.co", IsActive = true }
             }
         };
         await _client.PostAsJsonAsync("/payment/v1/providers", registerRequest);
@@ -128,7 +128,7 @@ public class ProvidersControllerIntegrationTests : IClassFixture<IntegrationTest
         var providers = await response.Content.ReadFromJsonAsync<List<ProviderSummary>>();
         Assert.NotNull(providers);
         Assert.NotEmpty(providers);
-        Assert.Contains(providers, p => p.Name == "PayPal");
+        Assert.Contains(providers, p => p.Name == "Omise");
     }
 
     [Fact]

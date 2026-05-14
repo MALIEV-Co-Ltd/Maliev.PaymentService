@@ -58,7 +58,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
     {
         // Check if provider already exists (for idempotency across multiple tests)
         var existingProvider = await _dbContext!.PaymentProviders
-            .FirstOrDefaultAsync(p => p.Name == "stripe");
+            .FirstOrDefaultAsync(p => p.Name == "omise");
 
         if (existingProvider != null)
         {
@@ -69,15 +69,17 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         var provider = new Maliev.PaymentService.Domain.Entities.PaymentProvider
         {
             Id = providerId,
-            Name = "stripe",
-            DisplayName = "Stripe (Test)",
+            Name = "omise",
+            DisplayName = "Omise (Test)",
             Status = ProviderStatus.Active,
-            SupportedCurrencies = new List<string> { "THB", "USD", "EUR" },
+            SupportedCurrencies = new List<string> { "THB" },
             Priority = 1,
             // Encrypt credentials so they can be decrypted when processing payments
             Credentials = new Dictionary<string, string>
             {
-                { "ApiKey", encryptionService.Encrypt("sk_test_mock_key") }
+                { "PublicKey", encryptionService.Encrypt("pkey_test_mock_key") },
+                { "SecretKey", encryptionService.Encrypt("skey_test_mock_key") },
+                { "WebhookSecret", encryptionService.Encrypt("whsec_test_mock_key") }
             },
             Configurations = new List<Maliev.PaymentService.Domain.Entities.ProviderConfiguration>
             {
@@ -85,8 +87,8 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
                 {
                     Id = Guid.NewGuid(),
                     PaymentProviderId = providerId,
-                    Region = "global",
-                    ApiBaseUrl = "https://api.stripe.com",
+                    Region = "thailand",
+                    ApiBaseUrl = "https://api.omise.co",
                     IsActive = true,
                     MaxRetries = 3,
                     TimeoutSeconds = 30,
@@ -118,7 +120,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         var request = new PaymentRequest
         {
             Amount = 100.00m,
-            Currency = "USD",
+            Currency = "THB",
             CustomerId = "cust_123456",
             OrderId = "order_789",
             Description = "Test payment",
@@ -148,7 +150,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         Assert.NotNull(payment);
         Assert.NotEqual(Guid.Empty, payment.TransactionId);
         Assert.Equal(100.00m, payment.Amount);
-        Assert.Equal("USD", payment.Currency);
+        Assert.Equal("THB", payment.Currency);
         Assert.Equal("cust_123456", payment.CustomerId);
         Assert.Contains(payment.Status, new[] { PaymentStatus.Pending, PaymentStatus.Processing, PaymentStatus.Completed });
         Assert.NotNull(payment.ProviderTransactionId);
@@ -163,7 +165,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         var request = new PaymentRequest
         {
             Amount = 50.00m,
-            Currency = "EUR",
+            Currency = "THB",
             CustomerId = "cust_duplicate",
             OrderId = "order_dup_001",
             Description = "Duplicate test",
@@ -205,7 +207,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         var request = new PaymentRequest
         {
             Amount = 100.00m,
-            Currency = "USD",
+            Currency = "THB",
             CustomerId = "cust_123",
             OrderId = "order_001",
             Description = "Test",

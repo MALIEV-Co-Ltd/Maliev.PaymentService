@@ -42,7 +42,7 @@ public class ProvidersController : ControllerBase
     /// <param name="request">The provider registration request containing name, credentials, and configuration.</param>
     /// <returns>The registered provider details including ID and configuration.</returns>
     /// <remarks>
-    /// Registers a new payment provider (e.g., Stripe, PayPal, SCB, Omise) with the payment gateway.
+    /// Registers a new payment provider (e.g., Omise, SCB, Stripe) with the payment gateway.
     /// Provider credentials are automatically encrypted using ASP.NET Core Data Protection.
     ///
     /// **Required Headers:**
@@ -50,7 +50,6 @@ public class ProvidersController : ControllerBase
     ///
     /// **Supported Providers:**
     /// - `stripe`: Stripe payment processor
-    /// - `paypal`: PayPal payment processor
     /// - `scb`: Siam Commercial Bank API
     /// - `omise`: Omise payment gateway (Thailand)
     ///

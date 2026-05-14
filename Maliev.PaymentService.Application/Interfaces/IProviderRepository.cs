@@ -26,7 +26,7 @@ public interface IProviderRepository
     /// <summary>
     /// Gets a payment provider by name.
     /// </summary>
-    /// <param name="name">Provider name (e.g., "stripe", "paypal")</param>
+    /// <param name="name">Provider name (e.g., "omise", "stripe")</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Provider if found, null otherwise</returns>
     Task<PaymentProvider?> GetByNameAsync(string name, CancellationToken cancellationToken = default);

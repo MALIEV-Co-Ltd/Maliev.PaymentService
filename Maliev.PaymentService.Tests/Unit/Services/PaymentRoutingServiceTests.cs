@@ -42,15 +42,15 @@ public class PaymentRoutingServiceTests
     [Fact]
     public async Task SelectProviderAsync_WithPreferredProvider_CanSelectPreferred()
     {
-        var provider = CreateTestProvider("stripe", ProviderStatus.Active, 1);
+        var provider = CreateTestProvider("omise", ProviderStatus.Active, 1);
 
         _providerRepositoryMock
             .Setup(r => r.GetActiveByCurrencyAsync("THB", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<PaymentProvider> { provider });
 
-        var result = await _service.SelectProviderAsync("THB", "stripe");
+        var result = await _service.SelectProviderAsync("THB", "omise");
 
-        Assert.Equal("stripe", result.Name);
+        Assert.Equal("omise", result.Name);
     }
 
     [Fact]
@@ -107,15 +107,14 @@ public class PaymentRoutingServiceTests
     {
         var stripe = CreateTestProvider("stripe", ProviderStatus.Active, 2);
         var omise = CreateTestProvider("omise", ProviderStatus.Active, 1);
-        var paypal = CreateTestProvider("paypal", ProviderStatus.Active, 3);
 
         _providerRepositoryMock
             .Setup(r => r.GetActiveByCurrencyAsync("THB", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new List<PaymentProvider> { stripe, omise, paypal });
+            .ReturnsAsync(new List<PaymentProvider> { omise, stripe });
 
         var result = await _service.SelectProviderAsync("THB");
 
-        Assert.Equal("stripe", result.Name);
+        Assert.Equal("omise", result.Name);
     }
 
     [Fact]

@@ -111,11 +111,29 @@ public class OmiseProvider : IPaymentProviderAdapter
     {
         try
         {
+            if (string.IsNullOrWhiteSpace(payload) ||
+                string.IsNullOrWhiteSpace(signature) ||
+                string.IsNullOrWhiteSpace(secret))
+            {
+                return false;
+            }
+
             using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
             var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(payload));
-            var computedSignature = Convert.ToBase64String(hash);
+            var computedSignature = Convert.ToHexString(hash).ToLowerInvariant();
+            var computedBytes = Encoding.UTF8.GetBytes(computedSignature);
 
-            return signature == computedSignature;
+            foreach (var candidate in signature.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var candidateBytes = Encoding.UTF8.GetBytes(candidate.ToLowerInvariant());
+                if (candidateBytes.Length == computedBytes.Length &&
+                    CryptographicOperations.FixedTimeEquals(candidateBytes, computedBytes))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
         catch
         {

@@ -425,8 +425,8 @@ components:
         providerType:
           type: string
           description: Provider type identifier for factory pattern
-          enum: [stripe, paypal, omise, scb]
-          example: "stripe"
+          enum: [omise, scb, stripe]
+          example: "omise"
         apiEndpoint:
           type: string
           format: uri

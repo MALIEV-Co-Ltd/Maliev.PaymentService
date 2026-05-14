@@ -57,26 +57,6 @@ public class WebhooksControllerTests
     }
 
     [Fact]
-    public async Task ReceiveWebhook_PayPalProvider_ExtractsIdCorrectly()
-    {
-        // Arrange
-        var provider = CreateTestProvider("paypal");
-        _providerRepositoryMock.Setup(x => x.GetByNameAsync("paypal")).ReturnsAsync(provider);
-        _validationServiceMock.Setup(x => x.ValidateWebhookAsync(It.IsAny<PaymentProvider>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<string>()))
-            .ReturnsAsync(true);
-
-        var payload = new { id = "pp_evt_1", event_type = "PAYMENT.SALE.COMPLETED" };
-        var json = JsonSerializer.SerializeToElement(payload);
-
-        // Act
-        var result = await _controller.ReceiveWebhook("paypal", json);
-
-        // Assert
-        Assert.IsType<OkObjectResult>(result.Result);
-        _webhookRepositoryMock.Verify(x => x.AddAsync(It.Is<WebhookEvent>(e => e.ProviderEventId == "pp_evt_1")), Times.Once);
-    }
-
-    [Fact]
     public async Task ReceiveWebhook_StripeProvider_ExtractsSignatureCorrectly()
     {
         // Arrange
@@ -110,7 +90,7 @@ public class WebhooksControllerTests
         var payload = new { id = "ev_1", type = "charge.complete" };
         var json = JsonSerializer.SerializeToElement(payload);
 
-        _controller.Request.Headers["X-Omise-Signature"] = "omise-sig";
+        _controller.Request.Headers["Omise-Signature"] = "omise-sig";
 
         // Act
         var result = await _controller.ReceiveWebhook("omise", json);

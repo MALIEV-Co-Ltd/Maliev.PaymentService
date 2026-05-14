@@ -3,7 +3,7 @@ using Maliev.PaymentService.Domain.Enums;
 namespace Maliev.PaymentService.Domain.Entities;
 
 /// <summary>
-/// Represents a payment provider (e.g., Stripe, PayPal, Square).
+/// Represents a payment provider (e.g., Omise, SCB, Stripe).
 /// Stores provider configuration, credentials, and operational status.
 /// </summary>
 public class PaymentProvider
@@ -14,13 +14,13 @@ public class PaymentProvider
     public required Guid Id { get; init; }
 
     /// <summary>
-    /// Provider unique name (e.g., "stripe", "paypal").
+    /// Provider unique name (e.g., "omise", "stripe").
     /// Must be unique across all providers.
     /// </summary>
     public required string Name { get; set; }
 
     /// <summary>
-    /// Human-readable display name (e.g., "Stripe Payments", "PayPal").
+    /// Human-readable display name (e.g., "Omise", "Stripe Payments").
     /// </summary>
     public required string DisplayName { get; set; }
 

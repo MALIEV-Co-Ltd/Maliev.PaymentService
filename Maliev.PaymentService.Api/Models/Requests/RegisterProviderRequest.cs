@@ -8,7 +8,7 @@ namespace Maliev.PaymentService.Api.Models.Requests;
 public class RegisterProviderRequest
 {
     /// <summary>
-    /// Provider unique name (e.g., "stripe", "paypal").
+    /// Provider unique name (e.g., "omise", "stripe").
     /// </summary>
     public required string Name { get; set; }
 

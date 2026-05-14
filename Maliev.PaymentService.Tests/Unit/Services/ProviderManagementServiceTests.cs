@@ -75,15 +75,15 @@ public class ProviderManagementServiceTests
         var encryptedProvider = new PaymentProvider
         {
             Id = providerId,
-            Name = "PayPal",
-            DisplayName = "PayPal",
+            Name = "Omise",
+            DisplayName = "Omise",
             Status = ProviderStatus.Active,
-            SupportedCurrencies = new List<string> { "USD" },
-            Priority = 2,
+            SupportedCurrencies = new List<string> { "THB" },
+            Priority = 1,
             Credentials = new Dictionary<string, string>
             {
-                { "ClientId", "encrypted_client_id" },
-                { "ClientSecret", "encrypted_client_secret" }
+                { "PublicKey", "encrypted_public_key" },
+                { "SecretKey", "encrypted_secret_key" }
             },
             Configurations = new List<ProviderConfiguration>(),
             CreatedAt = DateTime.UtcNow,
@@ -95,22 +95,22 @@ public class ProviderManagementServiceTests
             .ReturnsAsync(encryptedProvider);
 
         _mockEncryption
-            .Setup(e => e.Decrypt("encrypted_client_id"))
-            .Returns("client_id_123");
+            .Setup(e => e.Decrypt("encrypted_public_key"))
+            .Returns("public_key_123");
 
         _mockEncryption
-            .Setup(e => e.Decrypt("encrypted_client_secret"))
-            .Returns("client_secret_456");
+            .Setup(e => e.Decrypt("encrypted_secret_key"))
+            .Returns("secret_key_456");
 
         // Act
         var result = await _service.GetProviderByIdAsync(providerId);
 
         // Assert
         Assert.NotNull(result);
-        Assert.Equal("client_id_123", result.Credentials["ClientId"]);
-        Assert.Equal("client_secret_456", result.Credentials["ClientSecret"]);
-        _mockEncryption.Verify(e => e.Decrypt("encrypted_client_id"), Times.Once);
-        _mockEncryption.Verify(e => e.Decrypt("encrypted_client_secret"), Times.Once);
+        Assert.Equal("public_key_123", result.Credentials["PublicKey"]);
+        Assert.Equal("secret_key_456", result.Credentials["SecretKey"]);
+        _mockEncryption.Verify(e => e.Decrypt("encrypted_public_key"), Times.Once);
+        _mockEncryption.Verify(e => e.Decrypt("encrypted_secret_key"), Times.Once);
     }
 
     [Fact]

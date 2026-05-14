@@ -57,7 +57,7 @@ public class WebhooksController : ControllerBase
     /// <summary>
     /// Receives webhook notifications from payment providers.
     /// </summary>
-    /// <param name="provider">The provider name (stripe, paypal, scb, omise).</param>
+    /// <param name="provider">The provider name (stripe, scb, omise).</param>
     /// <param name="payload">The webhook payload from the provider (JSON format).</param>
     /// <returns>Webhook received confirmation with event ID and processing status.</returns>
     /// <remarks>
@@ -72,7 +72,6 @@ public class WebhooksController : ControllerBase
     ///
     /// **Supported Providers:**
     /// - `stripe`: Stripe webhook events with Stripe-Signature header
-    /// - `paypal`: PayPal IPN/webhooks with PayPal-Transmission-Sig header
     /// - `scb`: SCB API webhooks with X-SCB-Signature header
     /// - `omise`: Omise webhook events with Omise-Signature header
     ///
@@ -117,7 +116,7 @@ public class WebhooksController : ControllerBase
     /// **Testing:**
     /// - Use provider test/sandbox webhooks for development
     /// - Stripe CLI: `stripe listen --forward-to localhost:5251/payments/v1/webhooks/stripe`
-    /// - PayPal Sandbox: Configure webhook URL in PayPal Developer Dashboard
+    /// - Omise Dashboard: Configure webhook URL and webhook secret in the Omise dashboard
     /// </remarks>
     /// <response code="200">Webhook received and queued for processing. Returns event ID.</response>
     /// <response code="400">Invalid request. Unknown provider or malformed payload.</response>
@@ -400,7 +399,6 @@ public class WebhooksController : ControllerBase
         return provider.ToLowerInvariant() switch
         {
             "stripe" when payload.TryGetProperty("id", out var stripeId) => stripeId.GetString() ?? string.Empty,
-            "paypal" when payload.TryGetProperty("id", out var paypalId) => paypalId.GetString() ?? string.Empty,
             _ => string.Empty
         };
     }
@@ -431,8 +429,7 @@ public class WebhooksController : ControllerBase
         return provider.ToLowerInvariant() switch
         {
             "stripe" => headers.GetValueOrDefault("Stripe-Signature"),
-            "paypal" => headers.GetValueOrDefault("PAYPAL-TRANSMISSION-SIG"),
-            "omise" => headers.GetValueOrDefault("X-Omise-Signature"),
+            "omise" => headers.GetValueOrDefault("Omise-Signature"),
             "scb" => headers.GetValueOrDefault("X-SCB-Signature"),
             _ => null
         };

@@ -16,7 +16,7 @@ public class PaymentDbContext : DbContext
     }
 
     /// <summary>
-    /// Payment providers (Stripe, PayPal, Square, etc.).
+    /// Payment providers (Omise, SCB, Stripe, etc.).
     /// </summary>
     public DbSet<PaymentProvider> PaymentProviders => Set<PaymentProvider>();
 

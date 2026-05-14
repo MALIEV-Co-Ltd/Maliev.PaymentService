@@ -122,27 +122,64 @@ try
     // Run database migrations on startup
     await app.MigrateDatabaseAsync<PaymentDbContext>();
 
-    // Seed test payment provider for development/testing
+    // Seed Omise as the primary local payment provider for development/testing.
     if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
     {
         using var scope = app.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
         var encryptionService = scope.ServiceProvider.GetRequiredService<Maliev.PaymentService.Application.Interfaces.IEncryptionService>();
+        var omiseSection = app.Configuration.GetSection("PaymentProviders:Omise");
+        var now = DateTime.UtcNow;
 
-        if (!await dbContext.PaymentProviders.AnyAsync())
+        var retiredUnsupportedProviders = await dbContext.PaymentProviders
+            .IgnoreQueryFilters()
+            .Include(provider => provider.Configurations)
+            .Where(provider => provider.Name.ToLower() == "paypal" && provider.DeletedAt == null)
+            .ToListAsync();
+
+        foreach (var provider in retiredUnsupportedProviders)
+        {
+            provider.Status = Maliev.PaymentService.Domain.Enums.ProviderStatus.Disabled;
+            provider.DeletedAt = now;
+            provider.UpdatedAt = now;
+
+            foreach (var configuration in provider.Configurations)
+            {
+                configuration.IsActive = false;
+                configuration.UpdatedAt = now;
+            }
+        }
+
+        var omiseProvider = await dbContext.PaymentProviders
+            .IgnoreQueryFilters()
+            .Include(provider => provider.Configurations)
+            .FirstOrDefaultAsync(provider => provider.Name.ToLower() == "omise");
+
+        var configuredPublicKey = omiseSection["PublicKey"];
+        var configuredSecretKey = omiseSection["SecretKey"];
+        var configuredWebhookSecret = omiseSection["WebhookSecret"];
+        var configuredApiBaseUrl = omiseSection["ApiBaseUrl"];
+        var publicKey = string.IsNullOrWhiteSpace(configuredPublicKey) ? "pkey_test_development_omise_key" : configuredPublicKey;
+        var secretKey = string.IsNullOrWhiteSpace(configuredSecretKey) ? "skey_test_development_omise_key" : configuredSecretKey;
+        var webhookSecret = string.IsNullOrWhiteSpace(configuredWebhookSecret) ? "whsec_omise_development_secret" : configuredWebhookSecret;
+        var apiBaseUrl = string.IsNullOrWhiteSpace(configuredApiBaseUrl) ? "https://api.omise.co" : configuredApiBaseUrl;
+
+        if (omiseProvider is null)
         {
             var providerId = Guid.NewGuid();
-            var testProvider = new Maliev.PaymentService.Domain.Entities.PaymentProvider
+            omiseProvider = new Maliev.PaymentService.Domain.Entities.PaymentProvider
             {
                 Id = providerId,
-                Name = "stripe",
-                DisplayName = "Stripe (Test)",
+                Name = "omise",
+                DisplayName = "Omise",
                 Status = Maliev.PaymentService.Domain.Enums.ProviderStatus.Active,
-                SupportedCurrencies = new List<string> { "THB", "USD", "EUR" },
+                SupportedCurrencies = new List<string> { "THB" },
                 Priority = 1,
                 Credentials = new Dictionary<string, string>
                 {
-                    { "ApiKey", encryptionService.Encrypt("sk_test_development_key") }
+                    { "PublicKey", encryptionService.Encrypt(publicKey) },
+                    { "SecretKey", encryptionService.Encrypt(secretKey) },
+                    { "WebhookSecret", encryptionService.Encrypt(webhookSecret) }
                 },
                 Configurations = new List<Maliev.PaymentService.Domain.Entities.ProviderConfiguration>
                 {
@@ -150,23 +187,59 @@ try
                     {
                         Id = Guid.NewGuid(),
                         PaymentProviderId = providerId,
-                        Region = "global",
-                        ApiBaseUrl = "https://api.stripe.com",
+                        Region = "thailand",
+                        ApiBaseUrl = apiBaseUrl,
                         IsActive = true,
                         MaxRetries = 3,
                         TimeoutSeconds = 30,
-                        CreatedAt = DateTime.UtcNow,
-                        UpdatedAt = DateTime.UtcNow
+                        CreatedAt = now,
+                        UpdatedAt = now
                     }
                 },
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
+                CreatedAt = now,
+                UpdatedAt = now
             };
 
-            dbContext.PaymentProviders.Add(testProvider);
-            await dbContext.SaveChangesAsync();
-            logger.LogInformation("Seeded test payment provider: {ProviderName}", testProvider.Name);
+            dbContext.PaymentProviders.Add(omiseProvider);
+            logger.LogInformation("Seeded primary local payment provider: {ProviderName}", omiseProvider.Name);
         }
+        else
+        {
+            omiseProvider.Status = Maliev.PaymentService.Domain.Enums.ProviderStatus.Active;
+            omiseProvider.DeletedAt = null;
+            omiseProvider.Priority = 1;
+            omiseProvider.SupportedCurrencies = new List<string> { "THB" };
+            omiseProvider.UpdatedAt = now;
+            omiseProvider.Credentials["PublicKey"] = encryptionService.Encrypt(publicKey);
+            omiseProvider.Credentials["SecretKey"] = encryptionService.Encrypt(secretKey);
+            omiseProvider.Credentials["WebhookSecret"] = encryptionService.Encrypt(webhookSecret);
+
+            var configuration = omiseProvider.Configurations.FirstOrDefault();
+            if (configuration is null)
+            {
+                omiseProvider.Configurations.Add(new Maliev.PaymentService.Domain.Entities.ProviderConfiguration
+                {
+                    Id = Guid.NewGuid(),
+                    PaymentProviderId = omiseProvider.Id,
+                    Region = "thailand",
+                    ApiBaseUrl = apiBaseUrl,
+                    IsActive = true,
+                    MaxRetries = 3,
+                    TimeoutSeconds = 30,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                });
+            }
+            else
+            {
+                configuration.Region = "thailand";
+                configuration.ApiBaseUrl = apiBaseUrl;
+                configuration.IsActive = true;
+                configuration.UpdatedAt = now;
+            }
+        }
+
+        await dbContext.SaveChangesAsync();
     }
 
     // Middleware Pipeline
