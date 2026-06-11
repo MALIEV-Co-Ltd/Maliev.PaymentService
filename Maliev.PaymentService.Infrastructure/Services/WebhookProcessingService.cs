@@ -188,6 +188,11 @@ public class WebhookProcessingService : IWebhookProcessingService
             return null;
         }
 
+        if (TryExtractGuidFromMetadata(parsedData, out var metadataTransactionId))
+        {
+            return metadataTransactionId;
+        }
+
         // Try common field names for transaction ID
         var possibleKeys = new[] { "transactionId", "transaction_id", "paymentId", "payment_id", "id", "metadata" };
 
@@ -222,6 +227,51 @@ public class WebhookProcessingService : IWebhookProcessingService
             eventType, providerName);
 
         return null;
+    }
+
+    private static bool TryExtractGuidFromMetadata(Dictionary<string, object> parsedData, out Guid transactionId)
+    {
+        transactionId = default;
+
+        if (parsedData.TryGetValue("metadata", out var metadata) &&
+            TryExtractGuidFromJsonObject(metadata, out transactionId))
+        {
+            return true;
+        }
+
+        if (parsedData.TryGetValue("data", out var data) &&
+            data is JsonElement dataElement &&
+            dataElement.ValueKind == JsonValueKind.Object &&
+            dataElement.TryGetProperty("object", out var objectElement) &&
+            objectElement.ValueKind == JsonValueKind.Object &&
+            objectElement.TryGetProperty("metadata", out var nestedMetadata))
+        {
+            return TryExtractGuidFromJsonObject(nestedMetadata, out transactionId);
+        }
+
+        return false;
+    }
+
+    private static bool TryExtractGuidFromJsonObject(object value, out Guid transactionId)
+    {
+        transactionId = default;
+
+        if (value is not JsonElement element || element.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        if ((element.TryGetProperty("transactionId", out var transactionIdProperty) ||
+             element.TryGetProperty("transaction_id", out transactionIdProperty) ||
+             element.TryGetProperty("paymentId", out transactionIdProperty) ||
+             element.TryGetProperty("payment_id", out transactionIdProperty)) &&
+            transactionIdProperty.ValueKind == JsonValueKind.String &&
+            Guid.TryParse(transactionIdProperty.GetString(), out transactionId))
+        {
+            return true;
+        }
+
+        return false;
     }
 
     private async Task<bool> UpdateTransactionStatusAsync(

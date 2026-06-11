@@ -115,6 +115,14 @@ public class PaymentService : IPaymentService
 
             };
 
+            var providerMetadata = new Dictionary<string, string>(
+                request.Metadata ?? new Dictionary<string, string>(),
+                StringComparer.OrdinalIgnoreCase)
+            {
+                ["transactionId"] = transaction.Id.ToString()
+            };
+            transaction.Metadata = providerMetadata;
+
             // Save initial transaction
             await _paymentRepository.AddAsync(transaction, cancellationToken);
 
@@ -169,7 +177,7 @@ public class PaymentService : IPaymentService
                     Description = request.Description,
                     ReturnUrl = request.ReturnUrl,
                     CancelUrl = request.CancelUrl,
-                    Metadata = request.Metadata
+                    Metadata = providerMetadata
                 };
 
                 // Call provider (Polly resilience is applied at HTTP client level in production)

@@ -216,6 +216,67 @@ public class WebhookProcessingServiceTests
     }
 
     [Fact]
+    public async Task ProcessWebhookAsync_StripeCheckoutSessionCompleted_UsesNestedMetadataTransactionId()
+    {
+        var transactionId = Guid.NewGuid();
+        var webhook = CreateTestWebhook();
+        webhook.EventType = "checkout.session.completed";
+        webhook.RawPayload = JsonSerializer.Serialize(new
+        {
+            id = "evt_checkout_completed",
+            type = "checkout.session.completed",
+            data = new
+            {
+                @object = new
+                {
+                    id = "cs_test_123",
+                    metadata = new
+                    {
+                        transactionId = transactionId.ToString(),
+                        orderNumber = "ORD-456"
+                    }
+                }
+            }
+        });
+
+        var transaction = CreateTestTransaction(PaymentStatus.Processing);
+        transaction.Metadata = new Dictionary<string, string>
+        {
+            ["orderNumber"] = "ORD-456"
+        };
+
+        _webhookRepositoryMock
+            .Setup(r => r.GetByProviderEventIdAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((WebhookEvent?)null);
+
+        _webhookRepositoryMock
+            .Setup(r => r.UpdateAsync(It.IsAny<WebhookEvent>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        _paymentRepositoryMock
+            .Setup(r => r.GetByIdAsync(transactionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(transaction);
+
+        _paymentRepositoryMock
+            .Setup(r => r.UpdateAsync(It.IsAny<PaymentTransaction>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PaymentTransaction t, CancellationToken _) => t);
+
+        _paymentRepositoryMock
+            .Setup(r => r.AddLogAsync(It.IsAny<TransactionLog>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var result = await _service.ProcessWebhookAsync(webhook);
+
+        Assert.True(result.Success);
+        Assert.Equal(transactionId, result.TransactionId);
+        _paymentRepositoryMock.Verify(
+            r => r.UpdateAsync(
+                It.Is<PaymentTransaction>(t => t.Status == PaymentStatus.Completed),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task ProcessWebhookAsync_SameStatus_ShouldNotUpdate()
     {
         var webhook = CreateTestWebhook();

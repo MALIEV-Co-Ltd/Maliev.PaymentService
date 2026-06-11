@@ -1,0 +1,92 @@
+using System.Net;
+using System.Net.Http.Json;
+using Maliev.PaymentService.Infrastructure.Providers;
+using Xunit;
+
+namespace Maliev.PaymentService.Tests.Unit.Providers;
+
+public sealed class StripeProviderTests
+{
+    [Fact]
+    public async Task ProcessPaymentAsync_CreatesCheckoutSessionWithPaymentMetadata()
+    {
+        var handler = new CapturingHandler(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = JsonContent.Create(new
+            {
+                id = "cs_test_123",
+                url = "https://checkout.stripe.com/c/pay/cs_test_123",
+                status = "open"
+            })
+        });
+        using var httpClient = new HttpClient(handler);
+        var provider = new StripeProvider(httpClient, "sk_test_123", "https://api.stripe.com");
+
+        var result = await provider.ProcessPaymentAsync(new ProviderPaymentRequest
+        {
+            Amount = 1234.56m,
+            Currency = "THB",
+            CustomerId = "customer-123",
+            OrderId = "order-456",
+            Description = "Manufacturing order ORD-456",
+            ReturnUrl = "https://quote.example.com/payment/success?orderId=ORD-456",
+            CancelUrl = "https://quote.example.com/payment/cancel?orderId=ORD-456",
+            Metadata = new Dictionary<string, string>
+            {
+                ["transactionId"] = "tx-789",
+                ["orderNumber"] = "ORD-456"
+            }
+        });
+
+        Assert.True(result.Success);
+        Assert.Equal("cs_test_123", result.ProviderTransactionId);
+        Assert.Equal("processing", result.Status);
+        Assert.Equal("https://checkout.stripe.com/c/pay/cs_test_123", result.PaymentUrl);
+
+        Assert.NotNull(handler.Request);
+        Assert.Equal(HttpMethod.Post, handler.Request.Method);
+        Assert.Equal("https://api.stripe.com/v1/checkout/sessions", handler.Request.RequestUri?.ToString());
+        Assert.Equal("Bearer", handler.Request.Headers.Authorization?.Scheme);
+        Assert.Equal("sk_test_123", handler.Request.Headers.Authorization?.Parameter);
+
+        var form = ReadForm(handler.RequestBody);
+        Assert.Equal("payment", form["mode"]);
+        Assert.Equal("https://quote.example.com/payment/success?orderId=ORD-456", form["success_url"]);
+        Assert.Equal("https://quote.example.com/payment/cancel?orderId=ORD-456", form["cancel_url"]);
+        Assert.Equal("order-456", form["client_reference_id"]);
+        Assert.Equal("thb", form["line_items[0][price_data][currency]"]);
+        Assert.Equal("123456", form["line_items[0][price_data][unit_amount]"]);
+        Assert.Equal("Manufacturing order ORD-456", form["line_items[0][price_data][product_data][name]"]);
+        Assert.Equal("1", form["line_items[0][quantity]"]);
+        Assert.Equal("tx-789", form["metadata[transactionId]"]);
+        Assert.Equal("ORD-456", form["metadata[orderNumber]"]);
+        Assert.Equal("customer-123", form["metadata[customerId]"]);
+        Assert.Equal("order-456", form["metadata[orderId]"]);
+    }
+
+    private static Dictionary<string, string> ReadForm(string? body)
+    {
+        Assert.False(string.IsNullOrWhiteSpace(body));
+        return body
+            .Split('&', StringSplitOptions.RemoveEmptyEntries)
+            .Select(pair => pair.Split('=', 2))
+            .ToDictionary(
+                parts => WebUtility.UrlDecode(parts[0]),
+                parts => parts.Length == 2 ? WebUtility.UrlDecode(parts[1]) : string.Empty);
+    }
+
+    private sealed class CapturingHandler(HttpResponseMessage response) : HttpMessageHandler
+    {
+        public HttpRequestMessage? Request { get; private set; }
+        public string? RequestBody { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Request = request;
+            RequestBody = request.Content is null
+                ? null
+                : await request.Content.ReadAsStringAsync(cancellationToken);
+            return response;
+        }
+    }
+}
