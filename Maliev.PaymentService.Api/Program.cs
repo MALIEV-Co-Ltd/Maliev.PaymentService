@@ -94,6 +94,7 @@ try
     // Register webhook services
     builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IWebhookValidationService, Maliev.PaymentService.Infrastructure.Services.WebhookValidationService>();
     builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IWebhookProcessingService, Maliev.PaymentService.Infrastructure.Services.WebhookProcessingService>();
+    builder.Services.AddHostedService<Maliev.PaymentService.Infrastructure.Services.WebhookRetryService>();
     builder.Services.AddHostedService<Maliev.PaymentService.Infrastructure.Services.WebhookCleanupService>();
 
     // Register idempotency service. Redis is required for shared production
