@@ -58,6 +58,16 @@ public sealed class StripeProviderTests
         Assert.Equal("123456", form["line_items[0][price_data][unit_amount]"]);
         Assert.Equal("Manufacturing order ORD-456", form["line_items[0][price_data][product_data][name]"]);
         Assert.Equal("1", form["line_items[0][quantity]"]);
+        Assert.Equal("required", form["billing_address_collection"]);
+        Assert.Equal("always", form["customer_creation"]);
+        Assert.Equal("true", form["phone_number_collection[enabled]"]);
+        Assert.Equal("true", form["tax_id_collection[enabled]"]);
+        Assert.Equal("true", form["name_collection[individual][enabled]"]);
+        Assert.Equal("false", form["name_collection[individual][optional]"]);
+        Assert.Equal("true", form["name_collection[business][enabled]"]);
+        Assert.Equal("true", form["name_collection[business][optional]"]);
+        Assert.Equal("required", form["consent_collection[terms_of_service]"]);
+        Assert.Equal("TH", form["shipping_address_collection[allowed_countries][0]"]);
         Assert.Equal("tx-789", form["metadata[transactionId]"]);
         Assert.Equal("ORD-456", form["metadata[orderNumber]"]);
         Assert.Equal("customer-123", form["metadata[customerId]"]);
