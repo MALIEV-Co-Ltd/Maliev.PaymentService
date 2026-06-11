@@ -222,6 +222,59 @@ public class WebhookProcessingServiceTests
     }
 
     [Fact]
+    public async Task ProcessWebhookAsync_PaymentCompletedWithStringOrderId_ShouldPublishDeterministicOrderGuid()
+    {
+        var transactionId = Guid.NewGuid();
+        var orderNumber = "ORD-2026-0042";
+        var webhook = CreateTestWebhook();
+        webhook.RawPayload = JsonSerializer.Serialize(new Dictionary<string, object>
+        {
+            ["transactionId"] = transactionId.ToString()
+        });
+        webhook.EventType = "payment.completed";
+
+        var transaction = CreateTestTransaction(PaymentStatus.Processing);
+        transaction.OrderId = orderNumber;
+        transaction.Metadata = new Dictionary<string, string>
+        {
+            ["orderNumber"] = orderNumber
+        };
+
+        _webhookRepositoryMock
+            .Setup(r => r.GetByProviderEventIdAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((WebhookEvent?)null);
+
+        _webhookRepositoryMock
+            .Setup(r => r.UpdateAsync(It.IsAny<WebhookEvent>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        _paymentRepositoryMock
+            .Setup(r => r.GetByIdAsync(transactionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(transaction);
+
+        _paymentRepositoryMock
+            .Setup(r => r.UpdateAsync(It.IsAny<PaymentTransaction>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PaymentTransaction t, CancellationToken _) => t);
+
+        _paymentRepositoryMock
+            .Setup(r => r.AddLogAsync(It.IsAny<TransactionLog>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        PaymentCompletedEvent? publishedEvent = null;
+        _eventPublisherMock
+            .Setup(e => e.PublishAsync(It.IsAny<PaymentCompletedEvent>(), It.IsAny<CancellationToken>()))
+            .Callback<PaymentCompletedEvent, CancellationToken>((paymentEvent, _) => publishedEvent = paymentEvent)
+            .Returns(Task.CompletedTask);
+
+        var result = await _service.ProcessWebhookAsync(webhook);
+
+        Assert.True(result.Success);
+        Assert.NotNull(publishedEvent);
+        Assert.Equal(CreateDeterministicGuid(orderNumber), publishedEvent.Payload.OrderId);
+        Assert.Equal(orderNumber, publishedEvent.Payload.OrderNumber);
+    }
+
+    [Fact]
     public async Task ProcessWebhookAsync_StripeCheckoutSessionCompleted_UsesNestedMetadataTransactionId()
     {
         var transactionId = Guid.NewGuid();
@@ -549,5 +602,11 @@ public class WebhookProcessingServiceTests
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
+    }
+
+    private static Guid CreateDeterministicGuid(string value)
+    {
+        byte[] hash = System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(value));
+        return new Guid(hash);
     }
 }

@@ -329,7 +329,7 @@ public class WebhookProcessingService : IWebhookProcessingService
         if (newStatus == PaymentStatus.Completed)
         {
             var payload = new PaymentCompletedEventPayload(
-                OrderId: Guid.TryParse(transaction.OrderId, out var orderId) ? orderId : Guid.Empty,
+                OrderId: ResolveOrderId(transaction),
                 OrderNumber: ResolveOrderNumber(transaction),
                 CustomerId: transaction.CustomerId,
                 PaymentId: transaction.Id,
@@ -400,6 +400,26 @@ public class WebhookProcessingService : IWebhookProcessingService
         }
 
         return string.IsNullOrWhiteSpace(transaction.OrderId) ? "Unknown" : transaction.OrderId;
+    }
+
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Security", "CA5351:Do Not Use Broken Cryptographic Algorithms", Justification = "MD5 is used for deterministic non-cryptographic ID mapping to match OrderService events.")]
+    private static Guid ResolveOrderId(PaymentTransaction transaction)
+    {
+        var orderNumber = ResolveOrderNumber(transaction);
+        var candidate = !string.IsNullOrWhiteSpace(transaction.OrderId) ? transaction.OrderId : orderNumber;
+
+        if (Guid.TryParse(candidate, out var orderId))
+        {
+            return orderId;
+        }
+
+        if (string.IsNullOrWhiteSpace(orderNumber) || string.Equals(orderNumber, "Unknown", StringComparison.Ordinal))
+        {
+            return Guid.Empty;
+        }
+
+        byte[] hash = System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(orderNumber));
+        return new Guid(hash);
     }
 
     private PaymentStatus MapEventTypeToStatus(string eventType)
