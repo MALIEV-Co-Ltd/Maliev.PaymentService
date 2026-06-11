@@ -220,6 +220,60 @@ public class WebhooksControllerTests
     }
 
     [Fact]
+    public async Task ReceiveWebhook_ExistingFailedEvent_ReprocessesBeforeAcknowledgingProvider()
+    {
+        var provider = CreateTestProvider("stripe");
+        var existingEvent = CreateTestWebhookEvent(provider.Id, "retry_1", WebhookProcessingStatus.Failed);
+        _providerRepositoryMock.Setup(x => x.GetByNameAsync("stripe")).ReturnsAsync(provider);
+        _validationServiceMock
+            .Setup(x => x.ValidateWebhookAsync(It.IsAny<PaymentProvider>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<string>()))
+            .ReturnsAsync(true);
+        _webhookRepositoryMock
+            .Setup(x => x.GetByProviderEventIdAsync(provider.Id, "retry_1"))
+            .ReturnsAsync(existingEvent);
+
+        var json = JsonSerializer.SerializeToElement(new { id = "retry_1", type = "checkout.session.completed" });
+
+        var result = await _controller.ReceiveWebhook("stripe", json);
+
+        var okResult = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<WebhookReceivedResponse>(okResult.Value);
+        Assert.False(response.IsDuplicate);
+        Assert.Equal(existingEvent.Id, response.WebhookEventId);
+        _webhookRepositoryMock.Verify(x => x.AddAsync(It.IsAny<WebhookEvent>(), It.IsAny<CancellationToken>()), Times.Never);
+        _processingServiceMock.Verify(x => x.ProcessWebhookAsync(existingEvent, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ReceiveWebhook_ExistingFailedEventProcessingFails_ReturnsInternalServerErrorForProviderRetry()
+    {
+        var provider = CreateTestProvider("stripe");
+        var existingEvent = CreateTestWebhookEvent(provider.Id, "retry_fail", WebhookProcessingStatus.Failed);
+        _providerRepositoryMock.Setup(x => x.GetByNameAsync("stripe")).ReturnsAsync(provider);
+        _validationServiceMock
+            .Setup(x => x.ValidateWebhookAsync(It.IsAny<PaymentProvider>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<string>()))
+            .ReturnsAsync(true);
+        _webhookRepositoryMock
+            .Setup(x => x.GetByProviderEventIdAsync(provider.Id, "retry_fail"))
+            .ReturnsAsync(existingEvent);
+        _processingServiceMock
+            .Setup(x => x.ProcessWebhookAsync(existingEvent, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new WebhookProcessingResult
+            {
+                Success = false,
+                IsDuplicate = false,
+                ErrorMessage = "Failed again"
+            });
+
+        var json = JsonSerializer.SerializeToElement(new { id = "retry_fail", type = "checkout.session.completed" });
+
+        var result = await _controller.ReceiveWebhook("stripe", json);
+
+        var statusCodeResult = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(StatusCodes.Status500InternalServerError, statusCodeResult.StatusCode);
+    }
+
+    [Fact]
     public async Task ReceiveWebhook_CamelCaseEventType_ExtractsCorrectly()
     {
         // Arrange
@@ -393,6 +447,26 @@ public class WebhooksControllerTests
             Configurations = new List<ProviderConfiguration>(),
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
+        };
+    }
+
+    private static WebhookEvent CreateTestWebhookEvent(
+        Guid providerId,
+        string providerEventId,
+        WebhookProcessingStatus status)
+    {
+        return new WebhookEvent
+        {
+            Id = Guid.NewGuid(),
+            ProviderId = providerId,
+            ProviderEventId = providerEventId,
+            EventType = "checkout.session.completed",
+            RawPayload = JsonSerializer.Serialize(new { id = providerEventId, type = "checkout.session.completed" }),
+            SignatureValidated = true,
+            ProcessingStatus = status,
+            ProcessingAttempts = status == WebhookProcessingStatus.Failed ? 1 : 0,
+            CreatedAt = DateTime.UtcNow.AddMinutes(-5),
+            UpdatedAt = DateTime.UtcNow.AddMinutes(-5)
         };
     }
 }

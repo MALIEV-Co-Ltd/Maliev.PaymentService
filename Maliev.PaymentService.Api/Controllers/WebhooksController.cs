@@ -209,6 +209,42 @@ public class WebhooksController : ControllerBase
 
             if (existing != null)
             {
+                if (existing.ProcessingStatus != WebhookProcessingStatus.Completed &&
+                    existing.ProcessingStatus != WebhookProcessingStatus.Duplicate)
+                {
+                    _logger.LogInformation(
+                        "Retrying webhook {ProviderEventId} from provider {Provider} with processing status {ProcessingStatus}",
+                        providerEventId, provider, existing.ProcessingStatus);
+
+                    var retryResult = await _processingService.ProcessWebhookAsync(existing);
+                    if (!retryResult.Success)
+                    {
+                        _logger.LogError(
+                            "Retried webhook {WebhookId} processing failed: {ErrorMessage}",
+                            existing.Id,
+                            retryResult.ErrorMessage);
+
+                        return StatusCode(500, new ErrorResponse
+                        {
+                            Error = "WEBHOOK_PROCESSING_FAILED",
+                            Message = "Webhook was received but could not be processed. Provider should retry.",
+                            Timestamp = DateTime.UtcNow
+                        });
+                    }
+
+                    var retryDuration = (DateTime.UtcNow - startTime).TotalSeconds;
+                    _metricsService.RecordWebhookDuration(provider, retryDuration);
+
+                    return Ok(new WebhookReceivedResponse
+                    {
+                        WebhookEventId = existing.Id,
+                        Accepted = true,
+                        IsDuplicate = false,
+                        Message = "Webhook received and processed",
+                        ReceivedAt = existing.CreatedAt
+                    });
+                }
+
                 _logger.LogInformation(
                     "Duplicate webhook detected: {ProviderEventId} from provider {Provider}",
                     providerEventId, provider);
