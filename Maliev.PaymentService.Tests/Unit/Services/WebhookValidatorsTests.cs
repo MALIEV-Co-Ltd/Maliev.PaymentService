@@ -81,6 +81,24 @@ public class StripeWebhookValidatorTests
         Assert.True(result);
     }
 
+    [Fact]
+    public void ValidateSignature_MultipleV1Signatures_ShouldAcceptAnyMatchingSignature()
+    {
+        var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var payload = "{\"event\":\"rotation\"}";
+        var secret = "whsec_test";
+
+        var signedPayload = $"{timestamp}.{payload}";
+        var expectedSignature = ComputeHmacSha256(signedPayload, secret);
+
+        var result = _validator.ValidateSignature(
+            payload,
+            $"t={timestamp},v1={expectedSignature},v1=invalid-rotated-signature",
+            secret);
+
+        Assert.True(result);
+    }
+
     private static string ComputeHmacSha256(string data, string secret)
     {
         using var hmac = new System.Security.Cryptography.HMACSHA256(

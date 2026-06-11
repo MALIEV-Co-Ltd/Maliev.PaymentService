@@ -27,7 +27,13 @@ public class StripeWebhookValidator
 
         // Parse signature header: "t=timestamp,v1=signature1,v1=signature2"
         var signatureParts = ParseSignatureHeader(signature);
-        if (!signatureParts.TryGetValue("t", out var timestampStr) || !signatureParts.ContainsKey("v1"))
+        var timestampStr = signatureParts
+            .FirstOrDefault(part => part.Key.Equals("t", StringComparison.OrdinalIgnoreCase))
+            .Value;
+        var providedSignatures = signatureParts
+            .Where(part => part.Key.Equals("v1", StringComparison.OrdinalIgnoreCase))
+            .Select(part => part.Value);
+        if (timestampStr is null || !providedSignatures.Any())
         {
             return false;
         }
@@ -49,20 +55,19 @@ public class StripeWebhookValidator
         var expectedSignature = ComputeHmacSha256(signedPayload, secret);
 
         // Compare with all provided signatures (Stripe may send multiple)
-        var providedSignatures = signatureParts.Where(kvp => kvp.Key == "v1").Select(kvp => kvp.Value);
         return providedSignatures.Any(sig => SecureEquals(sig, expectedSignature));
     }
 
-    private Dictionary<string, string> ParseSignatureHeader(string header)
+    private static List<KeyValuePair<string, string>> ParseSignatureHeader(string header)
     {
-        var parts = new Dictionary<string, string>();
+        var parts = new List<KeyValuePair<string, string>>();
 
         foreach (var pair in header.Split(','))
         {
             var keyValue = pair.Split('=', 2);
             if (keyValue.Length == 2)
             {
-                parts[keyValue[0].Trim()] = keyValue[1].Trim();
+                parts.Add(new KeyValuePair<string, string>(keyValue[0].Trim(), keyValue[1].Trim()));
             }
         }
 
