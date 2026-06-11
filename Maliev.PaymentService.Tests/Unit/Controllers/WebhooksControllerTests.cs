@@ -25,6 +25,10 @@ public class WebhooksControllerTests
 
     public WebhooksControllerTests()
     {
+        _processingServiceMock
+            .Setup(x => x.ProcessWebhookAsync(It.IsAny<WebhookEvent>()))
+            .ReturnsAsync(new WebhookProcessingResult { Success = true, IsDuplicate = false });
+
         _controller = new WebhooksController(
             _providerRepositoryMock.Object,
             _webhookRepositoryMock.Object,
@@ -76,6 +80,64 @@ public class WebhooksControllerTests
         // Assert
         Assert.IsType<OkObjectResult>(result.Result);
         _webhookRepositoryMock.Verify(x => x.AddAsync(It.Is<WebhookEvent>(e => e.Signature == "t=123,v1=sig")), Times.Once);
+    }
+
+    [Fact]
+    public async Task ReceiveWebhook_WaitsForProcessingBeforeAcknowledgingProvider()
+    {
+        var provider = CreateTestProvider("stripe");
+        _providerRepositoryMock.Setup(x => x.GetByNameAsync("stripe")).ReturnsAsync(provider);
+        _validationServiceMock
+            .Setup(x => x.ValidateWebhookAsync(It.IsAny<PaymentProvider>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<string>()))
+            .ReturnsAsync(true);
+
+        var processingStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var allowProcessingToFinish = new TaskCompletionSource<WebhookProcessingResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _processingServiceMock
+            .Setup(x => x.ProcessWebhookAsync(It.IsAny<WebhookEvent>()))
+            .Returns(async () =>
+            {
+                processingStarted.SetResult();
+                return await allowProcessingToFinish.Task;
+            });
+
+        var json = JsonSerializer.SerializeToElement(new { id = "evt_wait", type = "checkout.session.completed" });
+
+        var receiveTask = _controller.ReceiveWebhook("stripe", json);
+        await processingStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await Task.Delay(50);
+
+        Assert.False(receiveTask.IsCompleted);
+
+        allowProcessingToFinish.SetResult(new WebhookProcessingResult { Success = true, IsDuplicate = false });
+        var result = await receiveTask;
+
+        Assert.IsType<OkObjectResult>(result.Result);
+    }
+
+    [Fact]
+    public async Task ReceiveWebhook_ProcessingFailure_ReturnsInternalServerErrorForProviderRetry()
+    {
+        var provider = CreateTestProvider("stripe");
+        _providerRepositoryMock.Setup(x => x.GetByNameAsync("stripe")).ReturnsAsync(provider);
+        _validationServiceMock
+            .Setup(x => x.ValidateWebhookAsync(It.IsAny<PaymentProvider>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<string>()))
+            .ReturnsAsync(true);
+        _processingServiceMock
+            .Setup(x => x.ProcessWebhookAsync(It.IsAny<WebhookEvent>()))
+            .ReturnsAsync(new WebhookProcessingResult
+            {
+                Success = false,
+                IsDuplicate = false,
+                ErrorMessage = "Failed to update payment state"
+            });
+
+        var json = JsonSerializer.SerializeToElement(new { id = "evt_fail", type = "checkout.session.completed" });
+
+        var result = await _controller.ReceiveWebhook("stripe", json);
+
+        var statusCodeResult = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(StatusCodes.Status500InternalServerError, statusCodeResult.StatusCode);
     }
 
     [Fact]

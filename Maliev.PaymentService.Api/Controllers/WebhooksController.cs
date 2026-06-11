@@ -79,7 +79,7 @@ public class WebhooksController : ControllerBase
     /// 1. Signature validation (prevents tampering)
     /// 2. Duplicate detection (idempotent processing)
     /// 3. Event persistence to database
-    /// 4. Asynchronous processing (background job)
+    /// 4. Inline processing so payment providers retry if state updates or event publication fail
     /// 5. Payment status update
     ///
     /// **Event Types:**
@@ -91,7 +91,7 @@ public class WebhooksController : ControllerBase
     ///
     /// **Response Time:**
     /// - Target: &lt; 200ms (fast acknowledgment)
-    /// - Processing: Asynchronous (1-5 seconds)
+    /// - Processing: Completed before provider acknowledgment
     ///
     /// **Example Stripe Webhook:**
     /// ```bash
@@ -118,7 +118,7 @@ public class WebhooksController : ControllerBase
     /// - Stripe CLI: `stripe listen --forward-to localhost:5251/payments/v1/webhooks/stripe`
     /// - Omise Dashboard: Configure webhook URL and webhook secret in the Omise dashboard
     /// </remarks>
-    /// <response code="200">Webhook received and queued for processing. Returns event ID.</response>
+    /// <response code="200">Webhook received and processed. Returns event ID.</response>
     /// <response code="400">Invalid request. Unknown provider or malformed payload.</response>
     /// <response code="401">Unauthorized. Signature validation failed.</response>
     [AllowAnonymous] // Webhooks are authenticated via signature verification
@@ -126,6 +126,7 @@ public class WebhooksController : ControllerBase
     [ProducesResponseType(typeof(WebhookReceivedResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<ActionResult<WebhookReceivedResponse>> ReceiveWebhook(
         string provider,
         [FromBody] JsonElement payload)
@@ -246,24 +247,28 @@ public class WebhooksController : ControllerBase
             // Save webhook event
             await _webhookRepository.AddAsync(webhookEvent);
 
-            // Process webhook asynchronously (fire and forget)
-            _ = Task.Run(async () =>
+            // Process inline so providers retry if payment state/event publication fails.
+            var processingResult = await _processingService.ProcessWebhookAsync(webhookEvent);
+            if (!processingResult.Success)
             {
-                try
+                _logger.LogError(
+                    "Webhook {WebhookId} processing failed: {ErrorMessage}",
+                    webhookEvent.Id,
+                    processingResult.ErrorMessage);
+
+                return StatusCode(500, new ErrorResponse
                 {
-                    await _processingService.ProcessWebhookAsync(webhookEvent);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error in background webhook processing for {WebhookId}", webhookEvent.Id);
-                }
-            });
+                    Error = "WEBHOOK_PROCESSING_FAILED",
+                    Message = "Webhook was received but could not be processed. Provider should retry.",
+                    Timestamp = DateTime.UtcNow
+                });
+            }
 
             var duration = (DateTime.UtcNow - startTime).TotalSeconds;
             _metricsService.RecordWebhookDuration(provider, duration);
 
             _logger.LogInformation(
-                "Webhook {WebhookId} accepted and queued for processing",
+                "Webhook {WebhookId} accepted and processed",
                 webhookEvent.Id);
 
             return Ok(new WebhookReceivedResponse
@@ -271,7 +276,7 @@ public class WebhooksController : ControllerBase
                 WebhookEventId = webhookEvent.Id,
                 Accepted = true,
                 IsDuplicate = false,
-                Message = "Webhook received and queued for processing",
+                Message = "Webhook received and processed",
                 ReceivedAt = webhookEvent.CreatedAt
             });
         }
