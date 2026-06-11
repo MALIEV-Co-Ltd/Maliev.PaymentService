@@ -165,6 +165,56 @@ public class WebhookProcessingServiceTests
     }
 
     [Fact]
+    public async Task ProcessWebhookAsync_PaymentCompletedWithOrderNumberMetadata_ShouldPublishOrderNumber()
+    {
+        var transactionId = Guid.NewGuid();
+        var orderNumber = "QE-20260611-0007";
+        var webhook = CreateTestWebhook();
+        webhook.RawPayload = JsonSerializer.Serialize(new Dictionary<string, object>
+        {
+            ["transactionId"] = transactionId.ToString()
+        });
+        webhook.EventType = "payment.completed";
+
+        var transaction = CreateTestTransaction(PaymentStatus.Processing);
+        transaction.Metadata = new Dictionary<string, string>
+        {
+            ["orderNumber"] = orderNumber
+        };
+
+        _webhookRepositoryMock
+            .Setup(r => r.GetByProviderEventIdAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((WebhookEvent?)null);
+
+        _webhookRepositoryMock
+            .Setup(r => r.UpdateAsync(It.IsAny<WebhookEvent>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        _paymentRepositoryMock
+            .Setup(r => r.GetByIdAsync(transactionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(transaction);
+
+        _paymentRepositoryMock
+            .Setup(r => r.UpdateAsync(It.IsAny<PaymentTransaction>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PaymentTransaction t, CancellationToken _) => t);
+
+        _paymentRepositoryMock
+            .Setup(r => r.AddLogAsync(It.IsAny<TransactionLog>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var result = await _service.ProcessWebhookAsync(webhook);
+
+        Assert.True(result.Success);
+        _eventPublisherMock.Verify(
+            e => e.PublishAsync(
+                It.Is<Maliev.MessagingContracts.Contracts.Payments.PaymentCompletedEvent>(paymentEvent =>
+                    paymentEvent.Payload.OrderNumber == orderNumber &&
+                    paymentEvent.Payload.OrderId.ToString() == transaction.OrderId),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task ProcessWebhookAsync_SameStatus_ShouldNotUpdate()
     {
         var webhook = CreateTestWebhook();

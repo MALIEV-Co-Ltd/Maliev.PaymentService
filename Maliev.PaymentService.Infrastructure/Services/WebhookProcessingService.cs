@@ -280,7 +280,7 @@ public class WebhookProcessingService : IWebhookProcessingService
         {
             var payload = new PaymentCompletedEventPayload(
                 OrderId: Guid.TryParse(transaction.OrderId, out var orderId) ? orderId : Guid.Empty,
-                OrderNumber: transaction.OrderId ?? "Unknown",
+                OrderNumber: ResolveOrderNumber(transaction),
                 PaymentId: transaction.Id,
                 Amount: (double)transaction.Amount,
                 Currency: transaction.Currency
@@ -307,6 +307,19 @@ public class WebhookProcessingService : IWebhookProcessingService
             "Transaction {TransactionId} status updated from {PreviousStatus} to {NewStatus} via webhook",
             transactionId, previousStatus, newStatus);
         return true;
+    }
+
+    private static string ResolveOrderNumber(PaymentTransaction transaction)
+    {
+        if (transaction.Metadata != null &&
+            (transaction.Metadata.TryGetValue("orderNumber", out var orderNumber) ||
+             transaction.Metadata.TryGetValue("OrderNumber", out orderNumber)) &&
+            !string.IsNullOrWhiteSpace(orderNumber))
+        {
+            return orderNumber;
+        }
+
+        return string.IsNullOrWhiteSpace(transaction.OrderId) ? "Unknown" : transaction.OrderId;
     }
 
     private PaymentStatus MapEventTypeToStatus(string eventType)
