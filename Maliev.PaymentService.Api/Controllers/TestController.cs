@@ -45,6 +45,7 @@ public class TestController : ControllerBase
         var payload = new PaymentCompletedEventPayload(
             OrderId: request.OrderId,
             OrderNumber: request.OrderId.ToString(),
+            CustomerId: request.CustomerId,
             PaymentId: request.PaymentId,
             Amount: request.Amount,
             Currency: request.Currency
@@ -81,6 +82,11 @@ public class PublishPaymentRequest
     /// Associated order identifier.
     /// </summary>
     public Guid OrderId { get; set; }
+
+    /// <summary>
+    /// Customer identifier associated with the payment.
+    /// </summary>
+    public string CustomerId { get; set; } = string.Empty;
 
     /// <summary>
     /// Associated payment identifier.

@@ -281,6 +281,7 @@ public class WebhookProcessingService : IWebhookProcessingService
             var payload = new PaymentCompletedEventPayload(
                 OrderId: Guid.TryParse(transaction.OrderId, out var orderId) ? orderId : Guid.Empty,
                 OrderNumber: ResolveOrderNumber(transaction),
+                CustomerId: transaction.CustomerId,
                 PaymentId: transaction.Id,
                 Amount: (double)transaction.Amount,
                 Currency: transaction.Currency

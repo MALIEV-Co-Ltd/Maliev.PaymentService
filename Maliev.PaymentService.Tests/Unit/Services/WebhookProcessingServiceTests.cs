@@ -209,7 +209,8 @@ public class WebhookProcessingServiceTests
             e => e.PublishAsync(
                 It.Is<Maliev.MessagingContracts.Contracts.Payments.PaymentCompletedEvent>(paymentEvent =>
                     paymentEvent.Payload.OrderNumber == orderNumber &&
-                    paymentEvent.Payload.OrderId.ToString() == transaction.OrderId),
+                    paymentEvent.Payload.OrderId.ToString() == transaction.OrderId &&
+                    paymentEvent.Payload.CustomerId == transaction.CustomerId),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
