@@ -277,6 +277,72 @@ public class WebhookProcessingServiceTests
     }
 
     [Fact]
+    public async Task ProcessWebhookAsync_StripeCheckoutSessionExpired_ShouldPublishPaymentFailedEvent()
+    {
+        var transactionId = Guid.NewGuid();
+        var webhook = CreateTestWebhook();
+        webhook.EventType = "checkout.session.expired";
+        webhook.RawPayload = JsonSerializer.Serialize(new
+        {
+            id = "evt_checkout_expired",
+            type = "checkout.session.expired",
+            data = new
+            {
+                @object = new
+                {
+                    id = "cs_test_expired",
+                    metadata = new
+                    {
+                        transactionId = transactionId.ToString(),
+                        orderNumber = "ORD-CANCEL-001"
+                    }
+                }
+            }
+        });
+
+        var transaction = CreateTestTransaction(PaymentStatus.Processing);
+        transaction.Metadata = new Dictionary<string, string>
+        {
+            ["orderNumber"] = "ORD-CANCEL-001"
+        };
+
+        _webhookRepositoryMock
+            .Setup(r => r.GetByProviderEventIdAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((WebhookEvent?)null);
+
+        _webhookRepositoryMock
+            .Setup(r => r.UpdateAsync(It.IsAny<WebhookEvent>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        _paymentRepositoryMock
+            .Setup(r => r.GetByIdAsync(transactionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(transaction);
+
+        _paymentRepositoryMock
+            .Setup(r => r.UpdateAsync(It.IsAny<PaymentTransaction>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PaymentTransaction t, CancellationToken _) => t);
+
+        _paymentRepositoryMock
+            .Setup(r => r.AddLogAsync(It.IsAny<TransactionLog>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var result = await _service.ProcessWebhookAsync(webhook);
+
+        Assert.True(result.Success);
+        _eventPublisherMock.Verify(
+            e => e.PublishAsync(
+                It.Is<Maliev.MessagingContracts.Contracts.Payments.PaymentFailedEvent>(paymentEvent =>
+                    paymentEvent.Payload.TransactionId == transaction.Id &&
+                    paymentEvent.Payload.CustomerId == transaction.CustomerId &&
+                    paymentEvent.Payload.OrderId == transaction.OrderId &&
+                    paymentEvent.Payload.Amount == (double)transaction.Amount &&
+                    paymentEvent.Payload.Currency == transaction.Currency &&
+                    paymentEvent.Payload.ErrorMessage.Contains("checkout.session.expired", StringComparison.OrdinalIgnoreCase)),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task ProcessWebhookAsync_SameStatus_ShouldNotUpdate()
     {
         var webhook = CreateTestWebhook();

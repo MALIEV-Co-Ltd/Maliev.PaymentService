@@ -353,6 +353,35 @@ public class WebhookProcessingService : IWebhookProcessingService
 
             await _eventPublisher.PublishAsync(publicEvent, cancellationToken);
         }
+        else if (newStatus == PaymentStatus.Failed)
+        {
+            var failedEvent = new PaymentFailedEvent(
+                MessageId: Guid.NewGuid(),
+                MessageName: nameof(PaymentFailedEvent),
+                MessageType: MessageType.Event,
+                MessageVersion: "1.0",
+                PublishedBy: "PaymentService",
+                ConsumedBy: new[] { "NotificationService" },
+                CorrelationId: Guid.TryParse(transaction.CorrelationId, out var correlId) ? correlId : Guid.NewGuid(),
+                CausationId: null,
+                OccurredAtUtc: DateTimeOffset.UtcNow,
+                IsPublic: true,
+                Payload: new PaymentFailedEventPayload(
+                    TransactionId: transaction.Id,
+                    IdempotencyKey: transaction.IdempotencyKey,
+                    Amount: (double)transaction.Amount,
+                    Currency: transaction.Currency,
+                    CustomerId: transaction.CustomerId,
+                    OrderId: transaction.OrderId,
+                    ProviderName: transaction.ProviderName,
+                    ErrorMessage: $"Payment failed via webhook: {eventType}",
+                    ProviderErrorCode: eventType,
+                    FailedAt: DateTimeOffset.UtcNow
+                )
+            );
+
+            await _eventPublisher.PublishAsync(failedEvent, cancellationToken);
+        }
 
         _logger.LogInformation(
             "Transaction {TransactionId} status updated from {PreviousStatus} to {NewStatus} via webhook",
@@ -381,7 +410,7 @@ public class WebhookProcessingService : IWebhookProcessingService
         return normalized switch
         {
             var e when e.Contains("completed") || e.Contains("succeeded") || e.Contains("success") => PaymentStatus.Completed,
-            var e when e.Contains("failed") || e.Contains("failure") || e.Contains("declined") || e.Contains("cancelled") || e.Contains("canceled") => PaymentStatus.Failed,
+            var e when e.Contains("failed") || e.Contains("failure") || e.Contains("declined") || e.Contains("cancelled") || e.Contains("canceled") || e.Contains("expired") => PaymentStatus.Failed,
             var e when e.Contains("pending") || e.Contains("processing") => PaymentStatus.Processing,
             var e when e.Contains("refunded") => PaymentStatus.Refunded,
             _ => PaymentStatus.Processing // Default to processing for unknown events
