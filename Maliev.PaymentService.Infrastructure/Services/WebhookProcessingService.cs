@@ -50,7 +50,7 @@ public class WebhookProcessingService : IWebhookProcessingService
                 webhookEvent.ProviderEventId,
                 cancellationToken);
 
-            if (existing != null)
+            if (existing != null && existing.Id != webhookEvent.Id)
             {
                 _logger.LogInformation(
                     "Duplicate webhook detected: {ProviderEventId} from provider {ProviderId}",
@@ -85,15 +85,19 @@ public class WebhookProcessingService : IWebhookProcessingService
 
             if (transactionId.HasValue)
             {
-                webhookEvent.PaymentTransactionId = transactionId.Value;
-
-                // Update transaction status based on webhook event
-                await UpdateTransactionStatusAsync(
+                // Update transaction status based on webhook event. The webhook row is linked
+                // only when the transaction exists so unmatched provider callbacks remain
+                // persistable for retry/inspection without violating the FK constraint.
+                var linked = await UpdateTransactionStatusAsync(
                     transactionId.Value,
                     webhookEvent.EventType,
                     parsedData,
                     webhookEvent.CorrelationId,
                     cancellationToken);
+                if (linked)
+                {
+                    webhookEvent.PaymentTransactionId = transactionId.Value;
+                }
             }
 
             // Mark as completed
@@ -220,7 +224,7 @@ public class WebhookProcessingService : IWebhookProcessingService
         return null;
     }
 
-    private async Task UpdateTransactionStatusAsync(
+    private async Task<bool> UpdateTransactionStatusAsync(
         Guid transactionId,
         string eventType,
         Dictionary<string, object>? parsedData,
@@ -232,7 +236,7 @@ public class WebhookProcessingService : IWebhookProcessingService
         if (transaction == null)
         {
             _logger.LogWarning("Transaction {TransactionId} not found for webhook event", transactionId);
-            return;
+            return false;
         }
 
         var previousStatus = transaction.Status;
@@ -245,7 +249,7 @@ public class WebhookProcessingService : IWebhookProcessingService
             _logger.LogInformation(
                 "Transaction {TransactionId} already in status {Status}, skipping update",
                 transactionId, newStatus);
-            return;
+            return true;
         }
 
         transaction.Status = newStatus;
@@ -302,6 +306,7 @@ public class WebhookProcessingService : IWebhookProcessingService
         _logger.LogInformation(
             "Transaction {TransactionId} status updated from {PreviousStatus} to {NewStatus} via webhook",
             transactionId, previousStatus, newStatus);
+        return true;
     }
 
     private PaymentStatus MapEventTypeToStatus(string eventType)
