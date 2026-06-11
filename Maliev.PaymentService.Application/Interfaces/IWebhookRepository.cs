@@ -18,6 +18,11 @@ public interface IWebhookRepository
     Task<WebhookEvent?> GetByProviderEventIdAsync(Guid providerId, string providerEventId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Gets a webhook event by its internal identifier.
+    /// </summary>
+    Task<WebhookEvent?> GetByIdAsync(Guid webhookEventId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Updates an existing webhook event.
     /// </summary>
     Task UpdateAsync(WebhookEvent webhookEvent, CancellationToken cancellationToken = default);

@@ -33,6 +33,13 @@ public class WebhookRepository : IWebhookRepository
                 cancellationToken);
     }
 
+    public async Task<WebhookEvent?> GetByIdAsync(Guid webhookEventId, CancellationToken cancellationToken = default)
+    {
+        return await _context.WebhookEvents
+            .AsNoTracking()
+            .FirstOrDefaultAsync(w => w.Id == webhookEventId, cancellationToken);
+    }
+
     public async Task UpdateAsync(WebhookEvent webhookEvent, CancellationToken cancellationToken = default)
     {
         webhookEvent.UpdatedAt = DateTime.UtcNow;

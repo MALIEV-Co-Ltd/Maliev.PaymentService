@@ -153,7 +153,7 @@ public class WebhookProcessingService : IWebhookProcessingService
         Guid webhookEventId,
         CancellationToken cancellationToken = default)
     {
-        var webhookEvent = await _webhookRepository.GetByProviderEventIdAsync(Guid.Empty, webhookEventId.ToString(), cancellationToken);
+        var webhookEvent = await _webhookRepository.GetByIdAsync(webhookEventId, cancellationToken);
 
         if (webhookEvent == null)
         {
