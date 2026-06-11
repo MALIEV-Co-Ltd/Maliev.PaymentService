@@ -2,6 +2,7 @@ using Maliev.PaymentService.Domain.Entities;
 using Maliev.PaymentService.Domain.Enums;
 using Maliev.PaymentService.Application.Interfaces;
 using Maliev.PaymentService.Infrastructure.Services;
+using Maliev.MessagingContracts.Contracts.Payments;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
@@ -202,17 +203,22 @@ public class WebhookProcessingServiceTests
             .Setup(r => r.AddLogAsync(It.IsAny<TransactionLog>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
+        PaymentCompletedEvent? publishedEvent = null;
+        _eventPublisherMock
+            .Setup(e => e.PublishAsync(It.IsAny<PaymentCompletedEvent>(), It.IsAny<CancellationToken>()))
+            .Callback<PaymentCompletedEvent, CancellationToken>((paymentEvent, _) => publishedEvent = paymentEvent)
+            .Returns(Task.CompletedTask);
+
         var result = await _service.ProcessWebhookAsync(webhook);
 
         Assert.True(result.Success);
-        _eventPublisherMock.Verify(
-            e => e.PublishAsync(
-                It.Is<Maliev.MessagingContracts.Contracts.Payments.PaymentCompletedEvent>(paymentEvent =>
-                    paymentEvent.Payload.OrderNumber == orderNumber &&
-                    paymentEvent.Payload.OrderId.ToString() == transaction.OrderId &&
-                    paymentEvent.Payload.CustomerId == transaction.CustomerId),
-                It.IsAny<CancellationToken>()),
-            Times.Once);
+        Assert.NotNull(publishedEvent);
+        Assert.Equal(orderNumber, publishedEvent.Payload.OrderNumber);
+        Assert.Equal(transaction.OrderId, publishedEvent.Payload.OrderId.ToString());
+        Assert.Equal(transaction.CustomerId, publishedEvent.Payload.CustomerId);
+        Assert.Contains("InvoiceService", publishedEvent.ConsumedBy);
+        Assert.Contains("OrderService", publishedEvent.ConsumedBy);
+        Assert.Contains("NotificationService", publishedEvent.ConsumedBy);
     }
 
     [Fact]

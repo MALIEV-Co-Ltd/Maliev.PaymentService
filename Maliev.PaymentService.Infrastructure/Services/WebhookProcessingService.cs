@@ -343,7 +343,7 @@ public class WebhookProcessingService : IWebhookProcessingService
                 MessageType: MessageType.Event,
                 MessageVersion: "1.0",
                 PublishedBy: "PaymentService",
-                ConsumedBy: new[] { "NotificationService" },
+                ConsumedBy: new[] { "InvoiceService", "OrderService", "NotificationService" },
                 CorrelationId: Guid.TryParse(transaction.CorrelationId, out var correlId) ? correlId : Guid.NewGuid(),
                 CausationId: null,
                 OccurredAtUtc: DateTimeOffset.UtcNow,

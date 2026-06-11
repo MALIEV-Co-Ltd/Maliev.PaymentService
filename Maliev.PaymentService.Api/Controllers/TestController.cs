@@ -57,7 +57,7 @@ public class TestController : ControllerBase
             MessageType: MessageType.Event,
             MessageVersion: "1.0",
             PublishedBy: "PaymentService",
-            ConsumedBy: new[] { "NotificationService" },
+            ConsumedBy: new[] { "InvoiceService", "OrderService", "NotificationService" },
             CorrelationId: Guid.NewGuid(),
             CausationId: null,
             OccurredAtUtc: DateTimeOffset.UtcNow,
