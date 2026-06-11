@@ -17,9 +17,8 @@ public class TestContainersFixture : IAsyncLifetime
     public TestContainersFixture()
     {
         // PostgreSQL 18 container for database tests
-        _postgresContainer = 
 #pragma warning disable CS0618
-        new PostgreSqlBuilder().WithImage("postgres:18-alpine")
+        _postgresContainer = new PostgreSqlBuilder().WithImage("postgres:18-alpine")
             .WithDatabase("payment_gateway_test")
             .WithUsername("test_user")
             .WithPassword("test_password")
