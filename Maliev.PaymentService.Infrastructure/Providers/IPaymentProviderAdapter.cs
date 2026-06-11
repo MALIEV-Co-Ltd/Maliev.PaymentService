@@ -50,6 +50,7 @@ public interface IPaymentProviderAdapter
 /// </summary>
 public class ProviderPaymentRequest
 {
+    public required string IdempotencyKey { get; set; }
     public required decimal Amount { get; set; }
     public required string Currency { get; set; }
     public required string CustomerId { get; set; }

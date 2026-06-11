@@ -170,6 +170,7 @@ public class PaymentService : IPaymentService
 
                 var providerRequest = new ProviderPaymentRequest
                 {
+                    IdempotencyKey = request.IdempotencyKey,
                     Amount = request.Amount,
                     Currency = request.Currency,
                     CustomerId = request.CustomerId,

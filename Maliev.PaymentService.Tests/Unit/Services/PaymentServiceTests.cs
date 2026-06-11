@@ -85,6 +85,9 @@ public sealed class PaymentServiceTests
         });
 
         var form = ReadForm(stripeHandler.RequestBody);
+        Assert.NotNull(stripeHandler.Request);
+        Assert.True(stripeHandler.Request.Headers.TryGetValues("Idempotency-Key", out var idempotencyValues));
+        Assert.Equal("idem-123", Assert.Single(idempotencyValues));
         Assert.Equal(transaction.Id.ToString(), form["metadata[transactionId]"]);
         Assert.Equal(transaction.Id.ToString(), form["payment_intent_data[metadata][transactionId]"]);
         Assert.Equal("ORD-456", form["metadata[orderNumber]"]);
@@ -135,10 +138,12 @@ public sealed class PaymentServiceTests
 
     private sealed class CapturingHandler(HttpResponseMessage response) : HttpMessageHandler
     {
+        public HttpRequestMessage? Request { get; private set; }
         public string? RequestBody { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            Request = request;
             RequestBody = request.Content is null
                 ? null
                 : await request.Content.ReadAsStringAsync(cancellationToken);

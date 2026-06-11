@@ -24,6 +24,7 @@ public sealed class StripeProviderTests
 
         var result = await provider.ProcessPaymentAsync(new ProviderPaymentRequest
         {
+            IdempotencyKey = "idem-stripe-123",
             Amount = 1234.56m,
             Currency = "THB",
             CustomerId = "customer-123",
@@ -48,6 +49,8 @@ public sealed class StripeProviderTests
         Assert.Equal("https://api.stripe.com/v1/checkout/sessions", handler.Request.RequestUri?.ToString());
         Assert.Equal("Bearer", handler.Request.Headers.Authorization?.Scheme);
         Assert.Equal("sk_test_123", handler.Request.Headers.Authorization?.Parameter);
+        Assert.True(handler.Request.Headers.TryGetValues("Idempotency-Key", out var idempotencyValues));
+        Assert.Equal("idem-stripe-123", Assert.Single(idempotencyValues));
 
         var form = ReadForm(handler.RequestBody);
         Assert.Equal("payment", form["mode"]);

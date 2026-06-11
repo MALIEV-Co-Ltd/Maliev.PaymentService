@@ -66,10 +66,15 @@ public class StripeProvider : IPaymentProviderAdapter
             }
 
             using var content = new FormUrlEncodedContent(form);
-            using var response = await _httpClient.PostAsync(
-                $"{_apiBaseUrl.TrimEnd('/')}/v1/checkout/sessions",
-                content,
-                cancellationToken);
+            using var httpRequest = new HttpRequestMessage(
+                HttpMethod.Post,
+                $"{_apiBaseUrl.TrimEnd('/')}/v1/checkout/sessions")
+            {
+                Content = content
+            };
+            httpRequest.Headers.Add("Idempotency-Key", request.IdempotencyKey);
+
+            using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
 
             var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
             if (!response.IsSuccessStatusCode)
