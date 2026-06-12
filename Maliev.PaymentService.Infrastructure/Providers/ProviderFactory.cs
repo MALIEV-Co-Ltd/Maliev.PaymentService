@@ -25,7 +25,7 @@ public class ProviderFactory
     /// <param name="region">Optional region (defaults to first active configuration)</param>
     /// <returns>Provider adapter instance</returns>
     /// <exception cref="NotSupportedException">Thrown when provider type is not supported</exception>
-    public IPaymentProviderAdapter CreateProvider(PaymentProvider provider, string? region = null)
+    public virtual IPaymentProviderAdapter CreateProvider(PaymentProvider provider, string? region = null)
     {
         var httpClient = _httpClientFactory.CreateClient(provider.Name);
 
