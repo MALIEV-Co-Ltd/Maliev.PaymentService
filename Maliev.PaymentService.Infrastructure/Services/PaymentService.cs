@@ -58,6 +58,19 @@ public class PaymentService : IPaymentService
             return existingTransaction;
         }
 
+        var completedOrderPayment = await _paymentRepository.GetLatestCompletedByOrderIdAsync(
+            request.OrderId,
+            cancellationToken);
+        if (completedOrderPayment != null)
+        {
+            _logger.LogWarning(
+                "Order {OrderId} already has completed payment {TransactionId}. Returning existing transaction for idempotency key {IdempotencyKey}",
+                request.OrderId,
+                completedOrderPayment.Id,
+                request.IdempotencyKey);
+            return completedOrderPayment;
+        }
+
         // Acquire distributed lock for idempotency key
         var lockAcquired = await _idempotencyService.AcquireLockAsync(
             "payment",
@@ -80,6 +93,19 @@ public class PaymentService : IPaymentService
                 _logger.LogInformation("Idempotent request detected after lock acquisition. Returning existing transaction {TransactionId}",
                     existingTransaction.Id);
                 return existingTransaction;
+            }
+
+            completedOrderPayment = await _paymentRepository.GetLatestCompletedByOrderIdAsync(
+                request.OrderId,
+                cancellationToken);
+            if (completedOrderPayment != null)
+            {
+                _logger.LogWarning(
+                    "Order {OrderId} already has completed payment {TransactionId} after lock acquisition. Returning existing transaction for idempotency key {IdempotencyKey}",
+                    request.OrderId,
+                    completedOrderPayment.Id,
+                    request.IdempotencyKey);
+                return completedOrderPayment;
             }
 
             // Select provider based on currency and routing logic

@@ -1,4 +1,5 @@
 using Maliev.PaymentService.Domain.Entities;
+using Maliev.PaymentService.Domain.Enums;
 using Maliev.PaymentService.Application.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
@@ -38,6 +39,19 @@ public class PaymentRepository : IPaymentRepository
             .Include(p => p.PaymentProvider)
             .Include(p => p.TransactionLogs)
             .FirstOrDefaultAsync(p => p.IdempotencyKey == idempotencyKey, cancellationToken);
+    }
+
+    /// <summary>
+    /// Gets the latest completed payment transaction for an order.
+    /// </summary>
+    public async Task<PaymentTransaction?> GetLatestCompletedByOrderIdAsync(string orderId, CancellationToken cancellationToken = default)
+    {
+        return await _context.PaymentTransactions
+            .AsNoTracking()
+            .Include(p => p.PaymentProvider)
+            .Where(p => p.OrderId == orderId && p.Status == PaymentStatus.Completed)
+            .OrderByDescending(p => p.CompletedAt ?? p.UpdatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     /// <summary>

@@ -26,6 +26,15 @@ public interface IPaymentRepository
     Task<PaymentTransaction?> GetByIdempotencyKeyAsync(string idempotencyKey, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Gets the latest completed payment transaction for an order.
+    /// Used to prevent duplicate captures when a caller starts a new checkout attempt after payment is already complete.
+    /// </summary>
+    /// <param name="orderId">Caller-domain order identifier</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Latest completed payment transaction if found, null otherwise</returns>
+    Task<PaymentTransaction?> GetLatestCompletedByOrderIdAsync(string orderId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Gets payment transactions within a date range.
     /// Used for reporting and reconciliation.
     /// </summary>

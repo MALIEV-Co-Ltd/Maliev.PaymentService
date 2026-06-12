@@ -15,6 +15,83 @@ namespace Maliev.PaymentService.Tests.Unit.Services;
 public sealed class PaymentServiceTests
 {
     [Fact]
+    public async Task ProcessPaymentAsync_WhenOrderAlreadyCompleted_ReturnsExistingTransactionWithoutCallingProvider()
+    {
+        var provider = CreateStripeProvider();
+        var completedTransaction = new PaymentTransaction
+        {
+            Id = Guid.NewGuid(),
+            IdempotencyKey = "previous-attempt",
+            Amount = 2500m,
+            Currency = "THB",
+            Status = PaymentStatus.Completed,
+            CustomerId = "customer-123",
+            OrderId = "order-456",
+            Description = "Manufacturing order ORD-456",
+            PaymentProviderId = provider.Id,
+            ProviderName = provider.Name,
+            ProviderTransactionId = "chrg_existing",
+            ReturnUrl = "https://quote.example.com/payment/success?orderId=ORD-456",
+            CancelUrl = "https://quote.example.com/payment/cancel?orderId=ORD-456",
+            CorrelationId = Guid.NewGuid().ToString(),
+            CreatedAt = DateTime.UtcNow.AddMinutes(-10),
+            UpdatedAt = DateTime.UtcNow.AddMinutes(-5),
+            CompletedAt = DateTime.UtcNow.AddMinutes(-5)
+        };
+
+        var repository = new Mock<IPaymentRepository>();
+        repository
+            .Setup(r => r.GetByIdempotencyKeyAsync("new-attempt", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PaymentTransaction?)null);
+        repository
+            .Setup(r => r.GetLatestCompletedByOrderIdAsync("order-456", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(completedTransaction);
+
+        var routing = new Mock<IPaymentRoutingService>();
+        var idempotency = new Mock<IIdempotencyService>();
+        idempotency
+            .Setup(i => i.AcquireLockAsync("payment", "new-attempt", It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        var events = new Mock<IEventPublisher>();
+        var metrics = new Mock<IMetricsService>();
+        var httpClientFactory = new Mock<IHttpClientFactory>();
+        var encryption = new Mock<IEncryptionService>();
+
+        var service = new PaymentOrchestrationService(
+            repository.Object,
+            routing.Object,
+            idempotency.Object,
+            events.Object,
+            metrics.Object,
+            new ProviderFactory(httpClientFactory.Object, encryption.Object),
+            new CircuitBreakerStateManager(),
+            NullLogger<PaymentOrchestrationService>.Instance);
+
+        var transaction = await service.ProcessPaymentAsync(new PaymentProcessingRequest
+        {
+            IdempotencyKey = "new-attempt",
+            Amount = 2500m,
+            Currency = "THB",
+            CustomerId = "customer-123",
+            OrderId = "order-456",
+            Description = "Manufacturing order ORD-456",
+            ReturnUrl = "https://quote.example.com/payment/success?orderId=ORD-456",
+            CancelUrl = "https://quote.example.com/payment/cancel?orderId=ORD-456",
+            Metadata = new Dictionary<string, string> { ["orderNumber"] = "ORD-456" },
+            PreferredProvider = "stripe",
+            CorrelationId = Guid.NewGuid().ToString()
+        });
+
+        Assert.Same(completedTransaction, transaction);
+        routing.Verify(
+            r => r.SelectProviderAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        repository.Verify(
+            r => r.AddAsync(It.IsAny<PaymentTransaction>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task ProcessPaymentAsync_ForStripeAddsInternalTransactionIdToProviderMetadata()
     {
         var stripeHandler = new CapturingHandler(new HttpResponseMessage(HttpStatusCode.OK)
