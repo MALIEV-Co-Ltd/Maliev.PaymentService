@@ -64,18 +64,22 @@ public class PaymentRoutingService : IPaymentRoutingService
             throw new InvalidOperationException($"No active payment providers available for currency {currency}");
         }
 
-        // Filter out providers with open circuit breakers
-        var healthyProviders = availableProviders
+        // Filter out providers with open circuit breakers. Degraded providers remain routable,
+        // but only after active providers have been exhausted.
+        var circuitClosedProviders = availableProviders
             .Where(p => !_circuitBreakerStateManager.IsCircuitOpen(p.Name))
+            .ToList();
+        var healthyProviders = circuitClosedProviders
+            .Where(p => p.Status == ProviderStatus.Active)
             .ToList();
 
         if (!healthyProviders.Any())
         {
-            _logger.LogWarning("All providers for currency {Currency} have circuit breakers open, using degraded provider",
+            _logger.LogWarning("No active providers for currency {Currency} are available, checking degraded providers",
                 currency);
 
-            // Fall back to degraded providers if all healthy ones are circuit-broken
-            var degradedProviders = availableProviders
+            // Fall back to degraded providers only when active providers are unavailable.
+            var degradedProviders = circuitClosedProviders
                 .Where(p => p.Status == ProviderStatus.Degraded)
                 .ToList();
 

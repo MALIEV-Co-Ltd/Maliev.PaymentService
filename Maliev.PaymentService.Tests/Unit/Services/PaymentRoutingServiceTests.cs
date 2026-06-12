@@ -85,6 +85,21 @@ public class PaymentRoutingServiceTests
     }
 
     [Fact]
+    public async Task SelectProviderAsync_ThailandCurrency_FallsBackToActiveStripeWhenOmiseIsDegraded()
+    {
+        var omise = CreateTestProvider("omise", ProviderStatus.Degraded, 1);
+        var stripe = CreateTestProvider("stripe", ProviderStatus.Active, 2);
+
+        _providerRepositoryMock
+            .Setup(r => r.GetRoutableByCurrencyAsync("THB", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<PaymentProvider> { omise, stripe });
+
+        var result = await _service.SelectProviderAsync("THB");
+
+        Assert.Equal("stripe", result.Name);
+    }
+
+    [Fact]
     public async Task SelectProviderAsync_WithPreferredProviderCircuitOpen_ShouldFallback()
     {
         var provider = CreateTestProvider("stripe", ProviderStatus.Active, 1);
