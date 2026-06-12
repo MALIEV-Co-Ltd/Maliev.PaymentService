@@ -77,6 +77,32 @@ public sealed class StripeProviderTests
         Assert.Equal("order-456", form["metadata[orderId]"]);
     }
 
+    [Fact]
+    public async Task GetPaymentStatusAsync_RetrievesCheckoutSessionAndMapsPaidStatus()
+    {
+        var handler = new CapturingHandler(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = JsonContent.Create(new
+            {
+                id = "cs_test_123",
+                status = "complete",
+                payment_status = "paid"
+            })
+        });
+        using var httpClient = new HttpClient(handler);
+        var provider = new StripeProvider(httpClient, "sk_test_123", "https://api.stripe.com");
+
+        var result = await provider.GetPaymentStatusAsync("cs_test_123");
+
+        Assert.Equal("succeeded", result.Status);
+        Assert.Null(result.ErrorMessage);
+        Assert.NotNull(handler.Request);
+        Assert.Equal(HttpMethod.Get, handler.Request.Method);
+        Assert.Equal("https://api.stripe.com/v1/checkout/sessions/cs_test_123", handler.Request.RequestUri?.ToString());
+        Assert.Equal("Bearer", handler.Request.Headers.Authorization?.Scheme);
+        Assert.Equal("sk_test_123", handler.Request.Headers.Authorization?.Parameter);
+    }
+
     private static Dictionary<string, string> ReadForm(string? body)
     {
         Assert.False(string.IsNullOrWhiteSpace(body));

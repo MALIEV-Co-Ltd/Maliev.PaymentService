@@ -148,14 +148,39 @@ public class StripeProvider : IPaymentProviderAdapter
     {
         try
         {
-            // For MVP: Simulate status retrieval
-            // In production, this would call Stripe's Payment Intent retrieve API
-            await Task.Delay(50, cancellationToken);
+            using var response = await _httpClient.GetAsync(
+                $"{_apiBaseUrl.TrimEnd('/')}/v1/checkout/sessions/{Uri.EscapeDataString(providerTransactionId)}",
+                cancellationToken);
+
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                return new ProviderPaymentStatus
+                {
+                    Status = "failed",
+                    ErrorMessage = responseBody
+                };
+            }
+
+            var session = JsonSerializer.Deserialize<StripeCheckoutSessionStatusResponse>(
+                responseBody,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+            if (session is null)
+            {
+                return new ProviderPaymentStatus
+                {
+                    Status = "failed",
+                    ErrorMessage = "Stripe checkout session status response could not be parsed."
+                };
+            }
 
             return new ProviderPaymentStatus
             {
-                Status = "succeeded",
-                CompletedAt = DateTime.UtcNow
+                Status = MapCheckoutPaymentStatus(session.PaymentStatus, session.Status),
+                CompletedAt = string.Equals(session.PaymentStatus, "paid", StringComparison.OrdinalIgnoreCase)
+                    ? DateTime.UtcNow
+                    : null
             };
         }
         catch (Exception ex)
@@ -166,6 +191,21 @@ public class StripeProvider : IPaymentProviderAdapter
                 ErrorMessage = ex.Message
             };
         }
+    }
+
+    private static string MapCheckoutPaymentStatus(string? paymentStatus, string? checkoutStatus)
+    {
+        if (string.Equals(paymentStatus, "paid", StringComparison.OrdinalIgnoreCase))
+        {
+            return "succeeded";
+        }
+
+        if (string.Equals(checkoutStatus, "expired", StringComparison.OrdinalIgnoreCase))
+        {
+            return "failed";
+        }
+
+        return "processing";
     }
 
     public async Task<ProviderRefundResult> ProcessRefundAsync(ProviderRefundRequest request, CancellationToken cancellationToken = default)
@@ -225,5 +265,14 @@ public class StripeProvider : IPaymentProviderAdapter
 
         [JsonPropertyName("status")]
         public string? Status { get; set; }
+    }
+
+    private sealed class StripeCheckoutSessionStatusResponse
+    {
+        [JsonPropertyName("status")]
+        public string? Status { get; set; }
+
+        [JsonPropertyName("payment_status")]
+        public string? PaymentStatus { get; set; }
     }
 }
