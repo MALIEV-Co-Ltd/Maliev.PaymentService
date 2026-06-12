@@ -462,6 +462,11 @@ public class WebhooksController : ControllerBase
             return camelTypeValue.GetString() ?? "unknown";
         }
 
+        if (payload.TryGetProperty("key", out var keyValue) && keyValue.ValueKind == JsonValueKind.String)
+        {
+            return keyValue.GetString() ?? "unknown";
+        }
+
         return "unknown";
     }
 

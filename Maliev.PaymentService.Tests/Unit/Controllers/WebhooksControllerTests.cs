@@ -163,6 +163,42 @@ public class WebhooksControllerTests
     }
 
     [Fact]
+    public async Task ReceiveWebhook_OmiseProvider_ExtractsEventKeyAsEventType()
+    {
+        var provider = CreateTestProvider("omise");
+        _providerRepositoryMock.Setup(x => x.GetByNameAsync("omise")).ReturnsAsync(provider);
+        _validationServiceMock
+            .Setup(x => x.ValidateWebhookAsync(
+                It.IsAny<PaymentProvider>(),
+                It.IsAny<string>(),
+                It.IsAny<Dictionary<string, string>>(),
+                It.IsAny<string>()))
+            .ReturnsAsync(true);
+
+        var json = JsonSerializer.SerializeToElement(new
+        {
+            @object = "event",
+            id = "evnt_test_charge_complete",
+            key = "charge.complete",
+            data = new
+            {
+                @object = "charge",
+                id = "chrg_test_123",
+                status = "successful"
+            }
+        });
+
+        var result = await _controller.ReceiveWebhook("omise", json);
+
+        Assert.IsType<OkObjectResult>(result.Result);
+        _webhookRepositoryMock.Verify(
+            x => x.AddAsync(
+                It.Is<WebhookEvent>(e => e.EventType == "charge.complete"),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task ReceiveWebhook_ScbProvider_ExtractsSignatureCorrectly()
     {
         // Arrange
