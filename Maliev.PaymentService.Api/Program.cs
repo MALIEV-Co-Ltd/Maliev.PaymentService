@@ -1,4 +1,5 @@
 using Maliev.Aspire.ServiceDefaults;
+using Maliev.PaymentService.Api.Configuration;
 using Maliev.PaymentService.Api.Services;
 using Maliev.PaymentService.Infrastructure.Data;
 using MassTransit;
@@ -126,6 +127,8 @@ try
     var metricsService = app.Services.GetRequiredService<Maliev.PaymentService.Application.Interfaces.IMetricsService>();
 
     var logger = app.Services.GetRequiredService<ILogger<Program>>();
+
+    PaymentProviderConfigurationValidator.ValidateOmiseForEnvironment(app.Configuration, app.Environment.EnvironmentName);
 
     // Run database migrations on startup
     await app.MigrateDatabaseAsync<PaymentDbContext>();
