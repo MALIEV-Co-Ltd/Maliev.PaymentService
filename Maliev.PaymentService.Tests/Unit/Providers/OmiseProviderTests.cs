@@ -62,6 +62,8 @@ public sealed class OmiseProviderTests
         Assert.Equal(
             Convert.ToBase64String(Encoding.UTF8.GetBytes("skey_test_123:")),
             handler.Request.Headers.Authorization?.Parameter);
+        Assert.True(handler.Request.Headers.TryGetValues("Idempotency-Key", out var idempotencyHeaders));
+        Assert.Equal("omise-idem-123", Assert.Single(idempotencyHeaders));
 
         var form = ReadForm(handler.RequestBody);
         Assert.Equal("150025", form["amount"]);
@@ -132,6 +134,8 @@ public sealed class OmiseProviderTests
         Assert.NotNull(handler.Request);
         Assert.Equal(HttpMethod.Post, handler.Request.Method);
         Assert.Equal("https://api.omise.co/charges/chrg_test_123/refunds", handler.Request.RequestUri?.ToString());
+        Assert.True(handler.Request.Headers.TryGetValues("Idempotency-Key", out var idempotencyHeaders));
+        Assert.Equal("refund-idem-123", Assert.Single(idempotencyHeaders));
 
         var form = ReadForm(handler.RequestBody);
         Assert.Equal("12050", form["amount"]);

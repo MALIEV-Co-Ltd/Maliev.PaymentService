@@ -63,6 +63,7 @@ public class OmiseProvider : IPaymentProviderAdapter
             {
                 Content = content
             };
+            AddIdempotencyKey(httpRequest, request.IdempotencyKey);
 
             using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
             var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -194,6 +195,7 @@ public class OmiseProvider : IPaymentProviderAdapter
             {
                 Content = content
             };
+            AddIdempotencyKey(httpRequest, request.IdempotencyKey);
 
             using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
             var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -282,6 +284,14 @@ public class OmiseProvider : IPaymentProviderAdapter
     private static long ToOmiseMinorUnits(decimal amount)
     {
         return decimal.ToInt64(decimal.Round(amount * 100m, 0, MidpointRounding.AwayFromZero));
+    }
+
+    private static void AddIdempotencyKey(HttpRequestMessage request, string idempotencyKey)
+    {
+        if (!string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            request.Headers.TryAddWithoutValidation("Idempotency-Key", idempotencyKey);
+        }
     }
 
     private static string ResolveSourceType(ProviderPaymentRequest request)
