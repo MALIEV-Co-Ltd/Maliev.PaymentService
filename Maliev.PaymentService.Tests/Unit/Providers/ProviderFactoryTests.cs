@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Http.Json;
 using Maliev.PaymentService.Application.Interfaces;
 using Maliev.PaymentService.Domain.Entities;
 using Maliev.PaymentService.Domain.Enums;
@@ -12,10 +14,19 @@ public sealed class ProviderFactoryTests
     [Fact]
     public async Task CreateProvider_OpnAlias_UsesOmiseAdapter()
     {
+        var handler = new CapturingHandler(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = JsonContent.Create(new
+            {
+                id = "chrg_opn_123",
+                status = "pending",
+                authorize_uri = "https://pay.omise.co/payments/paym_opn_123"
+            })
+        });
         var httpClientFactory = new Mock<IHttpClientFactory>();
         httpClientFactory
             .Setup(factory => factory.CreateClient("opn"))
-            .Returns(new HttpClient());
+            .Returns(new HttpClient(handler));
         var encryption = new Mock<IEncryptionService>();
         encryption.Setup(service => service.Decrypt("skey_test_opn")).Returns("skey_test_opn");
         var factory = new ProviderFactory(httpClientFactory.Object, encryption.Object);
@@ -66,7 +77,21 @@ public sealed class ProviderFactoryTests
 
         Assert.Equal("omise", adapter.ProviderName);
         Assert.True(result.Success);
-        Assert.StartsWith("chrg_omise_", result.ProviderTransactionId, StringComparison.Ordinal);
-        Assert.StartsWith("https://pay.omise.co/", result.PaymentUrl, StringComparison.Ordinal);
+        Assert.Equal("chrg_opn_123", result.ProviderTransactionId);
+        Assert.Equal("https://pay.omise.co/payments/paym_opn_123", result.PaymentUrl);
+        Assert.NotNull(handler.Request);
+        Assert.Equal(HttpMethod.Post, handler.Request.Method);
+        Assert.Equal("https://api.omise.co/charges", handler.Request.RequestUri?.ToString());
+    }
+
+    private sealed class CapturingHandler(HttpResponseMessage response) : HttpMessageHandler
+    {
+        public HttpRequestMessage? Request { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Request = request;
+            return Task.FromResult(response);
+        }
     }
 }

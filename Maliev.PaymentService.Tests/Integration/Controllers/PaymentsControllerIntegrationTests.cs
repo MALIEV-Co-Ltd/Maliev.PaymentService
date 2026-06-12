@@ -231,7 +231,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         Assert.NotNull(payment);
         Assert.Equal("omise", payment.SelectedProvider);
-        Assert.StartsWith("chrg_omise_", payment.ProviderTransactionId, StringComparison.Ordinal);
+        Assert.StartsWith("chrg_test_", payment.ProviderTransactionId, StringComparison.Ordinal);
     }
 
     [Fact]
