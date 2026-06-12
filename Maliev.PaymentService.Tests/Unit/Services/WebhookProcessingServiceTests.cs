@@ -658,6 +658,49 @@ public class WebhookProcessingServiceTests
     }
 
     [Fact]
+    public async Task ProcessWebhookAsync_PendingLikeWebhookForProcessingTransaction_ShouldPublishPaymentPendingEvent()
+    {
+        var transactionId = Guid.NewGuid();
+        var webhook = CreateTestWebhook();
+        webhook.EventType = "payment.processing";
+        webhook.RawPayload = JsonSerializer.Serialize(new Dictionary<string, object>
+        {
+            ["id"] = "evt_processing",
+            ["transactionId"] = transactionId.ToString()
+        });
+
+        var transaction = CreateTestTransaction(PaymentStatus.Processing);
+        transaction.ProviderName = "opn";
+
+        _webhookRepositoryMock
+            .Setup(r => r.GetByProviderEventIdAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((WebhookEvent?)null);
+
+        _webhookRepositoryMock
+            .Setup(r => r.UpdateAsync(It.IsAny<WebhookEvent>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        _paymentRepositoryMock
+            .Setup(r => r.GetByIdAsync(transactionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(transaction);
+
+        var result = await _service.ProcessWebhookAsync(webhook);
+
+        Assert.True(result.Success);
+        _paymentRepositoryMock.Verify(
+            r => r.UpdateAsync(It.IsAny<PaymentTransaction>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _eventPublisherMock.Verify(
+            e => e.PublishAsync(
+                It.Is<PaymentPendingEvent>(paymentEvent =>
+                    paymentEvent.Payload.TransactionId == transaction.Id &&
+                    paymentEvent.Payload.ProviderName == "opn" &&
+                    paymentEvent.Payload.ProviderEventCode == "payment.processing"),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task ProcessWebhookAsync_SameStatus_ShouldNotUpdate()
     {
         var webhook = CreateTestWebhook();

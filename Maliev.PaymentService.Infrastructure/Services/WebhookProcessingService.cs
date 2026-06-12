@@ -326,6 +326,12 @@ public class WebhookProcessingService : IWebhookProcessingService
             _logger.LogInformation(
                 "Transaction {TransactionId} already in status {Status}, skipping update",
                 transactionId, newStatus);
+
+            if (newStatus == PaymentStatus.Processing && IsPendingLikeEventType(eventType))
+            {
+                await PublishPaymentStatusEventAsync(transaction, newStatus, eventType, cancellationToken);
+            }
+
             return true;
         }
 
