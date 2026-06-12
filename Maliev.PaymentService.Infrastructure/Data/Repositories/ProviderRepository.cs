@@ -67,6 +67,21 @@ public class ProviderRepository : IProviderRepository
     }
 
     /// <summary>
+    /// Gets active or degraded providers supporting a specific currency, ordered by priority.
+    /// </summary>
+    public async Task<IEnumerable<PaymentProvider>> GetRoutableByCurrencyAsync(string currency, CancellationToken cancellationToken = default)
+    {
+        var providers = await _context.PaymentProviders
+            .AsNoTracking()
+            .Include(p => p.Configurations)
+            .Where(p => p.Status == ProviderStatus.Active || p.Status == ProviderStatus.Degraded)
+            .OrderBy(p => p.Priority)
+            .ToListAsync(cancellationToken);
+
+        return providers.Where(p => p.SupportedCurrencies.Contains(currency));
+    }
+
+    /// <summary>
     /// Adds a new payment provider.
     /// </summary>
     public async Task<PaymentProvider> AddAsync(PaymentProvider provider, CancellationToken cancellationToken = default)

@@ -32,7 +32,7 @@ public class PaymentRoutingServiceTests
     public async Task SelectProviderAsync_WithNoProviders_ShouldThrowException()
     {
         _providerRepositoryMock
-            .Setup(r => r.GetActiveByCurrencyAsync("THB", It.IsAny<CancellationToken>()))
+            .Setup(r => r.GetRoutableByCurrencyAsync("THB", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<PaymentProvider>());
 
         await Assert.ThrowsAsync<InvalidOperationException>(
@@ -60,7 +60,7 @@ public class PaymentRoutingServiceTests
         var omise = CreateTestProvider("omise", ProviderStatus.Active, 2);
 
         _providerRepositoryMock
-            .Setup(r => r.GetActiveByCurrencyAsync("THB", It.IsAny<CancellationToken>()))
+            .Setup(r => r.GetRoutableByCurrencyAsync("THB", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<PaymentProvider> { stripe, omise });
 
         var result = await _service.SelectProviderAsync("THB", "stripe");
@@ -76,7 +76,7 @@ public class PaymentRoutingServiceTests
         _circuitBreakerStateManager.RecordStateChange("omise", true, DateTime.UtcNow);
 
         _providerRepositoryMock
-            .Setup(r => r.GetActiveByCurrencyAsync("THB", It.IsAny<CancellationToken>()))
+            .Setup(r => r.GetRoutableByCurrencyAsync("THB", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<PaymentProvider> { omise, stripe });
 
         var result = await _service.SelectProviderAsync("THB", "stripe");
@@ -93,7 +93,7 @@ public class PaymentRoutingServiceTests
         var provider2 = CreateTestProvider("omise", ProviderStatus.Active, 2);
 
         _providerRepositoryMock
-            .Setup(r => r.GetActiveByCurrencyAsync("THB", It.IsAny<CancellationToken>()))
+            .Setup(r => r.GetRoutableByCurrencyAsync("THB", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<PaymentProvider> { provider, provider2 });
 
         var result = await _service.SelectProviderAsync("THB", "stripe");
@@ -110,7 +110,7 @@ public class PaymentRoutingServiceTests
         var degradedProvider = CreateTestProvider("omise", ProviderStatus.Degraded, 2);
 
         _providerRepositoryMock
-            .Setup(r => r.GetActiveByCurrencyAsync("THB", It.IsAny<CancellationToken>()))
+            .Setup(r => r.GetRoutableByCurrencyAsync("THB", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<PaymentProvider> { provider, degradedProvider });
 
         var result = await _service.SelectProviderAsync("THB");
@@ -126,7 +126,7 @@ public class PaymentRoutingServiceTests
         _circuitBreakerStateManager.RecordStateChange("stripe", true, DateTime.UtcNow);
 
         _providerRepositoryMock
-            .Setup(r => r.GetActiveByCurrencyAsync("THB", It.IsAny<CancellationToken>()))
+            .Setup(r => r.GetRoutableByCurrencyAsync("THB", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<PaymentProvider> { provider });
 
         await Assert.ThrowsAsync<InvalidOperationException>(
@@ -140,7 +140,7 @@ public class PaymentRoutingServiceTests
         var omise = CreateTestProvider("omise", ProviderStatus.Active, 1);
 
         _providerRepositoryMock
-            .Setup(r => r.GetActiveByCurrencyAsync("THB", It.IsAny<CancellationToken>()))
+            .Setup(r => r.GetRoutableByCurrencyAsync("THB", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<PaymentProvider> { omise, stripe });
 
         var result = await _service.SelectProviderAsync("THB");
@@ -155,7 +155,7 @@ public class PaymentRoutingServiceTests
         var disabledProvider = CreateTestProvider("stripe", ProviderStatus.Disabled, 1);
 
         _providerRepositoryMock
-            .Setup(r => r.GetActiveByCurrencyAsync("THB", It.IsAny<CancellationToken>()))
+            .Setup(r => r.GetRoutableByCurrencyAsync("THB", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<PaymentProvider> { activeProvider, disabledProvider });
 
         var result = await _service.SelectProviderAsync("THB");

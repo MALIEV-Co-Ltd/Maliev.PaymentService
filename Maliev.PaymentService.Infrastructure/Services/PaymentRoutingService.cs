@@ -54,8 +54,8 @@ public class PaymentRoutingService : IPaymentRoutingService
             }
         }
 
-        // Get all active providers supporting the currency, ordered by priority
-        var availableProviders = (await _providerRepository.GetActiveByCurrencyAsync(currency, cancellationToken))
+        // Get all routable providers supporting the currency, ordered by priority
+        var availableProviders = (await _providerRepository.GetRoutableByCurrencyAsync(currency, cancellationToken))
             .OrderBy(p => p.Priority)
             .ToList();
 

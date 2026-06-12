@@ -41,6 +41,16 @@ public interface IProviderRepository
     Task<IEnumerable<PaymentProvider>> GetActiveByCurrencyAsync(string currency, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Gets routable providers that support a specific currency.
+    /// Includes active providers and degraded providers that may be used as fallback.
+    /// Ordered by priority (ascending).
+    /// </summary>
+    /// <param name="currency">ISO 4217 currency code (e.g., "USD", "EUR")</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>List of active or degraded providers supporting the currency</returns>
+    Task<IEnumerable<PaymentProvider>> GetRoutableByCurrencyAsync(string currency, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Adds a new payment provider.
     /// </summary>
     /// <param name="provider">Provider to add</param>
