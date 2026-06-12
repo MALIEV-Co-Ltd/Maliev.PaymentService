@@ -169,15 +169,67 @@ public class OmiseProvider : IPaymentProviderAdapter
     {
         try
         {
-            var providerRefundId = $"rfnd_omise_{Guid.NewGuid():N}";
+            var metadata = new Dictionary<string, string>(
+                request.Metadata ?? new Dictionary<string, string>(),
+                StringComparer.OrdinalIgnoreCase)
+            {
+                ["reason"] = request.Reason,
+                ["idempotencyKey"] = request.IdempotencyKey
+            };
 
-            await Task.Delay(100, cancellationToken);
+            var form = new Dictionary<string, string>
+            {
+                ["amount"] = ToOmiseMinorUnits(request.Amount).ToString(CultureInfo.InvariantCulture)
+            };
+
+            foreach (var (key, value) in metadata)
+            {
+                form[$"metadata[{key}]"] = value;
+            }
+
+            using var content = new FormUrlEncodedContent(form);
+            using var httpRequest = new HttpRequestMessage(
+                HttpMethod.Post,
+                $"{_apiBaseUrl.TrimEnd('/')}/charges/{Uri.EscapeDataString(request.ProviderTransactionId)}/refunds")
+            {
+                Content = content
+            };
+
+            using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                return new ProviderRefundResult
+                {
+                    Success = false,
+                    ProviderRefundId = string.Empty,
+                    Status = "failed",
+                    ErrorMessage = responseBody,
+                    ErrorCode = $"omise_refund_{(int)response.StatusCode}"
+                };
+            }
+
+            var refund = JsonSerializer.Deserialize<OmiseRefundResponse>(
+                responseBody,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+            if (refund is null || string.IsNullOrWhiteSpace(refund.Id))
+            {
+                return new ProviderRefundResult
+                {
+                    Success = false,
+                    ProviderRefundId = string.Empty,
+                    Status = "failed",
+                    ErrorMessage = "Omise refund response did not include an id.",
+                    ErrorCode = "omise_invalid_refund_response"
+                };
+            }
 
             return new ProviderRefundResult
             {
                 Success = true,
-                ProviderRefundId = providerRefundId,
-                Status = "successful"
+                ProviderRefundId = refund.Id,
+                Status = refund.Status ?? "processing"
             };
         }
         catch (Exception ex)
@@ -292,5 +344,14 @@ public class OmiseProvider : IPaymentProviderAdapter
     {
         [JsonPropertyName("download_uri")]
         public string? DownloadUri { get; set; }
+    }
+
+    private sealed class OmiseRefundResponse
+    {
+        [JsonPropertyName("id")]
+        public string? Id { get; set; }
+
+        [JsonPropertyName("status")]
+        public string? Status { get; set; }
     }
 }

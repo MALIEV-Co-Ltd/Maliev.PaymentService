@@ -98,6 +98,49 @@ public sealed class OmiseProviderTests
         Assert.Equal("https://api.omise.co/charges/chrg_test_123", handler.Request.RequestUri?.ToString());
     }
 
+    [Fact]
+    public async Task ProcessRefundAsync_CreatesChargeRefundWithIdempotencyMetadata()
+    {
+        var handler = new CapturingHandler(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = JsonContent.Create(new
+            {
+                id = "rfnd_test_123",
+                status = "closed"
+            })
+        });
+        using var httpClient = new HttpClient(handler);
+        var provider = new OmiseProvider(httpClient, "skey_test_123", "https://api.omise.co");
+
+        var result = await provider.ProcessRefundAsync(new ProviderRefundRequest
+        {
+            IdempotencyKey = "refund-idem-123",
+            ProviderTransactionId = "chrg_test_123",
+            Amount = 120.50m,
+            Currency = "THB",
+            Reason = "Customer requested refund",
+            Metadata = new Dictionary<string, string>
+            {
+                ["refundId"] = "refund-123",
+                ["orderNumber"] = "ORD-789"
+            }
+        });
+
+        Assert.True(result.Success);
+        Assert.Equal("rfnd_test_123", result.ProviderRefundId);
+        Assert.Equal("closed", result.Status);
+        Assert.NotNull(handler.Request);
+        Assert.Equal(HttpMethod.Post, handler.Request.Method);
+        Assert.Equal("https://api.omise.co/charges/chrg_test_123/refunds", handler.Request.RequestUri?.ToString());
+
+        var form = ReadForm(handler.RequestBody);
+        Assert.Equal("12050", form["amount"]);
+        Assert.Equal("Customer requested refund", form["metadata[reason]"]);
+        Assert.Equal("refund-idem-123", form["metadata[idempotencyKey]"]);
+        Assert.Equal("refund-123", form["metadata[refundId]"]);
+        Assert.Equal("ORD-789", form["metadata[orderNumber]"]);
+    }
+
     private static Dictionary<string, string> ReadForm(string? body)
     {
         Assert.False(string.IsNullOrWhiteSpace(body));
