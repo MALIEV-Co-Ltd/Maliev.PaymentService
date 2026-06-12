@@ -129,6 +129,7 @@ try
     var logger = app.Services.GetRequiredService<ILogger<Program>>();
 
     PaymentProviderConfigurationValidator.ValidateOmiseForEnvironment(app.Configuration, app.Environment.EnvironmentName);
+    PaymentProviderConfigurationValidator.ValidateStripeForEnvironment(app.Configuration, app.Environment.EnvironmentName);
 
     // Run database migrations on startup
     await app.MigrateDatabaseAsync<PaymentDbContext>();
