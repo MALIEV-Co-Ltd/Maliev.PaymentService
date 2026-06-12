@@ -69,6 +69,23 @@ public class PaymentRoutingServiceTests
     }
 
     [Fact]
+    public async Task SelectProviderAsync_ThailandCurrency_NormalizesCurrencyBeforeRepositoryLookup()
+    {
+        var omise = CreateTestProvider("omise", ProviderStatus.Active, 1);
+
+        _providerRepositoryMock
+            .Setup(r => r.GetRoutableByCurrencyAsync("THB", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<PaymentProvider> { omise });
+
+        var result = await _service.SelectProviderAsync("thb");
+
+        Assert.Equal("omise", result.Name);
+        _providerRepositoryMock.Verify(
+            r => r.GetRoutableByCurrencyAsync("THB", It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task SelectProviderAsync_ThailandCurrency_FallsBackToStripeWhenOmiseCircuitIsOpen()
     {
         var omise = CreateTestProvider("omise", ProviderStatus.Active, 1);
