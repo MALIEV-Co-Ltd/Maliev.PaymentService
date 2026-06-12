@@ -404,6 +404,9 @@ public class WebhookProcessingService : IWebhookProcessingService
                         Amount: (double)transaction.Amount,
                         Currency: transaction.Currency
                     )
+                    {
+                        ProviderName = transaction.ProviderName
+                    }
                 ), cancellationToken);
                 break;
 

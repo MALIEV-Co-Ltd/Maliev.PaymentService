@@ -178,6 +178,7 @@ public class WebhookProcessingServiceTests
         webhook.EventType = "payment.completed";
 
         var transaction = CreateTestTransaction(PaymentStatus.Processing);
+        transaction.ProviderName = "omise";
         transaction.Metadata = new Dictionary<string, string>
         {
             ["orderNumber"] = orderNumber
@@ -216,6 +217,7 @@ public class WebhookProcessingServiceTests
         Assert.Equal(orderNumber, publishedEvent.Payload.OrderNumber);
         Assert.Equal(transaction.OrderId, publishedEvent.Payload.OrderId.ToString());
         Assert.Equal(transaction.CustomerId, publishedEvent.Payload.CustomerId);
+        Assert.Equal("omise", publishedEvent.Payload.ProviderName);
         Assert.Contains("InvoiceService", publishedEvent.ConsumedBy);
         Assert.Contains("OrderService", publishedEvent.ConsumedBy);
         Assert.Contains("NotificationService", publishedEvent.ConsumedBy);
