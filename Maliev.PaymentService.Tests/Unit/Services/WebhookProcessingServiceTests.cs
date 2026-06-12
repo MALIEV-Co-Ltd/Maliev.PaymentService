@@ -336,7 +336,7 @@ public class WebhookProcessingServiceTests
     }
 
     [Fact]
-    public async Task ProcessWebhookAsync_StripeCheckoutSessionExpired_ShouldPublishPaymentFailedEvent()
+    public async Task ProcessWebhookAsync_StripeCheckoutSessionExpired_ShouldPublishPaymentExpiredEvent()
     {
         var transactionId = Guid.NewGuid();
         var webhook = CreateTestWebhook();
@@ -390,13 +390,69 @@ public class WebhookProcessingServiceTests
         Assert.True(result.Success);
         _eventPublisherMock.Verify(
             e => e.PublishAsync(
-                It.Is<Maliev.MessagingContracts.Contracts.Payments.PaymentFailedEvent>(paymentEvent =>
+                It.Is<PaymentExpiredEvent>(paymentEvent =>
                     paymentEvent.Payload.TransactionId == transaction.Id &&
                     paymentEvent.Payload.CustomerId == transaction.CustomerId &&
                     paymentEvent.Payload.OrderId == transaction.OrderId &&
                     paymentEvent.Payload.Amount == (double)transaction.Amount &&
                     paymentEvent.Payload.Currency == transaction.Currency &&
-                    paymentEvent.Payload.ErrorMessage.Contains("checkout.session.expired", StringComparison.OrdinalIgnoreCase)),
+                    paymentEvent.Payload.ProviderEventCode == "checkout.session.expired"),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task ProcessWebhookAsync_PaymentCancelled_ShouldPublishPaymentCancelledEvent()
+    {
+        var webhook = CreateTestWebhook();
+        webhook.EventType = "payment.cancelled";
+        webhook.RawPayload = JsonSerializer.Serialize(new Dictionary<string, object>
+        {
+            ["id"] = Guid.NewGuid().ToString(),
+            ["transactionId"] = Guid.NewGuid().ToString()
+        });
+
+        var transaction = CreateTestTransaction(PaymentStatus.Processing);
+        SetupSuccessfulStatusUpdate(transaction);
+
+        var result = await _service.ProcessWebhookAsync(webhook);
+
+        Assert.True(result.Success);
+        _eventPublisherMock.Verify(
+            e => e.PublishAsync(
+                It.Is<PaymentCancelledEvent>(paymentEvent =>
+                    paymentEvent.Payload.TransactionId == transaction.Id &&
+                    paymentEvent.Payload.CustomerId == transaction.CustomerId &&
+                    paymentEvent.Payload.OrderId == transaction.OrderId &&
+                    paymentEvent.Payload.ProviderEventCode == "payment.cancelled"),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task ProcessWebhookAsync_PaymentPending_ShouldPublishPaymentPendingEvent()
+    {
+        var webhook = CreateTestWebhook();
+        webhook.EventType = "payment.pending";
+        webhook.RawPayload = JsonSerializer.Serialize(new Dictionary<string, object>
+        {
+            ["id"] = Guid.NewGuid().ToString(),
+            ["transactionId"] = Guid.NewGuid().ToString()
+        });
+
+        var transaction = CreateTestTransaction(PaymentStatus.Pending);
+        SetupSuccessfulStatusUpdate(transaction);
+
+        var result = await _service.ProcessWebhookAsync(webhook);
+
+        Assert.True(result.Success);
+        _eventPublisherMock.Verify(
+            e => e.PublishAsync(
+                It.Is<PaymentPendingEvent>(paymentEvent =>
+                    paymentEvent.Payload.TransactionId == transaction.Id &&
+                    paymentEvent.Payload.CustomerId == transaction.CustomerId &&
+                    paymentEvent.Payload.OrderId == transaction.OrderId &&
+                    paymentEvent.Payload.ProviderEventCode == "payment.pending"),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -584,6 +640,29 @@ public class WebhookProcessingServiceTests
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
+    }
+
+    private void SetupSuccessfulStatusUpdate(PaymentTransaction transaction)
+    {
+        _webhookRepositoryMock
+            .Setup(r => r.GetByProviderEventIdAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((WebhookEvent?)null);
+
+        _webhookRepositoryMock
+            .Setup(r => r.UpdateAsync(It.IsAny<WebhookEvent>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        _paymentRepositoryMock
+            .Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(transaction);
+
+        _paymentRepositoryMock
+            .Setup(r => r.UpdateAsync(It.IsAny<PaymentTransaction>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PaymentTransaction t, CancellationToken _) => t);
+
+        _paymentRepositoryMock
+            .Setup(r => r.AddLogAsync(It.IsAny<TransactionLog>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
     }
 
     private static PaymentTransaction CreateTestTransaction(PaymentStatus status)

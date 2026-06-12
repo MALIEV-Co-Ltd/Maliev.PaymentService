@@ -330,65 +330,7 @@ public class WebhookProcessingService : IWebhookProcessingService
             CreatedAt = DateTime.UtcNow
         }, cancellationToken);
 
-        // Publish event if payment completed
-        if (newStatus == PaymentStatus.Completed)
-        {
-            var payload = new PaymentCompletedEventPayload(
-                OrderId: ResolveOrderId(transaction),
-                OrderNumber: ResolveOrderNumber(transaction),
-                CustomerId: transaction.CustomerId,
-                PaymentId: transaction.Id,
-                Amount: (double)transaction.Amount,
-                Currency: transaction.Currency
-            );
-
-            var publicEvent = new PaymentCompletedEvent(
-                MessageId: Guid.NewGuid(),
-                MessageName: "PaymentCompletedEvent",
-                MessageType: MessageType.Event,
-                MessageVersion: "1.0",
-                PublishedBy: "PaymentService",
-                ConsumedBy: new[] { "InvoiceService", "OrderService", "NotificationService" },
-                CorrelationId: Guid.TryParse(transaction.CorrelationId, out var correlId) ? correlId : Guid.NewGuid(),
-                CausationId: null,
-                OccurredAtUtc: DateTimeOffset.UtcNow,
-                IsPublic: true,
-                Payload: payload
-            );
-
-            await _eventPublisher.PublishAsync(publicEvent, cancellationToken);
-        }
-        else if (newStatus == PaymentStatus.Failed ||
-                 newStatus == PaymentStatus.Cancelled ||
-                 newStatus == PaymentStatus.Expired)
-        {
-            var failedEvent = new PaymentFailedEvent(
-                MessageId: Guid.NewGuid(),
-                MessageName: nameof(PaymentFailedEvent),
-                MessageType: MessageType.Event,
-                MessageVersion: "1.0",
-                PublishedBy: "PaymentService",
-                ConsumedBy: new[] { "NotificationService" },
-                CorrelationId: Guid.TryParse(transaction.CorrelationId, out var correlId) ? correlId : Guid.NewGuid(),
-                CausationId: null,
-                OccurredAtUtc: DateTimeOffset.UtcNow,
-                IsPublic: true,
-                Payload: new PaymentFailedEventPayload(
-                    TransactionId: transaction.Id,
-                    IdempotencyKey: transaction.IdempotencyKey,
-                    Amount: (double)transaction.Amount,
-                    Currency: transaction.Currency,
-                    CustomerId: transaction.CustomerId,
-                    OrderId: transaction.OrderId,
-                    ProviderName: transaction.ProviderName,
-                    ErrorMessage: $"Payment failed via webhook: {eventType}",
-                    ProviderErrorCode: eventType,
-                    FailedAt: DateTimeOffset.UtcNow
-                )
-            );
-
-            await _eventPublisher.PublishAsync(failedEvent, cancellationToken);
-        }
+        await PublishPaymentStatusEventAsync(transaction, newStatus, eventType, cancellationToken);
 
         _logger.LogInformation(
             "Transaction {TransactionId} status updated from {PreviousStatus} to {NewStatus} via webhook",
@@ -429,6 +371,151 @@ public class WebhookProcessingService : IWebhookProcessingService
         return new Guid(hash);
     }
 
+    private async Task PublishPaymentStatusEventAsync(
+        PaymentTransaction transaction,
+        PaymentStatus newStatus,
+        string eventType,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = Guid.TryParse(transaction.CorrelationId, out var correlId)
+            ? correlId
+            : Guid.NewGuid();
+        var occurredAt = DateTimeOffset.UtcNow;
+
+        switch (newStatus)
+        {
+            case PaymentStatus.Completed:
+                await _eventPublisher.PublishAsync(new PaymentCompletedEvent(
+                    MessageId: Guid.NewGuid(),
+                    MessageName: nameof(PaymentCompletedEvent),
+                    MessageType: MessageType.Event,
+                    MessageVersion: "1.0",
+                    PublishedBy: "PaymentService",
+                    ConsumedBy: new[] { "InvoiceService", "OrderService", "NotificationService" },
+                    CorrelationId: correlationId,
+                    CausationId: null,
+                    OccurredAtUtc: occurredAt,
+                    IsPublic: true,
+                    Payload: new PaymentCompletedEventPayload(
+                        OrderId: ResolveOrderId(transaction),
+                        OrderNumber: ResolveOrderNumber(transaction),
+                        CustomerId: transaction.CustomerId,
+                        PaymentId: transaction.Id,
+                        Amount: (double)transaction.Amount,
+                        Currency: transaction.Currency
+                    )
+                ), cancellationToken);
+                break;
+
+            case PaymentStatus.Failed:
+                await _eventPublisher.PublishAsync(new PaymentFailedEvent(
+                    MessageId: Guid.NewGuid(),
+                    MessageName: nameof(PaymentFailedEvent),
+                    MessageType: MessageType.Event,
+                    MessageVersion: "1.0",
+                    PublishedBy: "PaymentService",
+                    ConsumedBy: new[] { "NotificationService" },
+                    CorrelationId: correlationId,
+                    CausationId: null,
+                    OccurredAtUtc: occurredAt,
+                    IsPublic: true,
+                    Payload: new PaymentFailedEventPayload(
+                        TransactionId: transaction.Id,
+                        IdempotencyKey: transaction.IdempotencyKey,
+                        Amount: (double)transaction.Amount,
+                        Currency: transaction.Currency,
+                        CustomerId: transaction.CustomerId,
+                        OrderId: transaction.OrderId,
+                        ProviderName: transaction.ProviderName,
+                        ErrorMessage: $"Payment failed via webhook: {eventType}",
+                        ProviderErrorCode: eventType,
+                        FailedAt: occurredAt
+                    )
+                ), cancellationToken);
+                break;
+
+            case PaymentStatus.Cancelled:
+                await _eventPublisher.PublishAsync(new PaymentCancelledEvent(
+                    MessageId: Guid.NewGuid(),
+                    MessageName: nameof(PaymentCancelledEvent),
+                    MessageType: MessageType.Event,
+                    MessageVersion: "1.0",
+                    PublishedBy: "PaymentService",
+                    ConsumedBy: new[] { "NotificationService" },
+                    CorrelationId: correlationId,
+                    CausationId: null,
+                    OccurredAtUtc: occurredAt,
+                    IsPublic: true,
+                    Payload: new PaymentCancelledEventPayload(
+                        TransactionId: transaction.Id,
+                        IdempotencyKey: transaction.IdempotencyKey,
+                        Amount: (double)transaction.Amount,
+                        Currency: transaction.Currency,
+                        CustomerId: transaction.CustomerId,
+                        OrderId: transaction.OrderId,
+                        ProviderName: transaction.ProviderName,
+                        Reason: $"Payment cancelled via webhook: {eventType}",
+                        ProviderEventCode: eventType,
+                        CancelledAt: occurredAt
+                    )
+                ), cancellationToken);
+                break;
+
+            case PaymentStatus.Expired:
+                await _eventPublisher.PublishAsync(new PaymentExpiredEvent(
+                    MessageId: Guid.NewGuid(),
+                    MessageName: nameof(PaymentExpiredEvent),
+                    MessageType: MessageType.Event,
+                    MessageVersion: "1.0",
+                    PublishedBy: "PaymentService",
+                    ConsumedBy: new[] { "NotificationService" },
+                    CorrelationId: correlationId,
+                    CausationId: null,
+                    OccurredAtUtc: occurredAt,
+                    IsPublic: true,
+                    Payload: new PaymentExpiredEventPayload(
+                        TransactionId: transaction.Id,
+                        IdempotencyKey: transaction.IdempotencyKey,
+                        Amount: (double)transaction.Amount,
+                        Currency: transaction.Currency,
+                        CustomerId: transaction.CustomerId,
+                        OrderId: transaction.OrderId,
+                        ProviderName: transaction.ProviderName,
+                        Reason: $"Payment expired via webhook: {eventType}",
+                        ProviderEventCode: eventType,
+                        ExpiredAt: occurredAt
+                    )
+                ), cancellationToken);
+                break;
+
+            case PaymentStatus.Processing when IsPendingLikeEventType(eventType):
+                await _eventPublisher.PublishAsync(new PaymentPendingEvent(
+                    MessageId: Guid.NewGuid(),
+                    MessageName: nameof(PaymentPendingEvent),
+                    MessageType: MessageType.Event,
+                    MessageVersion: "1.0",
+                    PublishedBy: "PaymentService",
+                    ConsumedBy: new[] { "NotificationService" },
+                    CorrelationId: correlationId,
+                    CausationId: null,
+                    OccurredAtUtc: occurredAt,
+                    IsPublic: true,
+                    Payload: new PaymentPendingEventPayload(
+                        TransactionId: transaction.Id,
+                        IdempotencyKey: transaction.IdempotencyKey,
+                        Amount: (double)transaction.Amount,
+                        Currency: transaction.Currency,
+                        CustomerId: transaction.CustomerId,
+                        OrderId: transaction.OrderId,
+                        ProviderName: transaction.ProviderName,
+                        ProviderEventCode: eventType,
+                        PendingAt: occurredAt
+                    )
+                ), cancellationToken);
+                break;
+        }
+    }
+
     private PaymentStatus MapEventTypeToStatus(string eventType)
     {
         // Normalize event type
@@ -444,6 +531,12 @@ public class WebhookProcessingService : IWebhookProcessingService
             var e when e.Contains("refunded") => PaymentStatus.Refunded,
             _ => PaymentStatus.Processing // Default to processing for unknown events
         };
+    }
+
+    private static bool IsPendingLikeEventType(string eventType)
+    {
+        var normalized = eventType.ToLowerInvariant().Replace(".", "_").Replace("-", "_");
+        return normalized.Contains("pending") || normalized.Contains("processing");
     }
 
     private DateTime CalculateNextRetryTime(int attemptNumber)
