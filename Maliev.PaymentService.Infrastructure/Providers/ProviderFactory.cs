@@ -54,7 +54,7 @@ public class ProviderFactory
                 decryptedCredentials.GetValueOrDefault("ApiKey", string.Empty),
                 config.ApiBaseUrl),
 
-            "omise" => new OmiseProvider(
+            "omise" or "opn" => new OmiseProvider(
                 httpClient,
                 decryptedCredentials.GetValueOrDefault("SecretKey", string.Empty),
                 config.ApiBaseUrl),

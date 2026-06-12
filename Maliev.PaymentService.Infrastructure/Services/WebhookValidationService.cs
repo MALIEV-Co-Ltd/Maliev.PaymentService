@@ -41,7 +41,7 @@ public class WebhookValidationService : IWebhookValidationService
         bool isValid = provider.Name.ToLowerInvariant() switch
         {
             "stripe" => ValidateStripeWebhook(payload, headers, provider),
-            "omise" => ValidateOmiseWebhook(payload, headers, provider),
+            "omise" or "opn" => ValidateOmiseWebhook(payload, headers, provider),
             "scb" => ValidateScbWebhook(payload, headers, provider),
             _ => false
         };

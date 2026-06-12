@@ -470,7 +470,7 @@ public class WebhooksController : ControllerBase
         return provider.ToLowerInvariant() switch
         {
             "stripe" => headers.GetValueOrDefault("Stripe-Signature"),
-            "omise" => headers.GetValueOrDefault("Omise-Signature"),
+            "omise" or "opn" => headers.GetValueOrDefault("Omise-Signature"),
             "scb" => headers.GetValueOrDefault("X-SCB-Signature"),
             _ => null
         };

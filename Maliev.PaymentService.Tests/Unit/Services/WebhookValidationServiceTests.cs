@@ -113,6 +113,18 @@ public class WebhookValidationServiceTests
     }
 
     [Fact]
+    public async Task ValidateWebhookAsync_OpnAlias_UsesOmiseSignatureContract()
+    {
+        var provider = CreateTestProvider("opn");
+        provider.Credentials["WebhookSecret"] = "secret";
+        var headers = new Dictionary<string, string> { ["Omise-Signature"] = ComputeOmiseSignature("payload", "secret") };
+
+        var result = await _service.ValidateWebhookAsync(provider, "payload", headers);
+
+        Assert.True(result);
+    }
+
+    [Fact]
     public async Task ValidateWebhookAsync_Scb_MissingHeader_ShouldReturnFalse()
     {
         var provider = CreateTestProvider("scb");
