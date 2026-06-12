@@ -1,6 +1,7 @@
 using Maliev.Aspire.ServiceDefaults;
 using Maliev.PaymentService.Api.Services;
 using Maliev.PaymentService.Infrastructure.Data;
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 // Initialize bootstrap logging
 using var loggerFactory = LoggerFactory.Create(logBuilder => logBuilder.AddConsole());
@@ -26,6 +27,12 @@ try
     builder.AddStandardCache("payment:"); // Redis + in-memory fallback, memory-optimized (includes IConnectionMultiplexer)
     builder.AddMassTransitWithRabbitMq(x =>
     {
+        x.AddEntityFrameworkOutbox<PaymentDbContext>(options =>
+        {
+            _ = options.UsePostgres();
+            options.UseBusOutbox();
+        });
+
         x.AddConsumer<Maliev.PaymentService.Api.Consumers.OrderAcceptedEventConsumer>();
         x.AddConsumer<Maliev.PaymentService.Api.Consumers.InvoiceCreatedEventConsumer>();
     }); // RabbitMQ message bus (non-blocking startup)
