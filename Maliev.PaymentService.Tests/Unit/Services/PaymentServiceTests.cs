@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using Maliev.MessagingContracts.Contracts.Payments;
 using Maliev.PaymentService.Application.Interfaces;
 using Maliev.PaymentService.Domain.Entities;
 using Maliev.PaymentService.Domain.Enums;
@@ -170,6 +171,91 @@ public sealed class PaymentServiceTests
         Assert.Equal("ORD-456", form["metadata[orderNumber]"]);
         Assert.Equal("customer-123", form["metadata[customerId]"]);
         Assert.Equal("order-456", form["metadata[orderId]"]);
+    }
+
+    [Fact]
+    public async Task ProcessPaymentAsync_ProviderAcceptsPayment_PublishesPaymentPendingEvent()
+    {
+        var stripeHandler = new CapturingHandler(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = JsonContent.Create(new
+            {
+                id = "cs_test_pending",
+                url = "https://checkout.stripe.com/c/pay/cs_test_pending",
+                status = "open"
+            })
+        });
+
+        var provider = CreateStripeProvider();
+        var repository = new Mock<IPaymentRepository>();
+        repository
+            .Setup(r => r.GetByIdempotencyKeyAsync("idem-pending", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PaymentTransaction?)null);
+        repository
+            .Setup(r => r.AddAsync(It.IsAny<PaymentTransaction>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PaymentTransaction transaction, CancellationToken _) => transaction);
+        repository
+            .Setup(r => r.UpdateAsync(It.IsAny<PaymentTransaction>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PaymentTransaction transaction, CancellationToken _) => transaction);
+
+        var routing = new Mock<IPaymentRoutingService>();
+        routing
+            .Setup(r => r.SelectProviderAsync("THB", "stripe", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(provider);
+
+        var idempotency = new Mock<IIdempotencyService>();
+        idempotency
+            .Setup(i => i.AcquireLockAsync("payment", "idem-pending", It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var events = new Mock<IEventPublisher>();
+        var metrics = new Mock<IMetricsService>();
+        var httpClientFactory = new Mock<IHttpClientFactory>();
+        httpClientFactory
+            .Setup(f => f.CreateClient("stripe"))
+            .Returns(new HttpClient(stripeHandler));
+
+        var encryption = new Mock<IEncryptionService>();
+        encryption.Setup(e => e.Decrypt("sk_test_123")).Returns("sk_test_123");
+
+        var service = new PaymentOrchestrationService(
+            repository.Object,
+            routing.Object,
+            idempotency.Object,
+            events.Object,
+            metrics.Object,
+            new ProviderFactory(httpClientFactory.Object, encryption.Object),
+            new CircuitBreakerStateManager(),
+            NullLogger<PaymentOrchestrationService>.Instance);
+
+        var transaction = await service.ProcessPaymentAsync(new PaymentProcessingRequest
+        {
+            IdempotencyKey = "idem-pending",
+            Amount = 1250m,
+            Currency = "THB",
+            CustomerId = "customer-123",
+            OrderId = "order-456",
+            Description = "Manufacturing order ORD-456",
+            ReturnUrl = "https://quote.example.com/payment/success?orderId=ORD-456",
+            CancelUrl = "https://quote.example.com/payment/cancel?orderId=ORD-456",
+            Metadata = new Dictionary<string, string> { ["orderNumber"] = "ORD-456" },
+            PreferredProvider = "stripe",
+            CorrelationId = Guid.NewGuid().ToString()
+        });
+
+        events.Verify(
+            e => e.PublishAsync(
+                It.Is<PaymentPendingEvent>(paymentEvent =>
+                    paymentEvent.Payload.TransactionId == transaction.Id &&
+                    paymentEvent.Payload.IdempotencyKey == "idem-pending" &&
+                    paymentEvent.Payload.Amount == 1250d &&
+                    paymentEvent.Payload.Currency == "THB" &&
+                    paymentEvent.Payload.CustomerId == "customer-123" &&
+                    paymentEvent.Payload.OrderId == "order-456" &&
+                    paymentEvent.Payload.ProviderName == "stripe" &&
+                    paymentEvent.Payload.ProviderEventCode == "ProviderSuccess"),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     private static PaymentProvider CreateStripeProvider()

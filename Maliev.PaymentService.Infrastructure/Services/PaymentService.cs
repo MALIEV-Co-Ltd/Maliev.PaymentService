@@ -223,6 +223,30 @@ public class PaymentService : IPaymentService
                     _logger.LogInformation(
                         "Payment {TransactionId} processed successfully via {ProviderName}. Provider transaction: {ProviderTransactionId}",
                         transaction.Id, provider.Name, providerResult.ProviderTransactionId);
+
+                    await _eventPublisher.PublishAsync(new PaymentPendingEvent(
+                        MessageId: Guid.NewGuid(),
+                        MessageName: nameof(PaymentPendingEvent),
+                        MessageType: MessageType.Event,
+                        MessageVersion: "1.0",
+                        PublishedBy: "PaymentService",
+                        ConsumedBy: new[] { "NotificationService" },
+                        CorrelationId: Guid.TryParse(transaction.CorrelationId, out var correlIdPending) ? correlIdPending : Guid.NewGuid(),
+                        CausationId: null,
+                        OccurredAtUtc: DateTimeOffset.UtcNow,
+                        IsPublic: true,
+                        Payload: new PaymentPendingEventPayload(
+                            TransactionId: transaction.Id,
+                            IdempotencyKey: transaction.IdempotencyKey,
+                            Amount: (double)transaction.Amount,
+                            Currency: transaction.Currency,
+                            CustomerId: transaction.CustomerId,
+                            OrderId: transaction.OrderId,
+                            ProviderName: provider.Name,
+                            ProviderEventCode: "ProviderSuccess",
+                            PendingAt: DateTimeOffset.UtcNow
+                        )
+                    ), cancellationToken);
                 }
                 else
                 {
