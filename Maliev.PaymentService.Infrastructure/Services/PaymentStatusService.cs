@@ -100,12 +100,14 @@ public class PaymentStatusService : IPaymentStatusService
 
     private int GetCacheTtl(PaymentStatus status)
     {
-        // Terminal states (completed/failed) cache for 1 hour
+        // Terminal states cache for 1 hour
         // Active states (pending/processing) cache for 60 seconds
         return status switch
         {
             PaymentStatus.Completed => TerminalTransactionCacheTtlSeconds,
             PaymentStatus.Failed => TerminalTransactionCacheTtlSeconds,
+            PaymentStatus.Cancelled => TerminalTransactionCacheTtlSeconds,
+            PaymentStatus.Expired => TerminalTransactionCacheTtlSeconds,
             PaymentStatus.Pending => ActiveTransactionCacheTtlSeconds,
             PaymentStatus.Processing => ActiveTransactionCacheTtlSeconds,
             _ => ActiveTransactionCacheTtlSeconds

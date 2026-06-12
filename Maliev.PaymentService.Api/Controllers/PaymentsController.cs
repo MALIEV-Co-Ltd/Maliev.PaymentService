@@ -200,6 +200,8 @@ public class PaymentsController : ControllerBase
                 PaymentStatus.Processing => TimeSpan.FromSeconds(60),
                 PaymentStatus.Completed => TimeSpan.FromMinutes(60), // Longer cache for completed
                 PaymentStatus.Failed => TimeSpan.FromMinutes(30),
+                PaymentStatus.Cancelled => TimeSpan.FromMinutes(30),
+                PaymentStatus.Expired => TimeSpan.FromMinutes(30),
                 PaymentStatus.Refunded => TimeSpan.FromMinutes(30),
                 PaymentStatus.PartiallyRefunded => TimeSpan.FromMinutes(30),
                 _ => TimeSpan.FromMinutes(5)

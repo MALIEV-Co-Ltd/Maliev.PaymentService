@@ -132,12 +132,16 @@ public class PaymentStatusServiceTests
             Times.Once);
     }
 
-    [Fact]
-    public async Task GetPaymentStatusAsync_WhenCompletedTransaction_ShouldCacheFor3600Seconds()
+    [Theory]
+    [InlineData(PaymentStatus.Completed)]
+    [InlineData(PaymentStatus.Failed)]
+    [InlineData(PaymentStatus.Cancelled)]
+    [InlineData(PaymentStatus.Expired)]
+    public async Task GetPaymentStatusAsync_WhenTerminalTransaction_ShouldCacheFor3600Seconds(PaymentStatus status)
     {
         // Arrange
         var transactionId = Guid.NewGuid();
-        var transaction = CreateTestTransaction(transactionId, PaymentStatus.Completed); // Terminal status
+        var transaction = CreateTestTransaction(transactionId, status);
 
         _cacheMock
             .Setup(c => c.GetAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -159,7 +163,7 @@ public class PaymentStatusServiceTests
                     o.AbsoluteExpirationRelativeToNow == TimeSpan.FromSeconds(3600)),
                 It.IsAny<CancellationToken>()),
             Times.Once,
-            "Completed transactions should cache for 1 hour");
+            "Terminal transactions should cache for 1 hour");
     }
 
     [Fact]

@@ -358,7 +358,9 @@ public class WebhookProcessingService : IWebhookProcessingService
 
             await _eventPublisher.PublishAsync(publicEvent, cancellationToken);
         }
-        else if (newStatus == PaymentStatus.Failed)
+        else if (newStatus == PaymentStatus.Failed ||
+                 newStatus == PaymentStatus.Cancelled ||
+                 newStatus == PaymentStatus.Expired)
         {
             var failedEvent = new PaymentFailedEvent(
                 MessageId: Guid.NewGuid(),
@@ -435,7 +437,9 @@ public class WebhookProcessingService : IWebhookProcessingService
         return normalized switch
         {
             var e when e.Contains("completed") || e.Contains("succeeded") || e.Contains("success") => PaymentStatus.Completed,
-            var e when e.Contains("failed") || e.Contains("failure") || e.Contains("declined") || e.Contains("cancelled") || e.Contains("canceled") || e.Contains("expired") => PaymentStatus.Failed,
+            var e when e.Contains("cancelled") || e.Contains("canceled") => PaymentStatus.Cancelled,
+            var e when e.Contains("expired") => PaymentStatus.Expired,
+            var e when e.Contains("failed") || e.Contains("failure") || e.Contains("declined") => PaymentStatus.Failed,
             var e when e.Contains("pending") || e.Contains("processing") => PaymentStatus.Processing,
             var e when e.Contains("refunded") => PaymentStatus.Refunded,
             _ => PaymentStatus.Processing // Default to processing for unknown events

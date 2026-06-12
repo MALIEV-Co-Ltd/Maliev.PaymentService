@@ -33,5 +33,15 @@ public enum PaymentStatus
     /// <summary>
     /// Payment has been partially refunded.
     /// </summary>
-    PartiallyRefunded = 5
+    PartiallyRefunded = 5,
+
+    /// <summary>
+    /// Payment was cancelled before completion.
+    /// </summary>
+    Cancelled = 6,
+
+    /// <summary>
+    /// Payment authorization or checkout session expired before completion.
+    /// </summary>
+    Expired = 7
 }
