@@ -103,6 +103,59 @@ public sealed class StripeProviderTests
         Assert.Equal("sk_test_123", handler.Request.Headers.Authorization?.Parameter);
     }
 
+    [Fact]
+    public async Task ProcessRefundAsync_CheckoutSessionId_ResolvesPaymentIntentAndCreatesRefund()
+    {
+        var handler = new SequenceCapturingHandler(
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new
+                {
+                    id = "cs_test_123",
+                    payment_intent = "pi_test_456"
+                })
+            },
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new
+                {
+                    id = "re_test_789",
+                    status = "succeeded"
+                })
+            });
+        using var httpClient = new HttpClient(handler);
+        var provider = new StripeProvider(httpClient, "sk_test_123", "https://api.stripe.com");
+
+        var result = await provider.ProcessRefundAsync(new ProviderRefundRequest
+        {
+            ProviderTransactionId = "cs_test_123",
+            Amount = 120.50m,
+            Currency = "THB",
+            Reason = "requested_by_customer",
+            Metadata = new Dictionary<string, string>
+            {
+                ["refundId"] = "refund-123",
+                ["orderNumber"] = "ORD-789"
+            }
+        });
+
+        Assert.True(result.Success);
+        Assert.Equal("re_test_789", result.ProviderRefundId);
+        Assert.Equal("succeeded", result.Status);
+        Assert.Equal(2, handler.Requests.Count);
+        Assert.Equal(HttpMethod.Get, handler.Requests[0].Method);
+        Assert.Equal("https://api.stripe.com/v1/checkout/sessions/cs_test_123", handler.Requests[0].RequestUri?.ToString());
+        Assert.Equal(HttpMethod.Post, handler.Requests[1].Method);
+        Assert.Equal("https://api.stripe.com/v1/refunds", handler.Requests[1].RequestUri?.ToString());
+
+        var form = ReadForm(handler.RequestBodies[1]);
+        Assert.Equal("pi_test_456", form["payment_intent"]);
+        Assert.Equal("12050", form["amount"]);
+        Assert.Equal("requested_by_customer", form["reason"]);
+        Assert.Equal("refund-123", form["metadata[refundId]"]);
+        Assert.Equal("ORD-789", form["metadata[orderNumber]"]);
+    }
+
     private static Dictionary<string, string> ReadForm(string? body)
     {
         Assert.False(string.IsNullOrWhiteSpace(body));
@@ -126,6 +179,24 @@ public sealed class StripeProviderTests
                 ? null
                 : await request.Content.ReadAsStringAsync(cancellationToken);
             return response;
+        }
+    }
+
+    private sealed class SequenceCapturingHandler(params HttpResponseMessage[] responses) : HttpMessageHandler
+    {
+        private int _index;
+
+        public List<HttpRequestMessage> Requests { get; } = [];
+        public List<string?> RequestBodies { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Requests.Add(request);
+            RequestBodies.Add(request.Content is null
+                ? null
+                : await request.Content.ReadAsStringAsync(cancellationToken));
+
+            return responses[_index++];
         }
     }
 }

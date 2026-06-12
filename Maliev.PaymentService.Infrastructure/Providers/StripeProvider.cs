@@ -212,17 +212,77 @@ public class StripeProvider : IPaymentProviderAdapter
     {
         try
         {
-            // For MVP: Simulate refund processing
-            // In production, this would call Stripe's Refund API
-            var providerRefundId = $"re_stripe_{Guid.NewGuid():N}";
+            var form = new Dictionary<string, string>
+            {
+                ["amount"] = ToStripeMinorUnits(request.Amount).ToString(CultureInfo.InvariantCulture),
+                ["reason"] = NormalizeRefundReason(request.Reason)
+            };
 
-            await Task.Delay(100, cancellationToken);
+            var paymentIntentId = request.ProviderTransactionId;
+            if (request.ProviderTransactionId.StartsWith("cs_", StringComparison.OrdinalIgnoreCase))
+            {
+                paymentIntentId = await ResolveCheckoutSessionPaymentIntentAsync(
+                    request.ProviderTransactionId,
+                    cancellationToken);
+            }
+
+            if (paymentIntentId.StartsWith("ch_", StringComparison.OrdinalIgnoreCase))
+            {
+                form["charge"] = paymentIntentId;
+            }
+            else
+            {
+                form["payment_intent"] = paymentIntentId;
+            }
+
+            foreach (var (key, value) in request.Metadata ?? new Dictionary<string, string>())
+            {
+                form[$"metadata[{key}]"] = value;
+            }
+
+            using var content = new FormUrlEncodedContent(form);
+            using var httpRequest = new HttpRequestMessage(
+                HttpMethod.Post,
+                $"{_apiBaseUrl.TrimEnd('/')}/v1/refunds")
+            {
+                Content = content
+            };
+
+            using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                return new ProviderRefundResult
+                {
+                    Success = false,
+                    ProviderRefundId = string.Empty,
+                    Status = "failed",
+                    ErrorMessage = responseBody,
+                    ErrorCode = $"stripe_refund_{(int)response.StatusCode}"
+                };
+            }
+
+            var refund = JsonSerializer.Deserialize<StripeRefundResponse>(
+                responseBody,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+            if (refund is null || string.IsNullOrWhiteSpace(refund.Id))
+            {
+                return new ProviderRefundResult
+                {
+                    Success = false,
+                    ProviderRefundId = string.Empty,
+                    Status = "failed",
+                    ErrorMessage = "Stripe refund response did not include an id.",
+                    ErrorCode = "stripe_invalid_refund_response"
+                };
+            }
 
             return new ProviderRefundResult
             {
                 Success = true,
-                ProviderRefundId = providerRefundId,
-                Status = "succeeded"
+                ProviderRefundId = refund.Id,
+                Status = refund.Status ?? "processing"
             };
         }
         catch (Exception ex)
@@ -236,6 +296,43 @@ public class StripeProvider : IPaymentProviderAdapter
                 ErrorCode = "stripe_refund_error"
             };
         }
+    }
+
+    private async Task<string> ResolveCheckoutSessionPaymentIntentAsync(
+        string checkoutSessionId,
+        CancellationToken cancellationToken)
+    {
+        using var response = await _httpClient.GetAsync(
+            $"{_apiBaseUrl.TrimEnd('/')}/v1/checkout/sessions/{Uri.EscapeDataString(checkoutSessionId)}",
+            cancellationToken);
+
+        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException($"Stripe checkout session lookup failed: {responseBody}");
+        }
+
+        var session = JsonSerializer.Deserialize<StripeCheckoutSessionRefundLookupResponse>(
+            responseBody,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+        if (session is null || string.IsNullOrWhiteSpace(session.PaymentIntent))
+        {
+            throw new InvalidOperationException("Stripe checkout session did not include a payment_intent for refund.");
+        }
+
+        return session.PaymentIntent;
+    }
+
+    private static string NormalizeRefundReason(string reason)
+    {
+        return reason.Trim().ToLowerInvariant() switch
+        {
+            "duplicate" => "duplicate",
+            "fraudulent" => "fraudulent",
+            "requested_by_customer" or "customer" or "customer_requested" => "requested_by_customer",
+            _ => "requested_by_customer"
+        };
     }
 
     public bool ValidateWebhookSignature(string payload, string signature, string secret)
@@ -274,5 +371,20 @@ public class StripeProvider : IPaymentProviderAdapter
 
         [JsonPropertyName("payment_status")]
         public string? PaymentStatus { get; set; }
+    }
+
+    private sealed class StripeCheckoutSessionRefundLookupResponse
+    {
+        [JsonPropertyName("payment_intent")]
+        public string? PaymentIntent { get; set; }
+    }
+
+    private sealed class StripeRefundResponse
+    {
+        [JsonPropertyName("id")]
+        public string? Id { get; set; }
+
+        [JsonPropertyName("status")]
+        public string? Status { get; set; }
     }
 }
