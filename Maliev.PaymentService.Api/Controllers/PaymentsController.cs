@@ -263,6 +263,7 @@ public class PaymentsController : ControllerBase
                 request.Amount,
                 request.Reason,
                 request.RefundType,
+                idempotencyKey!,
                 cancellationToken);
 
             // Map to response

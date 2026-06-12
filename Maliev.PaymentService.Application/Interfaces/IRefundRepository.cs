@@ -16,6 +16,14 @@ public interface IRefundRepository
     Task<RefundTransaction?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Gets a refund by its idempotency key.
+    /// </summary>
+    /// <param name="idempotencyKey">Client-supplied idempotency key.</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Refund if found, null otherwise</returns>
+    Task<RefundTransaction?> GetByIdempotencyKeyAsync(string idempotencyKey, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Gets all refunds for a specific payment transaction.
     /// </summary>
     /// <param name="paymentTransactionId">Payment transaction ID</param>

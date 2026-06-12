@@ -25,6 +25,16 @@ public class RefundRepository : IRefundRepository
             .FirstOrDefaultAsync(r => r.Id == id, cancellationToken);
     }
 
+    public async Task<RefundTransaction?> GetByIdempotencyKeyAsync(
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
+    {
+        return await _context.RefundTransactions
+            .Include(r => r.PaymentTransaction)
+            .Include(r => r.Provider)
+            .FirstOrDefaultAsync(r => r.IdempotencyKey == idempotencyKey, cancellationToken);
+    }
+
     public async Task<List<RefundTransaction>> GetByPaymentTransactionIdAsync(
         Guid paymentTransactionId,
         CancellationToken cancellationToken = default)

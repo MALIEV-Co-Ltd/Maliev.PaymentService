@@ -128,6 +128,7 @@ public sealed class StripeProviderTests
 
         var result = await provider.ProcessRefundAsync(new ProviderRefundRequest
         {
+            IdempotencyKey = "refund-idem-123",
             ProviderTransactionId = "cs_test_123",
             Amount = 120.50m,
             Currency = "THB",
@@ -147,6 +148,8 @@ public sealed class StripeProviderTests
         Assert.Equal("https://api.stripe.com/v1/checkout/sessions/cs_test_123", handler.Requests[0].RequestUri?.ToString());
         Assert.Equal(HttpMethod.Post, handler.Requests[1].Method);
         Assert.Equal("https://api.stripe.com/v1/refunds", handler.Requests[1].RequestUri?.ToString());
+        Assert.True(handler.Requests[1].Headers.TryGetValues("Idempotency-Key", out var idempotencyValues));
+        Assert.Equal("refund-idem-123", Assert.Single(idempotencyValues));
 
         var form = ReadForm(handler.RequestBodies[1]);
         Assert.Equal("pi_test_456", form["payment_intent"]);

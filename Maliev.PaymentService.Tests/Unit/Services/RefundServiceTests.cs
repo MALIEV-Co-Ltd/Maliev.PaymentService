@@ -75,7 +75,7 @@ public class RefundServiceTests
 
         // Act & Assert
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => _service.ProcessRefundAsync(transactionId, amount, reason, "full"));
+            () => _service.ProcessRefundAsync(transactionId, amount, reason, "full", "refund-missing-payment"));
     }
 
     [Fact]
@@ -91,7 +91,7 @@ public class RefundServiceTests
 
         // Act & Assert
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => _service.ProcessRefundAsync(transactionId, 50.00m, "test", "partial"));
+            () => _service.ProcessRefundAsync(transactionId, 50.00m, "test", "partial", "refund-not-completed"));
 
         Assert.Contains("not completed", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
@@ -116,7 +116,7 @@ public class RefundServiceTests
 
         // Act & Assert - try to refund 50 when only 40 remaining
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => _service.ProcessRefundAsync(transactionId, 50.00m, "test", "partial"));
+            () => _service.ProcessRefundAsync(transactionId, 50.00m, "test", "partial", "refund-exceeds"));
 
         Assert.Contains("exceeds", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
@@ -141,7 +141,7 @@ public class RefundServiceTests
             .ReturnsAsync((RefundTransaction r, CancellationToken ct) => r);
 
         // Act
-        var result = await _service.ProcessRefundAsync(transactionId, 100.00m, "Full refund", "full");
+        var result = await _service.ProcessRefundAsync(transactionId, 100.00m, "Full refund", "full", "refund-full");
 
         // Assert
         Assert.NotNull(result);
@@ -189,6 +189,7 @@ public class RefundServiceTests
             .Setup(a => a.ProcessRefundAsync(
                 It.Is<ProviderRefundRequest>(request =>
                     request.ProviderTransactionId == payment.ProviderTransactionId &&
+                    request.IdempotencyKey == "refund-key-123" &&
                     request.Amount == 25.00m &&
                     request.Currency == payment.Currency &&
                     request.Metadata != null &&
@@ -201,10 +202,11 @@ public class RefundServiceTests
                 Status = "succeeded"
             });
 
-        var result = await _service.ProcessRefundAsync(transactionId, 25.00m, "Customer request", "partial");
+        var result = await _service.ProcessRefundAsync(transactionId, 25.00m, "Customer request", "partial", "refund-key-123");
 
         Assert.Equal(RefundStatus.Completed, result.Status);
         Assert.Equal("re_test_123", result.ProviderRefundId);
+        Assert.Equal("refund-key-123", result.IdempotencyKey);
         Assert.NotNull(result.CompletedAt);
         _refundRepositoryMock.Verify(
             r => r.UpdateAsync(
@@ -213,6 +215,29 @@ public class RefundServiceTests
                     refund.ProviderRefundId == "re_test_123"),
                 It.IsAny<CancellationToken>()),
             Times.Once);
+    }
+
+    [Fact]
+    public async Task ProcessRefundAsync_DuplicateIdempotencyKey_ShouldReturnExistingRefundWithoutProviderCall()
+    {
+        var transactionId = Guid.NewGuid();
+        var existingRefund = CreateTestRefund(transactionId, 20m, RefundStatus.Completed);
+        existingRefund.IdempotencyKey = "refund-key-dup";
+        existingRefund.ProviderRefundId = "re_existing";
+
+        _refundRepositoryMock
+            .Setup(r => r.GetByIdempotencyKeyAsync("refund-key-dup", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(existingRefund);
+
+        var result = await _service.ProcessRefundAsync(transactionId, 20m, "Customer request", "partial", "refund-key-dup");
+
+        Assert.Same(existingRefund, result);
+        _paymentRepositoryMock.Verify(
+            r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _providerFactoryMock.Verify(
+            f => f.CreateProvider(It.IsAny<PaymentProvider>(), null),
+            Times.Never);
     }
 
     [Fact]
@@ -235,7 +260,7 @@ public class RefundServiceTests
             .ReturnsAsync((RefundTransaction r, CancellationToken ct) => r);
 
         // Act
-        var result = await _service.ProcessRefundAsync(transactionId, 50.00m, "Partial refund", "partial");
+        var result = await _service.ProcessRefundAsync(transactionId, 50.00m, "Partial refund", "partial", "refund-partial");
 
         // Assert
         Assert.NotNull(result);
@@ -272,7 +297,7 @@ public class RefundServiceTests
             .ReturnsAsync((RefundTransaction r, CancellationToken ct) => r);
 
         // Act - request 50 refund (should succeed, exactly remaining amount)
-        var result = await _service.ProcessRefundAsync(transactionId, 50.00m, "Final refund", "partial");
+        var result = await _service.ProcessRefundAsync(transactionId, 50.00m, "Final refund", "partial", "refund-final-partial");
 
         // Assert
         Assert.NotNull(result);
@@ -292,7 +317,7 @@ public class RefundServiceTests
 
         // Act & Assert
         await Assert.ThrowsAsync<ArgumentException>(
-            () => _service.ProcessRefundAsync(transactionId, 0m, "test", "full"));
+            () => _service.ProcessRefundAsync(transactionId, 0m, "test", "full", "refund-zero"));
     }
 
     [Fact]
@@ -308,7 +333,7 @@ public class RefundServiceTests
 
         // Act & Assert
         await Assert.ThrowsAsync<ArgumentException>(
-            () => _service.ProcessRefundAsync(transactionId, -10m, "test", "full"));
+            () => _service.ProcessRefundAsync(transactionId, -10m, "test", "full", "refund-negative"));
     }
 
     private static PaymentTransaction CreateTestPayment(Guid id, PaymentStatus status, decimal amount)

@@ -42,8 +42,23 @@ public class RefundService : IRefundService
         decimal amount,
         string? reason,
         string refundType,
+        string idempotencyKey,
         CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            throw new ArgumentException("Refund idempotency key is required", nameof(idempotencyKey));
+        }
+
+        var existingRefund = await _refundRepository.GetByIdempotencyKeyAsync(idempotencyKey, cancellationToken);
+        if (existingRefund != null)
+        {
+            _logger.LogInformation(
+                "Idempotent refund request detected. Returning existing refund {RefundId}",
+                existingRefund.Id);
+            return existingRefund;
+        }
+
         // Validate amount
         if (amount <= 0)
         {
@@ -98,7 +113,7 @@ public class RefundService : IRefundService
             Status = RefundStatus.Pending,
             Reason = reason,
             RefundType = refundType,
-            IdempotencyKey = Guid.NewGuid().ToString(), // Will be overridden by controller with actual idempotency key
+            IdempotencyKey = idempotencyKey,
             CorrelationId = Guid.NewGuid(),
             InitiatedAt = DateTime.UtcNow,
             CreatedAt = DateTime.UtcNow,
@@ -111,6 +126,7 @@ public class RefundService : IRefundService
         var adapter = _providerFactory.CreateProvider(provider);
         var providerResult = await adapter.ProcessRefundAsync(new ProviderRefundRequest
         {
+            IdempotencyKey = idempotencyKey,
             ProviderTransactionId = payment.ProviderTransactionId,
             Amount = amount,
             Currency = payment.Currency,

@@ -171,7 +171,7 @@ public class PaymentsControllerTests
     {
         // Arrange
         _controller.Request.Headers["Idempotency-Key"] = "test-key";
-        _refundServiceMock.Setup(x => x.ProcessRefundAsync(It.IsAny<Guid>(), It.IsAny<decimal>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        _refundServiceMock.Setup(x => x.ProcessRefundAsync(It.IsAny<Guid>(), It.IsAny<decimal>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("Cannot refund more than original amount"));
 
         // Act
@@ -179,6 +179,55 @@ public class PaymentsControllerTests
 
         // Assert
         Assert.IsType<BadRequestObjectResult>(result.Result);
+    }
+
+    [Fact]
+    public async Task ProcessRefund_IdempotencyHeader_PassesKeyToRefundService()
+    {
+        var paymentId = Guid.NewGuid();
+        _controller.Request.Headers["Idempotency-Key"] = "refund-key-123";
+        _refundServiceMock
+            .Setup(x => x.ProcessRefundAsync(
+                paymentId,
+                10m,
+                "Customer request",
+                "partial",
+                "refund-key-123",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new RefundTransaction
+            {
+                Id = Guid.NewGuid(),
+                PaymentTransactionId = paymentId,
+                ProviderId = Guid.NewGuid(),
+                Amount = 10m,
+                Currency = "THB",
+                Status = RefundStatus.Completed,
+                Reason = "Customer request",
+                RefundType = "partial",
+                IdempotencyKey = "refund-key-123",
+                ProviderRefundId = "re_test_123",
+                CorrelationId = Guid.NewGuid(),
+                InitiatedAt = DateTime.UtcNow,
+                CompletedAt = DateTime.UtcNow,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            });
+
+        var result = await _controller.ProcessRefund(
+            paymentId,
+            new RefundRequest { Amount = 10m, Reason = "Customer request", RefundType = "partial" },
+            default);
+
+        Assert.IsType<OkObjectResult>(result.Result);
+        _refundServiceMock.Verify(
+            x => x.ProcessRefundAsync(
+                paymentId,
+                10m,
+                "Customer request",
+                "partial",
+                "refund-key-123",
+                It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     [Fact]
@@ -202,7 +251,7 @@ public class PaymentsControllerTests
     {
         // Arrange
         _controller.Request.Headers["Idempotency-Key"] = "test-key";
-        _refundServiceMock.Setup(x => x.ProcessRefundAsync(It.IsAny<Guid>(), It.IsAny<decimal>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        _refundServiceMock.Setup(x => x.ProcessRefundAsync(It.IsAny<Guid>(), It.IsAny<decimal>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new System.Exception("Error"));
 
         // Act

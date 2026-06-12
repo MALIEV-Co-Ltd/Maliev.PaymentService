@@ -90,6 +90,7 @@ public class ProviderPaymentStatus
 /// </summary>
 public class ProviderRefundRequest
 {
+    public required string IdempotencyKey { get; set; }
     public required string ProviderTransactionId { get; set; }
     public required decimal Amount { get; set; }
     public required string Currency { get; set; }

@@ -247,6 +247,7 @@ public class StripeProvider : IPaymentProviderAdapter
             {
                 Content = content
             };
+            httpRequest.Headers.Add("Idempotency-Key", request.IdempotencyKey);
 
             using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
             var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
