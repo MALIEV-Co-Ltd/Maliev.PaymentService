@@ -644,6 +644,39 @@ public class WebhookProcessingServiceTests
     }
 
     [Fact]
+    public async Task RetryWebhookAsync_CompletedWebhook_ShouldNotReprocessOrRepublish()
+    {
+        var webhook = CreateTestWebhook();
+        webhook.ProcessingStatus = WebhookProcessingStatus.Completed;
+        webhook.ProcessedAt = DateTime.UtcNow.AddMinutes(-5);
+        webhook.PaymentTransactionId = Guid.NewGuid();
+        webhook.RawPayload = JsonSerializer.Serialize(new Dictionary<string, object>
+        {
+            ["transactionId"] = webhook.PaymentTransactionId.Value.ToString()
+        });
+        webhook.EventType = "payment.completed";
+
+        _webhookRepositoryMock
+            .Setup(r => r.GetByIdAsync(webhook.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(webhook);
+
+        var result = await _service.RetryWebhookAsync(webhook.Id);
+
+        Assert.True(result.Success);
+        Assert.False(result.IsDuplicate);
+        Assert.Equal(webhook.PaymentTransactionId, result.TransactionId);
+        _webhookRepositoryMock.Verify(
+            r => r.UpdateAsync(It.IsAny<WebhookEvent>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _paymentRepositoryMock.Verify(
+            r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _eventPublisherMock.Verify(
+            e => e.PublishAsync(It.IsAny<object>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task RetryWebhookAsync_ExistingWebhookId_ShouldProcessPersistedWebhook()
     {
         var webhook = CreateTestWebhook();

@@ -44,6 +44,20 @@ public class WebhookProcessingService : IWebhookProcessingService
 
         try
         {
+            if (webhookEvent.ProcessingStatus == WebhookProcessingStatus.Completed)
+            {
+                _logger.LogInformation(
+                    "Webhook {WebhookId} has already completed processing; skipping retry",
+                    webhookEvent.Id);
+
+                return new WebhookProcessingResult
+                {
+                    Success = true,
+                    IsDuplicate = false,
+                    TransactionId = webhookEvent.PaymentTransactionId
+                };
+            }
+
             // Check for duplicate
             var existing = await _webhookRepository.GetByProviderEventIdAsync(
                 webhookEvent.ProviderId,
