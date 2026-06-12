@@ -258,6 +258,118 @@ public sealed class PaymentServiceTests
             Times.Once);
     }
 
+    [Fact]
+    public async Task ProcessPaymentAsync_WhenThailandPrimaryProviderFails_FallsBackToStripe()
+    {
+        var omise = CreateOmiseProvider();
+        var stripe = CreateStripeProvider();
+        var omiseAdapter = new FakePaymentProviderAdapter(
+            "omise",
+            new ProviderPaymentResult
+            {
+                Success = false,
+                ProviderTransactionId = "chrg_failed",
+                Status = "failed",
+                ErrorMessage = "Omise temporarily unavailable",
+                ErrorCode = "provider_unavailable"
+            });
+        var stripeAdapter = new FakePaymentProviderAdapter(
+            "stripe",
+            new ProviderPaymentResult
+            {
+                Success = true,
+                ProviderTransactionId = "cs_fallback",
+                Status = "open",
+                PaymentUrl = "https://checkout.stripe.com/c/pay/cs_fallback"
+            });
+
+        var repository = new Mock<IPaymentRepository>();
+        repository
+            .Setup(r => r.GetByIdempotencyKeyAsync("idem-fallback", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PaymentTransaction?)null);
+        repository
+            .Setup(r => r.GetLatestCompletedByOrderIdAsync("order-456", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PaymentTransaction?)null);
+        repository
+            .Setup(r => r.AddAsync(It.IsAny<PaymentTransaction>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PaymentTransaction transaction, CancellationToken _) => transaction);
+        repository
+            .Setup(r => r.UpdateAsync(It.IsAny<PaymentTransaction>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PaymentTransaction transaction, CancellationToken _) => transaction);
+        repository
+            .Setup(r => r.AddLogAsync(It.IsAny<TransactionLog>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var routing = new Mock<IPaymentRoutingService>();
+        routing
+            .SetupSequence(r => r.SelectProviderAsync("THB", "stripe", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(omise)
+            .ReturnsAsync(stripe);
+
+        var idempotency = new Mock<IIdempotencyService>();
+        idempotency
+            .Setup(i => i.AcquireLockAsync("payment", "idem-fallback", It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var events = new Mock<IEventPublisher>();
+        var metrics = new Mock<IMetricsService>();
+        var httpClientFactory = new Mock<IHttpClientFactory>();
+        var encryption = new Mock<IEncryptionService>();
+        var providerFactory = new Mock<ProviderFactory>(httpClientFactory.Object, encryption.Object);
+        providerFactory
+            .Setup(f => f.CreateProvider(omise, null))
+            .Returns(omiseAdapter);
+        providerFactory
+            .Setup(f => f.CreateProvider(stripe, null))
+            .Returns(stripeAdapter);
+
+        var service = new PaymentOrchestrationService(
+            repository.Object,
+            routing.Object,
+            idempotency.Object,
+            events.Object,
+            metrics.Object,
+            providerFactory.Object,
+            new CircuitBreakerStateManager(),
+            NullLogger<PaymentOrchestrationService>.Instance);
+
+        var transaction = await service.ProcessPaymentAsync(new PaymentProcessingRequest
+        {
+            IdempotencyKey = "idem-fallback",
+            Amount = 1250m,
+            Currency = "THB",
+            CustomerId = "customer-123",
+            OrderId = "order-456",
+            Description = "Manufacturing order ORD-456",
+            ReturnUrl = "https://quote.example.com/payment/success?orderId=ORD-456",
+            CancelUrl = "https://quote.example.com/payment/cancel?orderId=ORD-456",
+            Metadata = new Dictionary<string, string> { ["orderNumber"] = "ORD-456" },
+            PreferredProvider = "stripe",
+            CorrelationId = Guid.NewGuid().ToString()
+        });
+
+        Assert.Equal("stripe", transaction.ProviderName);
+        Assert.Equal(stripe.Id, transaction.PaymentProviderId);
+        Assert.Equal("cs_fallback", transaction.ProviderTransactionId);
+        Assert.Equal(PaymentStatus.Processing, transaction.Status);
+        Assert.Equal(1, omiseAdapter.ProcessPaymentCallCount);
+        Assert.Equal(1, stripeAdapter.ProcessPaymentCallCount);
+        routing.Verify(
+            r => r.SelectProviderAsync("THB", "stripe", It.IsAny<CancellationToken>()),
+            Times.Exactly(2));
+        events.Verify(
+            e => e.PublishAsync(It.IsAny<PaymentFailedEvent>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        events.Verify(
+            e => e.PublishAsync(
+                It.Is<PaymentPendingEvent>(paymentEvent =>
+                    paymentEvent.Payload.TransactionId == transaction.Id &&
+                    paymentEvent.Payload.ProviderName == "stripe" &&
+                    paymentEvent.Payload.ProviderEventCode == "ProviderSuccess"),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
     private static PaymentProvider CreateStripeProvider()
     {
         var providerId = Guid.NewGuid();
@@ -278,6 +390,36 @@ public sealed class PaymentServiceTests
                     PaymentProviderId = providerId,
                     Region = "default",
                     ApiBaseUrl = "https://api.stripe.com",
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                }
+            ],
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+    }
+
+    private static PaymentProvider CreateOmiseProvider()
+    {
+        var providerId = Guid.NewGuid();
+        return new PaymentProvider
+        {
+            Id = providerId,
+            Name = "omise",
+            DisplayName = "Omise",
+            Status = ProviderStatus.Active,
+            Priority = 1,
+            SupportedCurrencies = ["THB"],
+            Credentials = new Dictionary<string, string> { ["SecretKey"] = "skey_test_123" },
+            Configurations =
+            [
+                new ProviderConfiguration
+                {
+                    Id = Guid.NewGuid(),
+                    PaymentProviderId = providerId,
+                    Region = "default",
+                    ApiBaseUrl = "https://api.omise.co",
                     IsActive = true,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
@@ -312,5 +454,43 @@ public sealed class PaymentServiceTests
                 : await request.Content.ReadAsStringAsync(cancellationToken);
             return response;
         }
+    }
+
+    private sealed class FakePaymentProviderAdapter(
+        string providerName,
+        ProviderPaymentResult paymentResult) : IPaymentProviderAdapter
+    {
+        public string ProviderName { get; } = providerName;
+
+        public int ProcessPaymentCallCount { get; private set; }
+
+        public Task<ProviderPaymentResult> ProcessPaymentAsync(
+            ProviderPaymentRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            ProcessPaymentCallCount++;
+            return Task.FromResult(paymentResult);
+        }
+
+        public Task<ProviderPaymentStatus> GetPaymentStatusAsync(
+            string providerTransactionId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new ProviderPaymentStatus { Status = paymentResult.Status });
+        }
+
+        public Task<ProviderRefundResult> ProcessRefundAsync(
+            ProviderRefundRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new ProviderRefundResult
+            {
+                Success = false,
+                ProviderRefundId = string.Empty,
+                Status = "unsupported"
+            });
+        }
+
+        public bool ValidateWebhookSignature(string payload, string signature, string secret) => true;
     }
 }
