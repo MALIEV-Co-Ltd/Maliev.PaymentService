@@ -128,10 +128,11 @@ public class WebhookValidationService : IWebhookValidationService
             value = _encryptionService.Decrypt(storedValue);
             return true;
         }
-        catch
+        catch (Exception ex)
         {
-            value = storedValue;
-            return true;
+            _logger.LogWarning(ex, "Could not decrypt webhook credential {CredentialKey} for provider {ProviderName}", key, provider.Name);
+            value = string.Empty;
+            return false;
         }
     }
 }

@@ -113,6 +113,23 @@ public class WebhookValidationServiceTests
     }
 
     [Fact]
+    public async Task ValidateWebhookAsync_Omise_DecryptionFailure_ShouldFailClosed()
+    {
+        var provider = CreateTestProvider("omise");
+        provider.Credentials["WebhookSecret"] = "stored-secret";
+        var headers = new Dictionary<string, string> { ["Omise-Signature"] = ComputeOmiseSignature("payload", "stored-secret") };
+        var encryptionService = new Mock<IEncryptionService>();
+        encryptionService
+            .Setup(service => service.Decrypt("stored-secret"))
+            .Throws(new InvalidOperationException("credential could not be decrypted"));
+        var service = new WebhookValidationService(_loggerMock.Object, encryptionService.Object);
+
+        var result = await service.ValidateWebhookAsync(provider, "payload", headers);
+
+        Assert.False(result);
+    }
+
+    [Fact]
     public async Task ValidateWebhookAsync_OpnAlias_UsesOmiseSignatureContract()
     {
         var provider = CreateTestProvider("opn");
