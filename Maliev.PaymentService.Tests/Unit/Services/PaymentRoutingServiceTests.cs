@@ -54,6 +54,37 @@ public class PaymentRoutingServiceTests
     }
 
     [Fact]
+    public async Task SelectProviderAsync_ThailandCurrency_IgnoresStripePreferenceWhenOmiseIsHealthy()
+    {
+        var stripe = CreateTestProvider("stripe", ProviderStatus.Active, 1);
+        var omise = CreateTestProvider("omise", ProviderStatus.Active, 2);
+
+        _providerRepositoryMock
+            .Setup(r => r.GetActiveByCurrencyAsync("THB", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<PaymentProvider> { stripe, omise });
+
+        var result = await _service.SelectProviderAsync("THB", "stripe");
+
+        Assert.Equal("omise", result.Name);
+    }
+
+    [Fact]
+    public async Task SelectProviderAsync_ThailandCurrency_FallsBackToStripeWhenOmiseCircuitIsOpen()
+    {
+        var omise = CreateTestProvider("omise", ProviderStatus.Active, 1);
+        var stripe = CreateTestProvider("stripe", ProviderStatus.Active, 2);
+        _circuitBreakerStateManager.RecordStateChange("omise", true, DateTime.UtcNow);
+
+        _providerRepositoryMock
+            .Setup(r => r.GetActiveByCurrencyAsync("THB", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<PaymentProvider> { omise, stripe });
+
+        var result = await _service.SelectProviderAsync("THB", "stripe");
+
+        Assert.Equal("stripe", result.Name);
+    }
+
+    [Fact]
     public async Task SelectProviderAsync_WithPreferredProviderCircuitOpen_ShouldFallback()
     {
         var provider = CreateTestProvider("stripe", ProviderStatus.Active, 1);

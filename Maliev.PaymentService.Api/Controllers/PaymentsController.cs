@@ -319,7 +319,7 @@ public class PaymentsController : ControllerBase
             CustomerId = transaction.CustomerId,
             OrderId = transaction.OrderId,
             Description = transaction.Description ?? string.Empty,
-            SelectedProvider = transaction.PaymentProvider?.Name ?? "Unknown",
+            SelectedProvider = transaction.PaymentProvider?.Name ?? transaction.ProviderName ?? "Unknown",
             ProviderTransactionId = transaction.ProviderTransactionId ?? string.Empty,
             PaymentUrl = transaction.PaymentUrl,
             Metadata = transaction.Metadata,

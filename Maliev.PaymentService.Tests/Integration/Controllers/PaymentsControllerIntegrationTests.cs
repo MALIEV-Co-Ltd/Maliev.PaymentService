@@ -104,6 +104,52 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         await _dbContext.SaveChangesAsync();
     }
 
+    private async Task SeedStripeFallbackProviderAsync(Maliev.PaymentService.Application.Interfaces.IEncryptionService encryptionService)
+    {
+        var existingProvider = await _dbContext!.PaymentProviders
+            .FirstOrDefaultAsync(p => p.Name == "stripe");
+
+        if (existingProvider != null)
+        {
+            return;
+        }
+
+        var providerId = Guid.NewGuid();
+        var provider = new Maliev.PaymentService.Domain.Entities.PaymentProvider
+        {
+            Id = providerId,
+            Name = "stripe",
+            DisplayName = "Stripe (Fallback Test)",
+            Status = ProviderStatus.Active,
+            SupportedCurrencies = new List<string> { "THB", "USD" },
+            Priority = 0,
+            Credentials = new Dictionary<string, string>
+            {
+                { "ApiKey", encryptionService.Encrypt("sk_test_fallback_key") }
+            },
+            Configurations = new List<Maliev.PaymentService.Domain.Entities.ProviderConfiguration>
+            {
+                new()
+                {
+                    Id = Guid.NewGuid(),
+                    PaymentProviderId = providerId,
+                    Region = "global",
+                    ApiBaseUrl = "https://api.stripe.com",
+                    IsActive = true,
+                    MaxRetries = 3,
+                    TimeoutSeconds = 30,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                }
+            },
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        _dbContext.PaymentProviders.Add(provider);
+        await _dbContext.SaveChangesAsync();
+    }
+
     public async Task DisposeAsync()
     {
         if (_dbContext != null)
@@ -155,6 +201,37 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         Assert.Contains(payment.Status, new[] { PaymentStatus.Pending, PaymentStatus.Processing, PaymentStatus.Completed });
         Assert.NotNull(payment.ProviderTransactionId);
         Assert.NotNull(payment.SelectedProvider);
+    }
+
+    [Fact]
+    public async Task ProcessPayment_ThailandCurrencyWithStripePreference_SelectsOmisePrimaryProvider()
+    {
+        var encryptionService = _factory.Services.GetRequiredService<Maliev.PaymentService.Application.Interfaces.IEncryptionService>();
+        await SeedStripeFallbackProviderAsync(encryptionService);
+
+        var idempotencyKey = Guid.NewGuid().ToString();
+        var request = new PaymentRequest
+        {
+            Amount = 100.00m,
+            Currency = "THB",
+            CustomerId = "cust_th_primary",
+            OrderId = "order_th_primary",
+            Description = "Thailand primary provider test",
+            ReturnUrl = "https://example.com/return",
+            CancelUrl = "https://example.com/cancel",
+            PreferredProvider = "stripe"
+        };
+
+        _client.DefaultRequestHeaders.Add("Idempotency-Key", idempotencyKey);
+        _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
+
+        var response = await _client.PostAsJsonAsync("/payment/v1/payments", request);
+        var payment = await response.Content.ReadFromJsonAsync<PaymentResponse>();
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.NotNull(payment);
+        Assert.Equal("omise", payment.SelectedProvider);
+        Assert.StartsWith("chrg_omise_", payment.ProviderTransactionId, StringComparison.Ordinal);
     }
 
     [Fact]

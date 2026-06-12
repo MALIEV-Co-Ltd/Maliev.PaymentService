@@ -28,8 +28,11 @@ public class PaymentRoutingService : IPaymentRoutingService
 
     public async Task<PaymentProvider> SelectProviderAsync(string currency, string? preferredProvider = null, CancellationToken cancellationToken = default)
     {
-        // If preferred provider is specified, try to use it
-        if (!string.IsNullOrEmpty(preferredProvider))
+        var isThailandCurrency = IsThailandCurrency(currency);
+
+        // If preferred provider is specified, try to use it unless Thailand-local routing must stay primary.
+        if (!string.IsNullOrEmpty(preferredProvider) &&
+            (!isThailandCurrency || IsThailandPrimaryProvider(preferredProvider)))
         {
             var providers = await _providerRepository.GetActiveByCurrencyAsync(currency, cancellationToken);
             var provider = providers.FirstOrDefault(p =>
@@ -52,7 +55,9 @@ public class PaymentRoutingService : IPaymentRoutingService
         }
 
         // Get all active providers supporting the currency, ordered by priority
-        var availableProviders = await _providerRepository.GetActiveByCurrencyAsync(currency, cancellationToken);
+        var availableProviders = (await _providerRepository.GetActiveByCurrencyAsync(currency, cancellationToken))
+            .OrderBy(p => p.Priority)
+            .ToList();
 
         if (!availableProviders.Any())
         {
@@ -85,6 +90,19 @@ public class PaymentRoutingService : IPaymentRoutingService
             throw new InvalidOperationException($"No healthy payment providers available for currency {currency} (all circuit breakers open)");
         }
 
+        if (isThailandCurrency)
+        {
+            var thailandPrimaryProvider = healthyProviders.FirstOrDefault(p => IsThailandPrimaryProvider(p.Name));
+            if (thailandPrimaryProvider is not null)
+            {
+                _logger.LogInformation(
+                    "Selected Thailand primary provider: {ProviderName} for currency {Currency}",
+                    thailandPrimaryProvider.Name,
+                    currency);
+                return thailandPrimaryProvider;
+            }
+        }
+
         // Select provider with highest priority (lowest priority number)
         var selected = healthyProviders.First();
 
@@ -92,5 +110,16 @@ public class PaymentRoutingService : IPaymentRoutingService
             selected.Name, selected.Priority, currency);
 
         return selected;
+    }
+
+    private static bool IsThailandCurrency(string currency)
+    {
+        return currency.Equals("THB", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsThailandPrimaryProvider(string providerName)
+    {
+        return providerName.Equals("omise", StringComparison.OrdinalIgnoreCase) ||
+               providerName.Equals("opn", StringComparison.OrdinalIgnoreCase);
     }
 }
