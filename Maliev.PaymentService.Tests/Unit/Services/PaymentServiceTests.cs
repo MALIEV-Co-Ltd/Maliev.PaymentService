@@ -370,6 +370,114 @@ public sealed class PaymentServiceTests
             Times.Once);
     }
 
+    [Fact]
+    public async Task ProcessPaymentAsync_WhenThailandPrimaryProviderThrows_FallsBackToStripe()
+    {
+        var omise = CreateOmiseProvider();
+        var stripe = CreateStripeProvider();
+        var omiseAdapter = new FakePaymentProviderAdapter(
+            "omise",
+            new ProviderPaymentResult
+            {
+                Success = false,
+                ProviderTransactionId = string.Empty,
+                Status = "failed"
+            },
+            new HttpRequestException("Omise create charge timed out"));
+        var stripeAdapter = new FakePaymentProviderAdapter(
+            "stripe",
+            new ProviderPaymentResult
+            {
+                Success = true,
+                ProviderTransactionId = "cs_exception_fallback",
+                Status = "open",
+                PaymentUrl = "https://checkout.stripe.com/c/pay/cs_exception_fallback"
+            });
+
+        var repository = new Mock<IPaymentRepository>();
+        repository
+            .Setup(r => r.GetByIdempotencyKeyAsync("idem-exception-fallback", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PaymentTransaction?)null);
+        repository
+            .Setup(r => r.GetLatestCompletedByOrderIdAsync("order-789", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PaymentTransaction?)null);
+        repository
+            .Setup(r => r.AddAsync(It.IsAny<PaymentTransaction>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PaymentTransaction transaction, CancellationToken _) => transaction);
+        repository
+            .Setup(r => r.UpdateAsync(It.IsAny<PaymentTransaction>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PaymentTransaction transaction, CancellationToken _) => transaction);
+        repository
+            .Setup(r => r.AddLogAsync(It.IsAny<TransactionLog>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var routing = new Mock<IPaymentRoutingService>();
+        routing
+            .SetupSequence(r => r.SelectProviderAsync("THB", "stripe", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(omise)
+            .ReturnsAsync(stripe);
+
+        var idempotency = new Mock<IIdempotencyService>();
+        idempotency
+            .Setup(i => i.AcquireLockAsync("payment", "idem-exception-fallback", It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var events = new Mock<IEventPublisher>();
+        var metrics = new Mock<IMetricsService>();
+        var httpClientFactory = new Mock<IHttpClientFactory>();
+        var encryption = new Mock<IEncryptionService>();
+        var providerFactory = new Mock<ProviderFactory>(httpClientFactory.Object, encryption.Object);
+        providerFactory
+            .Setup(f => f.CreateProvider(omise, null))
+            .Returns(omiseAdapter);
+        providerFactory
+            .Setup(f => f.CreateProvider(stripe, null))
+            .Returns(stripeAdapter);
+
+        var service = new PaymentOrchestrationService(
+            repository.Object,
+            routing.Object,
+            idempotency.Object,
+            events.Object,
+            metrics.Object,
+            providerFactory.Object,
+            new CircuitBreakerStateManager(),
+            NullLogger<PaymentOrchestrationService>.Instance);
+
+        var transaction = await service.ProcessPaymentAsync(new PaymentProcessingRequest
+        {
+            IdempotencyKey = "idem-exception-fallback",
+            Amount = 2190m,
+            Currency = "THB",
+            CustomerId = "customer-456",
+            OrderId = "order-789",
+            Description = "Manufacturing order ORD-789",
+            ReturnUrl = "https://quote.example.com/payment/success?orderId=ORD-789",
+            CancelUrl = "https://quote.example.com/payment/cancel?orderId=ORD-789",
+            Metadata = new Dictionary<string, string> { ["orderNumber"] = "ORD-789" },
+            PreferredProvider = "stripe",
+            CorrelationId = Guid.NewGuid().ToString()
+        });
+
+        Assert.Equal("stripe", transaction.ProviderName);
+        Assert.Equal(stripe.Id, transaction.PaymentProviderId);
+        Assert.Equal("cs_exception_fallback", transaction.ProviderTransactionId);
+        Assert.Equal(PaymentStatus.Processing, transaction.Status);
+        Assert.Equal(1, omiseAdapter.ProcessPaymentCallCount);
+        Assert.Equal(1, stripeAdapter.ProcessPaymentCallCount);
+        events.Verify(
+            e => e.PublishAsync(It.IsAny<PaymentFailedEvent>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        events.Verify(
+            e => e.PublishAsync(
+                It.Is<PaymentPendingEvent>(paymentEvent =>
+                    paymentEvent.Payload.TransactionId == transaction.Id &&
+                    paymentEvent.Payload.ProviderName == "stripe" &&
+                    paymentEvent.Payload.ProviderEventCode == "ProviderSuccess"),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
     private static PaymentProvider CreateStripeProvider()
     {
         var providerId = Guid.NewGuid();
@@ -458,7 +566,8 @@ public sealed class PaymentServiceTests
 
     private sealed class FakePaymentProviderAdapter(
         string providerName,
-        ProviderPaymentResult paymentResult) : IPaymentProviderAdapter
+        ProviderPaymentResult paymentResult,
+        Exception? processException = null) : IPaymentProviderAdapter
     {
         public string ProviderName { get; } = providerName;
 
@@ -469,6 +578,11 @@ public sealed class PaymentServiceTests
             CancellationToken cancellationToken = default)
         {
             ProcessPaymentCallCount++;
+            if (processException is not null)
+            {
+                throw processException;
+            }
+
             return Task.FromResult(paymentResult);
         }
 

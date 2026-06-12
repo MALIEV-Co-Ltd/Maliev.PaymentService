@@ -194,12 +194,72 @@ public class PaymentService : IPaymentService
             var firstProviderFailureLogged = false;
             try
             {
-                providerResult = await ProcessPaymentWithProviderAsync(
-                    request,
-                    transaction,
-                    activeProvider,
-                    providerMetadata,
-                    cancellationToken);
+                try
+                {
+                    providerResult = await ProcessPaymentWithProviderAsync(
+                        request,
+                        transaction,
+                        activeProvider,
+                        providerMetadata,
+                        cancellationToken);
+                }
+                catch (Exception firstProviderException)
+                {
+                    _logger.LogWarning(
+                        firstProviderException,
+                        "Payment {TransactionId} threw while processing via {ProviderName}. Attempting fallback provider.",
+                        transaction.Id,
+                        activeProvider.Name);
+
+                    _circuitBreakerStateManager.RecordStateChange(activeProvider.Name, true, DateTime.UtcNow);
+                    transaction.Status = PaymentStatus.Failed;
+                    transaction.ErrorMessage = firstProviderException.Message;
+                    transaction.ProviderErrorCode = "PROVIDER_EXCEPTION";
+                    transaction.UpdatedAt = DateTime.UtcNow;
+                    await _paymentRepository.AddLogAsync(new TransactionLog
+                    {
+                        Id = Guid.NewGuid(),
+                        PaymentTransactionId = transaction.Id,
+                        PreviousStatus = PaymentStatus.Pending,
+                        NewStatus = PaymentStatus.Failed,
+                        EventType = "ProviderException",
+                        Message = $"Provider {activeProvider.Name} threw while processing payment",
+                        ErrorDetails = firstProviderException.ToString(),
+                        CorrelationId = request.CorrelationId,
+                        CreatedAt = DateTime.UtcNow
+                    }, cancellationToken);
+                    firstProviderFailureLogged = true;
+
+                    var fallbackProvider = await _routingService.SelectProviderAsync(
+                        request.Currency,
+                        request.PreferredProvider,
+                        cancellationToken);
+
+                    if (fallbackProvider.Id == activeProvider.Id)
+                    {
+                        throw;
+                    }
+
+                    await _paymentRepository.AddLogAsync(new TransactionLog
+                    {
+                        Id = Guid.NewGuid(),
+                        PaymentTransactionId = transaction.Id,
+                        PreviousStatus = PaymentStatus.Failed,
+                        NewStatus = PaymentStatus.Pending,
+                        EventType = "ProviderFallback",
+                        Message = $"Falling back from {activeProvider.Name} to {fallbackProvider.Name}",
+                        CorrelationId = request.CorrelationId,
+                        CreatedAt = DateTime.UtcNow
+                    }, cancellationToken);
+
+                    activeProvider = fallbackProvider;
+                    providerResult = await ProcessPaymentWithProviderAsync(
+                        request,
+                        transaction,
+                        activeProvider,
+                        providerMetadata,
+                        cancellationToken);
+                }
 
                 if (!providerResult.Success)
                 {
