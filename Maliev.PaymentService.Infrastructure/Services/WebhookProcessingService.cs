@@ -261,7 +261,16 @@ public class WebhookProcessingService : IWebhookProcessingService
         if (parsedData.TryGetValue("data", out var data) &&
             data is JsonElement dataElement &&
             dataElement.ValueKind == JsonValueKind.Object &&
-            dataElement.TryGetProperty("object", out var objectElement) &&
+            dataElement.TryGetProperty("metadata", out var dataMetadata) &&
+            TryExtractGuidFromJsonObject(dataMetadata, out transactionId))
+        {
+            return true;
+        }
+
+        if (parsedData.TryGetValue("data", out data) &&
+            data is JsonElement nestedDataElement &&
+            nestedDataElement.ValueKind == JsonValueKind.Object &&
+            nestedDataElement.TryGetProperty("object", out var objectElement) &&
             objectElement.ValueKind == JsonValueKind.Object &&
             objectElement.TryGetProperty("metadata", out var nestedMetadata))
         {
@@ -559,9 +568,9 @@ public class WebhookProcessingService : IWebhookProcessingService
 
         var statusFromEventType = normalized switch
         {
-            var e when e.Contains("completed") || e.Contains("succeeded") || e.Contains("success") => PaymentStatus.Completed,
-            var e when e.Contains("cancelled") || e.Contains("canceled") => PaymentStatus.Cancelled,
-            var e when e.Contains("expired") => PaymentStatus.Expired,
+            var e when e.Contains("completed") || e.Contains("complete") || e.Contains("succeeded") || e.Contains("success") => PaymentStatus.Completed,
+            var e when e.Contains("cancelled") || e.Contains("canceled") || e.Contains("reverse") => PaymentStatus.Cancelled,
+            var e when e.Contains("expired") || e.Contains("expire") => PaymentStatus.Expired,
             var e when e.Contains("failed") || e.Contains("failure") || e.Contains("declined") => PaymentStatus.Failed,
             var e when e.Contains("pending") || e.Contains("processing") => PaymentStatus.Processing,
             var e when e.Contains("refunded") => PaymentStatus.Refunded,
@@ -600,7 +609,16 @@ public class WebhookProcessingService : IWebhookProcessingService
         if (parsedData.TryGetValue("data", out var data) &&
             data is JsonElement dataElement &&
             dataElement.ValueKind == JsonValueKind.Object &&
-            dataElement.TryGetProperty("object", out var objectElement))
+            dataElement.TryGetProperty("status", out var dataStatusElement) &&
+            TryMapProviderStatus(dataStatusElement.GetString(), out status))
+        {
+            return true;
+        }
+
+        if (parsedData.TryGetValue("data", out data) &&
+            data is JsonElement nestedDataElement &&
+            nestedDataElement.ValueKind == JsonValueKind.Object &&
+            nestedDataElement.TryGetProperty("object", out var objectElement))
         {
             return TryReadNestedJsonStatus(objectElement, out status);
         }
