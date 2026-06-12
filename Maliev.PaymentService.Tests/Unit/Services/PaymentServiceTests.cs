@@ -251,7 +251,7 @@ public sealed class PaymentServiceTests
                     paymentEvent.Payload.Amount == 1250d &&
                     paymentEvent.Payload.Currency == "THB" &&
                     paymentEvent.Payload.CustomerId == "customer-123" &&
-                    paymentEvent.Payload.OrderId == "order-456" &&
+                    paymentEvent.Payload.OrderId == "ORD-456" &&
                     paymentEvent.Payload.ProviderName == "stripe" &&
                     paymentEvent.Payload.ProviderEventCode == "ProviderSuccess"),
                 It.IsAny<CancellationToken>()),
@@ -366,6 +366,92 @@ public sealed class PaymentServiceTests
                     paymentEvent.Payload.TransactionId == transaction.Id &&
                     paymentEvent.Payload.ProviderName == "stripe" &&
                     paymentEvent.Payload.ProviderEventCode == "ProviderSuccess"),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task ProcessPaymentAsync_WhenProviderFailureHasNoFallback_PublishesFailedEventWithOrderNumberForQuoteEngine()
+    {
+        var stripe = CreateStripeProvider();
+        var stripeAdapter = new FakePaymentProviderAdapter(
+            "stripe",
+            new ProviderPaymentResult
+            {
+                Success = false,
+                ProviderTransactionId = "cs_failed",
+                Status = "failed",
+                ErrorMessage = "Card declined",
+                ErrorCode = "card_declined"
+            });
+        var repository = new Mock<IPaymentRepository>();
+        repository
+            .Setup(r => r.GetByIdempotencyKeyAsync("idem-failed", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PaymentTransaction?)null);
+        repository
+            .Setup(r => r.GetLatestCompletedByOrderIdAsync("order-456", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PaymentTransaction?)null);
+        repository
+            .Setup(r => r.AddAsync(It.IsAny<PaymentTransaction>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PaymentTransaction transaction, CancellationToken _) => transaction);
+        repository
+            .Setup(r => r.UpdateAsync(It.IsAny<PaymentTransaction>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PaymentTransaction transaction, CancellationToken _) => transaction);
+        repository
+            .Setup(r => r.AddLogAsync(It.IsAny<TransactionLog>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        var routing = new Mock<IPaymentRoutingService>();
+        routing
+            .Setup(r => r.SelectProviderAsync("THB", "stripe", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(stripe);
+        var idempotency = new Mock<IIdempotencyService>();
+        idempotency
+            .Setup(i => i.AcquireLockAsync("payment", "idem-failed", It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        var events = new Mock<IEventPublisher>();
+        var metrics = new Mock<IMetricsService>();
+        var httpClientFactory = new Mock<IHttpClientFactory>();
+        var encryption = new Mock<IEncryptionService>();
+        var providerFactory = new Mock<ProviderFactory>(httpClientFactory.Object, encryption.Object);
+        providerFactory
+            .Setup(f => f.CreateProvider(stripe, null))
+            .Returns(stripeAdapter);
+        var service = new PaymentOrchestrationService(
+            repository.Object,
+            routing.Object,
+            idempotency.Object,
+            events.Object,
+            metrics.Object,
+            providerFactory.Object,
+            new CircuitBreakerStateManager(),
+            NullLogger<PaymentOrchestrationService>.Instance);
+
+        var transaction = await service.ProcessPaymentAsync(new PaymentProcessingRequest
+        {
+            IdempotencyKey = "idem-failed",
+            Amount = 1250m,
+            Currency = "THB",
+            CustomerId = "customer-123",
+            OrderId = "order-456",
+            Description = "Manufacturing order ORD-456",
+            ReturnUrl = "https://quote.example.com/payment/success?orderId=ORD-456",
+            CancelUrl = "https://quote.example.com/payment/cancel?orderId=ORD-456",
+            Metadata = new Dictionary<string, string> { ["orderNumber"] = "ORD-456" },
+            PreferredProvider = "stripe",
+            CorrelationId = Guid.NewGuid().ToString()
+        });
+
+        events.Verify(
+            e => e.PublishAsync(
+                It.Is<PaymentFailedEvent>(paymentEvent =>
+                    paymentEvent.ConsumedBy.Contains("QuoteEngine") &&
+                    paymentEvent.Payload.TransactionId == transaction.Id &&
+                    paymentEvent.Payload.IdempotencyKey == "idem-failed" &&
+                    paymentEvent.Payload.CustomerId == "customer-123" &&
+                    paymentEvent.Payload.OrderId == "ORD-456" &&
+                    paymentEvent.Payload.ProviderName == "stripe" &&
+                    paymentEvent.Payload.ErrorMessage == "Card declined" &&
+                    paymentEvent.Payload.ProviderErrorCode == "card_declined"),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }

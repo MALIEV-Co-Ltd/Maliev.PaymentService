@@ -488,6 +488,8 @@ public class PaymentService : IPaymentService
         PaymentProvider provider,
         CancellationToken cancellationToken)
     {
+        var orderReference = ResolveOrderReference(transaction);
+
         return _eventPublisher.PublishAsync(new PaymentPendingEvent(
             MessageId: Guid.NewGuid(),
             MessageName: nameof(PaymentPendingEvent),
@@ -505,7 +507,7 @@ public class PaymentService : IPaymentService
                 Amount: (double)transaction.Amount,
                 Currency: transaction.Currency,
                 CustomerId: transaction.CustomerId,
-                OrderId: transaction.OrderId,
+                OrderId: orderReference,
                 ProviderName: provider.Name,
                 ProviderEventCode: "ProviderSuccess",
                 PendingAt: DateTimeOffset.UtcNow
@@ -520,13 +522,15 @@ public class PaymentService : IPaymentService
         string providerErrorCode,
         CancellationToken cancellationToken)
     {
+        var orderReference = ResolveOrderReference(transaction);
+
         return _eventPublisher.PublishAsync(new PaymentFailedEvent(
             MessageId: Guid.NewGuid(),
             MessageName: nameof(PaymentFailedEvent),
             MessageType: MessageType.Event,
             MessageVersion: "1.0",
             PublishedBy: "PaymentService",
-            ConsumedBy: Array.Empty<string>(),
+            ConsumedBy: new[] { "NotificationService", "QuoteEngine" },
             CorrelationId: Guid.TryParse(transaction.CorrelationId, out var correlIdFail) ? correlIdFail : Guid.NewGuid(),
             CausationId: null,
             OccurredAtUtc: DateTimeOffset.UtcNow,
@@ -537,13 +541,25 @@ public class PaymentService : IPaymentService
                 Amount: (double)transaction.Amount,
                 Currency: transaction.Currency,
                 CustomerId: transaction.CustomerId,
-                OrderId: transaction.OrderId,
+                OrderId: orderReference,
                 ProviderName: provider.Name,
                 ErrorMessage: errorMessage,
                 ProviderErrorCode: providerErrorCode,
                 FailedAt: DateTimeOffset.UtcNow
             )
         ), cancellationToken);
+    }
+
+    private static string ResolveOrderReference(PaymentTransaction transaction)
+    {
+        if (transaction.Metadata != null &&
+            transaction.Metadata.TryGetValue("orderNumber", out var orderNumber) &&
+            !string.IsNullOrWhiteSpace(orderNumber))
+        {
+            return orderNumber;
+        }
+
+        return transaction.OrderId;
     }
 
     private Task AddProviderResponseLogAsync(
