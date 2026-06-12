@@ -558,6 +558,47 @@ public class WebhookProcessingServiceTests
     }
 
     [Fact]
+    public async Task ProcessWebhookAsync_CompletedTransactionReceivesLateFailure_ShouldNotDowngradeOrPublishFailure()
+    {
+        var transactionId = Guid.NewGuid();
+        var webhook = CreateTestWebhook();
+        webhook.EventType = "payment.failed";
+        webhook.RawPayload = JsonSerializer.Serialize(new Dictionary<string, object>
+        {
+            ["id"] = "evt_late_failure",
+            ["transactionId"] = transactionId.ToString()
+        });
+
+        var transaction = CreateTestTransaction(PaymentStatus.Completed);
+
+        _webhookRepositoryMock
+            .Setup(r => r.GetByProviderEventIdAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((WebhookEvent?)null);
+
+        _webhookRepositoryMock
+            .Setup(r => r.UpdateAsync(It.IsAny<WebhookEvent>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        _paymentRepositoryMock
+            .Setup(r => r.GetByIdAsync(transactionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(transaction);
+
+        var result = await _service.ProcessWebhookAsync(webhook);
+
+        Assert.True(result.Success);
+        Assert.Equal(PaymentStatus.Completed, transaction.Status);
+        _paymentRepositoryMock.Verify(
+            r => r.UpdateAsync(It.IsAny<PaymentTransaction>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _paymentRepositoryMock.Verify(
+            r => r.AddLogAsync(It.IsAny<TransactionLog>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _eventPublisherMock.Verify(
+            e => e.PublishAsync(It.IsAny<PaymentFailedEvent>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task ProcessWebhookAsync_TransactionNotFound_ShouldFailAndScheduleRetry()
     {
         var webhook = CreateTestWebhook();

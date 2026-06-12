@@ -306,6 +306,17 @@ public class WebhookProcessingService : IWebhookProcessingService
             return true;
         }
 
+        if (ShouldIgnoreTerminalTransition(transaction.Status, newStatus))
+        {
+            _logger.LogWarning(
+                "Ignoring late webhook {EventType} for transaction {TransactionId}; current status {CurrentStatus} cannot transition to {NewStatus}",
+                eventType,
+                transactionId,
+                transaction.Status,
+                newStatus);
+            return true;
+        }
+
         transaction.Status = newStatus;
         transaction.UpdatedAt = DateTime.UtcNow;
 
@@ -335,6 +346,15 @@ public class WebhookProcessingService : IWebhookProcessingService
             "Transaction {TransactionId} status updated from {PreviousStatus} to {NewStatus} via webhook",
             transactionId, previousStatus, newStatus);
         return true;
+    }
+
+    private static bool ShouldIgnoreTerminalTransition(PaymentStatus currentStatus, PaymentStatus newStatus)
+    {
+        return currentStatus == PaymentStatus.Completed &&
+               newStatus is PaymentStatus.Failed
+                   or PaymentStatus.Cancelled
+                   or PaymentStatus.Expired
+                   or PaymentStatus.Processing;
     }
 
     private static string ResolveOrderNumber(PaymentTransaction transaction)
