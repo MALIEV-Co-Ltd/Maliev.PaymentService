@@ -17,7 +17,6 @@ public class PaymentsControllerTests
 {
     private readonly Mock<IPaymentService> _paymentServiceMock = new();
     private readonly Mock<IRefundService> _refundServiceMock = new();
-    private readonly Mock<IPaymentRoutingService> _routingServiceMock = new();
     private readonly Mock<IMetricsService> _metricsServiceMock = new();
     private readonly Mock<IDistributedCache> _cacheMock = new();
     private readonly Mock<ILogger<PaymentsController>> _loggerMock = new();
@@ -28,7 +27,6 @@ public class PaymentsControllerTests
         _controller = new PaymentsController(
             _paymentServiceMock.Object,
             _refundServiceMock.Object,
-            _routingServiceMock.Object,
             _metricsServiceMock.Object,
             _cacheMock.Object,
             _loggerMock.Object);
@@ -55,7 +53,7 @@ public class PaymentsControllerTests
     {
         // Arrange
         _controller.Request.Headers["Idempotency-Key"] = "test-key";
-        _routingServiceMock.Setup(x => x.SelectProviderAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+        _paymentServiceMock.Setup(x => x.ProcessPaymentAsync(It.IsAny<PaymentProcessingRequest>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new Exception("Unexpected error"));
 
         // Act
@@ -71,8 +69,8 @@ public class PaymentsControllerTests
     {
         // Arrange
         _controller.Request.Headers["Idempotency-Key"] = "test-key";
-        _routingServiceMock.Setup(x => x.SelectProviderAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((PaymentProvider)null!);
+        _paymentServiceMock.Setup(x => x.ProcessPaymentAsync(It.IsAny<PaymentProcessingRequest>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("No active payment providers available for currency ZZZ"));
 
         // Act
         var result = await _controller.ProcessPayment(new PaymentRequest { Amount = 10, Currency = "ZZZ", CustomerId = "c", OrderId = "o", Description = "d", ReturnUrl = "https://r", CancelUrl = "https://c" }, default);
@@ -87,8 +85,6 @@ public class PaymentsControllerTests
         // Arrange
         _controller.Request.Headers["Idempotency-Key"] = "test-key";
         var provider = CreateTestProvider("stripe");
-        _routingServiceMock.Setup(x => x.SelectProviderAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(provider);
 
         var existingTransaction = new PaymentTransaction
         {
@@ -117,6 +113,52 @@ public class PaymentsControllerTests
         var result = await _controller.ProcessPayment(new PaymentRequest { Amount = 10, Currency = "USD", CustomerId = "c", OrderId = "o", Description = "d", ReturnUrl = "https://r", CancelUrl = "https://c" }, default);
 
         // Assert
+        Assert.IsType<OkObjectResult>(result.Result);
+    }
+
+    [Fact]
+    public async Task ProcessPayment_IdempotentRequest_DoesNotPreselectProviderBeforePaymentService()
+    {
+        _controller.Request.Headers["Idempotency-Key"] = "test-key";
+        var provider = CreateTestProvider("omise");
+        var existingTransaction = new PaymentTransaction
+        {
+            Id = Guid.NewGuid(),
+            CreatedAt = DateTime.UtcNow.AddMinutes(-5),
+            Status = PaymentStatus.Processing,
+            PaymentProvider = provider,
+            IdempotencyKey = "test-key",
+            Amount = 10,
+            Currency = "THB",
+            CustomerId = "c",
+            OrderId = "o",
+            Description = "d",
+            PaymentProviderId = provider.Id,
+            ProviderName = "omise",
+            ProviderTransactionId = "chrg_existing",
+            ReturnUrl = "https://r",
+            CancelUrl = "https://c",
+            CorrelationId = "cor1",
+            UpdatedAt = DateTime.UtcNow
+        };
+        _paymentServiceMock
+            .Setup(x => x.ProcessPaymentAsync(It.IsAny<PaymentProcessingRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(existingTransaction);
+
+        var result = await _controller.ProcessPayment(
+            new PaymentRequest
+            {
+                Amount = 10,
+                Currency = "THB",
+                CustomerId = "c",
+                OrderId = "o",
+                Description = "d",
+                ReturnUrl = "https://r",
+                CancelUrl = "https://c",
+                PreferredProvider = "stripe"
+            },
+            default);
+
         Assert.IsType<OkObjectResult>(result.Result);
     }
 

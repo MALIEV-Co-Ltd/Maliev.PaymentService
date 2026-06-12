@@ -23,7 +23,6 @@ public class PaymentsController : ControllerBase
 {
     private readonly IPaymentService _paymentService;
     private readonly IRefundService _refundService;
-    private readonly IPaymentRoutingService _routingService;
     private readonly IMetricsService _metricsService;
     private readonly IDistributedCache _cache;
     private readonly ILogger<PaymentsController> _logger;
@@ -33,21 +32,18 @@ public class PaymentsController : ControllerBase
     /// </summary>
     /// <param name="paymentService">Payment processing service</param>
     /// <param name="refundService">Refund processing service</param>
-    /// <param name="routingService">Payment provider routing service</param>
     /// <param name="metricsService">Metrics collection service</param>
     /// <param name="cache">Distributed cache for performance</param>
     /// <param name="logger">Logger instance</param>
     public PaymentsController(
         IPaymentService paymentService,
         IRefundService refundService,
-        IPaymentRoutingService routingService,
         IMetricsService metricsService,
         IDistributedCache cache,
         ILogger<PaymentsController> logger)
     {
         _paymentService = paymentService;
         _refundService = refundService;
-        _routingService = routingService;
         _metricsService = metricsService;
         _cache = cache;
         _logger = logger;
@@ -85,17 +81,6 @@ public class PaymentsController : ControllerBase
             var correlationIdValue = string.IsNullOrWhiteSpace(correlationId)
                 ? Guid.NewGuid().ToString()
                 : correlationId.ToString();
-
-            // Validate currency is supported
-            var supportedProvider = await _routingService.SelectProviderAsync(
-                request.Currency,
-                request.PreferredProvider,
-                cancellationToken);
-
-            if (supportedProvider == null)
-            {
-                return BadRequest(new { error = $"Currency {request.Currency} is not supported by any active provider" });
-            }
 
             // Create payment processing request
             var processingRequest = new PaymentProcessingRequest
