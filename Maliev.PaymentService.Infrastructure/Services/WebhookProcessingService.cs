@@ -296,8 +296,7 @@ public class WebhookProcessingService : IWebhookProcessingService
 
         var previousStatus = transaction.Status;
 
-        // Map event type to payment status
-        var newStatus = MapEventTypeToStatus(eventType);
+        var newStatus = MapEventTypeToStatus(eventType, parsedData);
 
         if (newStatus == transaction.Status)
         {
@@ -519,12 +518,12 @@ public class WebhookProcessingService : IWebhookProcessingService
         }
     }
 
-    private PaymentStatus MapEventTypeToStatus(string eventType)
+    private PaymentStatus MapEventTypeToStatus(string eventType, Dictionary<string, object>? parsedData)
     {
         // Normalize event type
         var normalized = eventType.ToLowerInvariant().Replace(".", "_").Replace("-", "_");
 
-        return normalized switch
+        var statusFromEventType = normalized switch
         {
             var e when e.Contains("completed") || e.Contains("succeeded") || e.Contains("success") => PaymentStatus.Completed,
             var e when e.Contains("cancelled") || e.Contains("canceled") => PaymentStatus.Cancelled,
@@ -534,6 +533,90 @@ public class WebhookProcessingService : IWebhookProcessingService
             var e when e.Contains("refunded") => PaymentStatus.Refunded,
             _ => PaymentStatus.Processing // Default to processing for unknown events
         };
+
+        if (statusFromEventType != PaymentStatus.Processing)
+        {
+            return statusFromEventType;
+        }
+
+        return TryExtractProviderPaymentStatus(parsedData, out var providerStatus)
+            ? providerStatus
+            : statusFromEventType;
+    }
+
+    private static bool TryExtractProviderPaymentStatus(Dictionary<string, object>? parsedData, out PaymentStatus status)
+    {
+        status = default;
+
+        if (parsedData == null)
+        {
+            return false;
+        }
+
+        if (TryReadJsonStatus(parsedData.GetValueOrDefault("status"), out status))
+        {
+            return true;
+        }
+
+        if (TryReadNestedJsonStatus(parsedData.GetValueOrDefault("object"), out status))
+        {
+            return true;
+        }
+
+        if (parsedData.TryGetValue("data", out var data) &&
+            data is JsonElement dataElement &&
+            dataElement.ValueKind == JsonValueKind.Object &&
+            dataElement.TryGetProperty("object", out var objectElement))
+        {
+            return TryReadNestedJsonStatus(objectElement, out status);
+        }
+
+        return false;
+    }
+
+    private static bool TryReadNestedJsonStatus(object? value, out PaymentStatus status)
+    {
+        status = default;
+
+        return value is JsonElement element &&
+               element.ValueKind == JsonValueKind.Object &&
+               element.TryGetProperty("status", out var statusElement) &&
+               TryMapProviderStatus(statusElement.GetString(), out status);
+    }
+
+    private static bool TryReadJsonStatus(object? value, out PaymentStatus status)
+    {
+        status = default;
+
+        if (value is JsonElement { ValueKind: JsonValueKind.String } element)
+        {
+            return TryMapProviderStatus(element.GetString(), out status);
+        }
+
+        return value is string statusValue && TryMapProviderStatus(statusValue, out status);
+    }
+
+    private static bool TryMapProviderStatus(string? providerStatus, out PaymentStatus status)
+    {
+        status = default;
+
+        if (string.IsNullOrWhiteSpace(providerStatus))
+        {
+            return false;
+        }
+
+        status = providerStatus.Trim().ToLowerInvariant() switch
+        {
+            "successful" or "succeeded" or "success" or "paid" or "captured" => PaymentStatus.Completed,
+            "failed" or "failure" or "unsuccessful" or "declined" => PaymentStatus.Failed,
+            "cancelled" or "canceled" or "reversed" or "voided" => PaymentStatus.Cancelled,
+            "expired" => PaymentStatus.Expired,
+            "refunded" => PaymentStatus.Refunded,
+            "pending" or "processing" => PaymentStatus.Processing,
+            _ => default
+        };
+
+        return status != default || string.Equals(providerStatus, "pending", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsPendingLikeEventType(string eventType)
