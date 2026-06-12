@@ -98,6 +98,11 @@ public class WebhookProcessingService : IWebhookProcessingService
                 {
                     webhookEvent.PaymentTransactionId = transactionId.Value;
                 }
+                else
+                {
+                    throw new InvalidOperationException(
+                        $"Payment transaction {transactionId.Value} was not found for webhook event {webhookEvent.ProviderEventId}.");
+                }
             }
 
             // Mark as completed

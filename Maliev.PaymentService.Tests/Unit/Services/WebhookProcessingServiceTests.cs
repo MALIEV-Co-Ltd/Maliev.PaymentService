@@ -430,7 +430,7 @@ public class WebhookProcessingServiceTests
     }
 
     [Fact]
-    public async Task ProcessWebhookAsync_TransactionNotFound_ShouldContinue()
+    public async Task ProcessWebhookAsync_TransactionNotFound_ShouldFailAndScheduleRetry()
     {
         var webhook = CreateTestWebhook();
         webhook.RawPayload = JsonSerializer.Serialize(new Dictionary<string, object>
@@ -454,7 +454,11 @@ public class WebhookProcessingServiceTests
 
         var result = await _service.ProcessWebhookAsync(webhook);
 
-        Assert.True(result.Success);
+        Assert.False(result.Success);
+        Assert.Equal(WebhookProcessingStatus.Failed, webhook.ProcessingStatus);
+        Assert.NotNull(webhook.FailedAt);
+        Assert.NotNull(webhook.NextRetryAt);
+        Assert.Contains("transaction", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
