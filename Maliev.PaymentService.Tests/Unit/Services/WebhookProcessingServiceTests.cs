@@ -613,6 +613,10 @@ public class WebhookProcessingServiceTests
         });
 
         var transaction = CreateTestTransaction(PaymentStatus.Processing);
+        transaction.Metadata = new Dictionary<string, string>
+        {
+            ["orderNumber"] = "ORD-CANCEL-002"
+        };
         SetupSuccessfulStatusUpdate(transaction);
 
         var result = await _service.ProcessWebhookAsync(webhook);
@@ -623,7 +627,8 @@ public class WebhookProcessingServiceTests
                 It.Is<PaymentCancelledEvent>(paymentEvent =>
                     paymentEvent.Payload.TransactionId == transaction.Id &&
                     paymentEvent.Payload.CustomerId == transaction.CustomerId &&
-                    paymentEvent.Payload.OrderId == transaction.OrderId &&
+                    paymentEvent.ConsumedBy.Contains("QuoteEngine") &&
+                    paymentEvent.Payload.OrderId == "ORD-CANCEL-002" &&
                     paymentEvent.Payload.ProviderEventCode == "payment.cancelled"),
                 It.IsAny<CancellationToken>()),
             Times.Once);
