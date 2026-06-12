@@ -63,8 +63,8 @@ public class PaymentRequest : IValidatableObject
     public Dictionary<string, string>? Metadata { get; set; }
 
     /// <summary>
-    /// Optional specific provider to use (overrides routing logic).
-    /// If not specified, provider is selected based on currency and priority.
+    /// Optional provider preference considered by PaymentService routing.
+    /// Thailand THB payments keep Omise/Opn primary when available and use other providers only as fallback.
     /// </summary>
     [StringLength(50, ErrorMessage = "PreferredProvider cannot exceed 50 characters")]
     public string? PreferredProvider { get; set; }
