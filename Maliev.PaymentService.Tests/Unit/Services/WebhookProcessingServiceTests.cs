@@ -647,6 +647,10 @@ public class WebhookProcessingServiceTests
         });
 
         var transaction = CreateTestTransaction(PaymentStatus.Pending);
+        transaction.Metadata = new Dictionary<string, string>
+        {
+            ["orderNumber"] = "ORD-PENDING-001"
+        };
         SetupSuccessfulStatusUpdate(transaction);
 
         var result = await _service.ProcessWebhookAsync(webhook);
@@ -657,8 +661,9 @@ public class WebhookProcessingServiceTests
                 It.Is<PaymentPendingEvent>(paymentEvent =>
                     paymentEvent.Payload.TransactionId == transaction.Id &&
                     paymentEvent.Payload.CustomerId == transaction.CustomerId &&
-                    paymentEvent.Payload.OrderId == transaction.OrderId &&
-                    paymentEvent.Payload.ProviderEventCode == "payment.pending"),
+                    paymentEvent.Payload.OrderId == "ORD-PENDING-001" &&
+                    paymentEvent.Payload.ProviderEventCode == "payment.pending" &&
+                    paymentEvent.ConsumedBy.Contains("QuoteEngine")),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
