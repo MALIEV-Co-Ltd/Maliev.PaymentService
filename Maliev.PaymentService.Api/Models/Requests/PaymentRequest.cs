@@ -7,6 +7,10 @@ namespace Maliev.PaymentService.Api.Models.Requests;
 /// </summary>
 public class PaymentRequest : IValidatableObject
 {
+    private const int MaxMetadataEntries = 50;
+    private const int MaxMetadataKeyLength = 40;
+    private const int MaxMetadataValueLength = 500;
+
     /// <summary>
     /// Payment amount (must be greater than 0).
     /// </summary>
@@ -84,6 +88,42 @@ public class PaymentRequest : IValidatableObject
         if (!string.IsNullOrWhiteSpace(CancelUrl) && !CancelUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
         {
             yield return new ValidationResult("CancelUrl must be a valid HTTPS URL", new[] { nameof(CancelUrl) });
+        }
+
+        if (Metadata is null)
+        {
+            yield break;
+        }
+
+        if (Metadata.Count > MaxMetadataEntries)
+        {
+            yield return new ValidationResult(
+                $"Metadata cannot contain more than {MaxMetadataEntries} entries",
+                new[] { nameof(Metadata) });
+        }
+
+        foreach (var (key, value) in Metadata)
+        {
+            if (key.Length > MaxMetadataKeyLength)
+            {
+                yield return new ValidationResult(
+                    $"Metadata keys cannot exceed {MaxMetadataKeyLength} characters",
+                    new[] { nameof(Metadata) });
+            }
+
+            if (key.Contains('[') || key.Contains(']'))
+            {
+                yield return new ValidationResult(
+                    "Metadata keys cannot contain square brackets",
+                    new[] { nameof(Metadata) });
+            }
+
+            if (value.Length > MaxMetadataValueLength)
+            {
+                yield return new ValidationResult(
+                    $"Metadata values cannot exceed {MaxMetadataValueLength} characters",
+                    new[] { nameof(Metadata) });
+            }
         }
     }
 }

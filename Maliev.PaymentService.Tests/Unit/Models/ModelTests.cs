@@ -179,4 +179,102 @@ public class ModelTests
         Assert.Contains(results, r => r.ErrorMessage!.Contains("ReturnUrl must be a valid HTTPS URL"));
         Assert.Contains(results, r => r.ErrorMessage!.Contains("CancelUrl must be a valid HTTPS URL"));
     }
+
+    [Fact]
+    public void PaymentRequest_Validate_TooManyMetadataEntries_ReturnsValidationError()
+    {
+        var model = CreateValidPaymentRequest();
+        model.Metadata = Enumerable.Range(1, 51)
+            .ToDictionary(index => $"key{index}", index => $"value{index}");
+
+        var context = new System.ComponentModel.DataAnnotations.ValidationContext(model);
+        var results = model.Validate(context).ToList();
+
+        Assert.Single(results);
+        Assert.Contains(results, r => r.ErrorMessage!.Contains("Metadata cannot contain more than 50 entries"));
+        Assert.Contains(results[0].MemberNames, memberName => memberName == nameof(PaymentRequest.Metadata));
+    }
+
+    [Fact]
+    public void PaymentRequest_Validate_OversizedMetadataKey_ReturnsValidationError()
+    {
+        var model = CreateValidPaymentRequest();
+        model.Metadata = new Dictionary<string, string>
+        {
+            [new string('k', 41)] = "value"
+        };
+
+        var context = new System.ComponentModel.DataAnnotations.ValidationContext(model);
+        var results = model.Validate(context).ToList();
+
+        Assert.Single(results);
+        Assert.Contains(results, r => r.ErrorMessage!.Contains("Metadata keys cannot exceed 40 characters"));
+        Assert.Contains(results[0].MemberNames, memberName => memberName == nameof(PaymentRequest.Metadata));
+    }
+
+    [Fact]
+    public void PaymentRequest_Validate_MetadataKeyWithSquareBrackets_ReturnsValidationError()
+    {
+        var model = CreateValidPaymentRequest();
+        model.Metadata = new Dictionary<string, string>
+        {
+            ["order[number]"] = "Q-2026-0001"
+        };
+
+        var context = new System.ComponentModel.DataAnnotations.ValidationContext(model);
+        var results = model.Validate(context).ToList();
+
+        Assert.Single(results);
+        Assert.Contains(results, r => r.ErrorMessage!.Contains("Metadata keys cannot contain square brackets"));
+        Assert.Contains(results[0].MemberNames, memberName => memberName == nameof(PaymentRequest.Metadata));
+    }
+
+    [Fact]
+    public void PaymentRequest_Validate_OversizedMetadataValue_ReturnsValidationError()
+    {
+        var model = CreateValidPaymentRequest();
+        model.Metadata = new Dictionary<string, string>
+        {
+            ["key"] = new string('v', 501)
+        };
+
+        var context = new System.ComponentModel.DataAnnotations.ValidationContext(model);
+        var results = model.Validate(context).ToList();
+
+        Assert.Single(results);
+        Assert.Contains(results, r => r.ErrorMessage!.Contains("Metadata values cannot exceed 500 characters"));
+        Assert.Contains(results[0].MemberNames, memberName => memberName == nameof(PaymentRequest.Metadata));
+    }
+
+    [Fact]
+    public void PaymentRequest_Validate_ProviderSafeMetadata_ReturnsNoMetadataErrors()
+    {
+        var model = CreateValidPaymentRequest();
+        model.Metadata = new Dictionary<string, string>
+        {
+            ["orderNumber"] = "Q-2026-0001",
+            ["billingAddressId"] = Guid.NewGuid().ToString("D"),
+            ["shippingAddressId"] = Guid.NewGuid().ToString("D"),
+            ["acceptedTerms"] = "true"
+        };
+
+        var context = new System.ComponentModel.DataAnnotations.ValidationContext(model);
+        var results = model.Validate(context).ToList();
+
+        Assert.DoesNotContain(results, r => r.MemberNames.Contains(nameof(PaymentRequest.Metadata)));
+    }
+
+    private static PaymentRequest CreateValidPaymentRequest()
+    {
+        return new PaymentRequest
+        {
+            Amount = 100,
+            Currency = "USD",
+            CustomerId = "customer-1",
+            OrderId = "order-1",
+            Description = "Quote payment",
+            ReturnUrl = "https://quote.example.com/payment/success",
+            CancelUrl = "https://quote.example.com/payment/cancel"
+        };
+    }
 }
