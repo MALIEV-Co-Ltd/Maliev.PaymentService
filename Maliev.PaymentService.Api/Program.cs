@@ -16,6 +16,7 @@ try
 
     // --- Infrastructure & Observability ---
     builder.AddServiceDefaults(); // OpenTelemetry, health checks, resilience
+    builder.AddDefaultApiVersioning(); // API versioning with URL segment reader
 
     // --- Secrets & Configuration ---
     builder.AddGoogleSecretManagerVolume(); // Load secrets from /mnt/secrets if available
@@ -49,7 +50,6 @@ try
 
     // --- API Configuration ---
     builder.AddStandardCors(); // CORS with fail-fast validation
-    builder.AddDefaultApiVersioning(); // API versioning with URL segment reader
 
     // JWT Authentication (tests override via PostConfigureAll with dynamic RSA keys)
     builder.AddJwtAuthentication();

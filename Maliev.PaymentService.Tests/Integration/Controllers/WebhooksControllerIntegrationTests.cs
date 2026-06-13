@@ -4,8 +4,10 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Maliev.PaymentService.Api.Models.Requests;
 using Maliev.PaymentService.Api.Models.Responses;
+using Maliev.PaymentService.Domain.Entities;
 using Maliev.PaymentService.Domain.Enums;
 using Maliev.PaymentService.Infrastructure.Data;
+using Maliev.PaymentService.Infrastructure.Data.Repositories;
 using Maliev.PaymentService.Tests.Fixtures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -218,6 +220,23 @@ public class WebhooksControllerIntegrationTests : IClassFixture<IntegrationTestW
     }
 
     [Fact]
+    public async Task WebhookRepository_AddAsync_DuplicateProviderEvent_ReturnsExistingWebhook()
+    {
+        var provider = await _dbContext!.PaymentProviders.SingleAsync(p => p.Name == "stripe");
+        var repository = new WebhookRepository(_dbContext);
+        var first = CreateWebhookEvent(provider.Id, "evt_repository_duplicate");
+        await repository.AddAsync(first);
+
+        var duplicate = CreateWebhookEvent(provider.Id, "evt_repository_duplicate");
+        var returned = await repository.AddAsync(duplicate);
+
+        Assert.Equal(first.Id, returned.Id);
+        var persistedCount = await _dbContext.WebhookEvents
+            .CountAsync(w => w.ProviderId == provider.Id && w.ProviderEventId == "evt_repository_duplicate");
+        Assert.Equal(1, persistedCount);
+    }
+
+    [Fact]
     public async Task ReceiveWebhook_MissingEventId_ReturnsBadRequest()
     {
         // Arrange
@@ -252,5 +271,22 @@ public class WebhooksControllerIntegrationTests : IClassFixture<IntegrationTestW
         var content = new StringContent(rawPayload, System.Text.Encoding.UTF8);
         content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
         return content;
+    }
+
+    private static WebhookEvent CreateWebhookEvent(Guid providerId, string providerEventId)
+    {
+        return new WebhookEvent
+        {
+            Id = Guid.NewGuid(),
+            ProviderId = providerId,
+            ProviderEventId = providerEventId,
+            EventType = "checkout.session.completed",
+            RawPayload = JsonSerializer.Serialize(new { id = providerEventId, type = "checkout.session.completed" }),
+            SignatureValidated = true,
+            ProcessingStatus = WebhookProcessingStatus.Pending,
+            ProcessingAttempts = 0,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
     }
 }

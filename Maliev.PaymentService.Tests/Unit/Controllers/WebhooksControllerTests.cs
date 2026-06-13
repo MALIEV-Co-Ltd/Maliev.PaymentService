@@ -28,6 +28,12 @@ public class WebhooksControllerTests
         _processingServiceMock
             .Setup(x => x.ProcessWebhookAsync(It.IsAny<WebhookEvent>()))
             .ReturnsAsync(new WebhookProcessingResult { Success = true, IsDuplicate = false });
+        _processingServiceMock
+            .Setup(x => x.ProcessWebhookAsync(It.IsAny<WebhookEvent>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new WebhookProcessingResult { Success = true, IsDuplicate = false });
+        _webhookRepositoryMock
+            .Setup(x => x.AddAsync(It.IsAny<WebhookEvent>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((WebhookEvent webhookEvent, CancellationToken _) => webhookEvent);
 
         _controller = new WebhooksController(
             _providerRepositoryMock.Object,
@@ -253,6 +259,35 @@ public class WebhooksControllerTests
         var okResult = Assert.IsType<OkObjectResult>(result.Result);
         var response = Assert.IsType<WebhookReceivedResponse>(okResult.Value);
         Assert.True(response.IsDuplicate);
+    }
+
+    [Fact]
+    public async Task ReceiveWebhook_RacedDuplicateInsert_ReturnsDuplicateWithoutReprocessingCompletedWebhook()
+    {
+        var provider = CreateTestProvider("stripe");
+        var existingEvent = CreateTestWebhookEvent(provider.Id, "race_1", WebhookProcessingStatus.Completed);
+        _providerRepositoryMock.Setup(x => x.GetByNameAsync("stripe")).ReturnsAsync(provider);
+        _validationServiceMock
+            .Setup(x => x.ValidateWebhookAsync(It.IsAny<PaymentProvider>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<string>()))
+            .ReturnsAsync(true);
+        _webhookRepositoryMock
+            .Setup(x => x.GetByProviderEventIdAsync(provider.Id, "race_1"))
+            .ReturnsAsync((WebhookEvent?)null);
+        _webhookRepositoryMock
+            .Setup(x => x.AddAsync(It.IsAny<WebhookEvent>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(existingEvent);
+
+        var json = JsonSerializer.SerializeToElement(new { id = "race_1", type = "checkout.session.completed" });
+
+        var result = await _controller.ReceiveWebhook("stripe", json);
+
+        var okResult = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<WebhookReceivedResponse>(okResult.Value);
+        Assert.True(response.IsDuplicate);
+        Assert.Equal(existingEvent.Id, response.WebhookEventId);
+        _processingServiceMock.Verify(
+            x => x.ProcessWebhookAsync(It.IsAny<WebhookEvent>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     [Fact]
