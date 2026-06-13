@@ -121,6 +121,45 @@ public class WebhookProcessingServiceTests
     }
 
     [Fact]
+    public async Task ProcessWebhookAsync_StateChangingPaymentWebhookWithoutTransactionId_ShouldFailAndScheduleRetry()
+    {
+        var webhook = CreateTestWebhook();
+        webhook.EventType = "payment_intent.succeeded";
+        webhook.RawPayload = JsonSerializer.Serialize(new
+        {
+            id = "evt_missing_transaction",
+            type = "payment_intent.succeeded",
+            data = new
+            {
+                @object = new
+                {
+                    id = "pi_missing_transaction",
+                    status = "succeeded"
+                }
+            }
+        });
+
+        _webhookRepositoryMock
+            .Setup(r => r.GetByProviderEventIdAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((WebhookEvent?)null);
+
+        _webhookRepositoryMock
+            .Setup(r => r.UpdateAsync(It.IsAny<WebhookEvent>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var result = await _service.ProcessWebhookAsync(webhook);
+
+        Assert.False(result.Success);
+        Assert.Equal(WebhookProcessingStatus.Failed, webhook.ProcessingStatus);
+        Assert.NotNull(webhook.FailedAt);
+        Assert.NotNull(webhook.NextRetryAt);
+        Assert.Contains("transaction", webhook.FailureReason, StringComparison.OrdinalIgnoreCase);
+        _eventPublisherMock.Verify(
+            e => e.PublishAsync(It.IsAny<PaymentCompletedEvent>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task ProcessWebhookAsync_PaymentCompleted_ShouldPublishEvent()
     {
         var webhook = CreateTestWebhook();
@@ -714,8 +753,13 @@ public class WebhookProcessingServiceTests
     [Fact]
     public async Task ProcessWebhookAsync_SameStatus_ShouldNotUpdate()
     {
+        var transactionId = Guid.NewGuid();
         var webhook = CreateTestWebhook();
         webhook.EventType = "payment.completed";
+        webhook.RawPayload = JsonSerializer.Serialize(new Dictionary<string, object>
+        {
+            ["transactionId"] = transactionId.ToString()
+        });
 
         var transaction = CreateTestTransaction(PaymentStatus.Completed);
 

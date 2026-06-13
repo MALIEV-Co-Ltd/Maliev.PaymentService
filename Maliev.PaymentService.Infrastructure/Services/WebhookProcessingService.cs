@@ -96,6 +96,7 @@ public class WebhookProcessingService : IWebhookProcessingService
 
             // Extract transaction ID from webhook
             var transactionId = ExtractTransactionId(webhookEvent.EventType, parsedData, webhookEvent.PaymentProvider?.Name);
+            var webhookStatus = MapEventTypeToStatus(webhookEvent.EventType, parsedData);
 
             if (transactionId.HasValue)
             {
@@ -117,6 +118,11 @@ public class WebhookProcessingService : IWebhookProcessingService
                     throw new InvalidOperationException(
                         $"Payment transaction {transactionId.Value} was not found for webhook event {webhookEvent.ProviderEventId}.");
                 }
+            }
+            else if (RequiresTransactionCorrelation(webhookEvent.EventType, webhookStatus))
+            {
+                throw new InvalidOperationException(
+                    $"Webhook event {webhookEvent.ProviderEventId} with type {webhookEvent.EventType} could not be correlated to a payment transaction.");
             }
 
             // Mark as completed
@@ -681,6 +687,11 @@ public class WebhookProcessingService : IWebhookProcessingService
     {
         var normalized = eventType.ToLowerInvariant().Replace(".", "_").Replace("-", "_");
         return normalized.Contains("pending") || normalized.Contains("processing");
+    }
+
+    private static bool RequiresTransactionCorrelation(string eventType, PaymentStatus mappedStatus)
+    {
+        return mappedStatus != PaymentStatus.Processing || IsPendingLikeEventType(eventType);
     }
 
     private DateTime CalculateNextRetryTime(int attemptNumber)
