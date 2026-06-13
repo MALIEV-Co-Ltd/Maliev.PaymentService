@@ -260,6 +260,7 @@ public class WebhookProcessingServiceTests
         Assert.Contains("InvoiceService", publishedEvent.ConsumedBy);
         Assert.Contains("OrderService", publishedEvent.ConsumedBy);
         Assert.Contains("NotificationService", publishedEvent.ConsumedBy);
+        Assert.Contains("QuoteEngine", publishedEvent.ConsumedBy);
     }
 
     [Fact]

@@ -445,7 +445,7 @@ public class WebhookProcessingService : IWebhookProcessingService
                     MessageType: MessageType.Event,
                     MessageVersion: "1.0",
                     PublishedBy: "PaymentService",
-                    ConsumedBy: new[] { "InvoiceService", "OrderService", "NotificationService" },
+                    ConsumedBy: new[] { "InvoiceService", "OrderService", "NotificationService", "QuoteEngine" },
                     CorrelationId: correlationId,
                     CausationId: null,
                     OccurredAtUtc: occurredAt,
