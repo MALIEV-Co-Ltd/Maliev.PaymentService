@@ -593,10 +593,11 @@ public class WebhookProcessingServiceTests
                 It.Is<PaymentExpiredEvent>(paymentEvent =>
                     paymentEvent.Payload.TransactionId == transaction.Id &&
                     paymentEvent.Payload.CustomerId == transaction.CustomerId &&
-                    paymentEvent.Payload.OrderId == transaction.OrderId &&
+                    paymentEvent.Payload.OrderId == "ORD-CANCEL-001" &&
                     paymentEvent.Payload.Amount == (double)transaction.Amount &&
                     paymentEvent.Payload.Currency == transaction.Currency &&
-                    paymentEvent.Payload.ProviderEventCode == "checkout.session.expired"),
+                    paymentEvent.Payload.ProviderEventCode == "checkout.session.expired" &&
+                    paymentEvent.ConsumedBy.Contains("QuoteEngine")),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
