@@ -570,7 +570,7 @@ public class WebhookProcessingServiceTests
         Assert.True(result.Success);
         _paymentRepositoryMock.Verify(
             r => r.UpdateAsync(
-                It.Is<PaymentTransaction>(t => t.Status == expectedStatus),
+                It.Is<PaymentTransaction>(t => t.Status == expectedStatus && t.CompletedAt.HasValue),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }

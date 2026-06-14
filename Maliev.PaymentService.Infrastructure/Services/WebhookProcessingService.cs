@@ -355,7 +355,7 @@ public class WebhookProcessingService : IWebhookProcessingService
         transaction.Status = newStatus;
         transaction.UpdatedAt = DateTime.UtcNow;
 
-        if (newStatus == PaymentStatus.Completed)
+        if (IsTerminalPaymentStatus(newStatus))
         {
             transaction.CompletedAt = DateTime.UtcNow;
         }
@@ -390,6 +390,15 @@ public class WebhookProcessingService : IWebhookProcessingService
                    or PaymentStatus.Cancelled
                    or PaymentStatus.Expired
                    or PaymentStatus.Processing;
+    }
+
+    private static bool IsTerminalPaymentStatus(PaymentStatus status)
+    {
+        return status is PaymentStatus.Completed
+            or PaymentStatus.Failed
+            or PaymentStatus.Cancelled
+            or PaymentStatus.Expired
+            or PaymentStatus.Refunded;
     }
 
     private static string ResolveOrderNumber(PaymentTransaction transaction)
