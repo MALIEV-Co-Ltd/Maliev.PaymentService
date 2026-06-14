@@ -14,6 +14,12 @@ namespace Maliev.PaymentService.Infrastructure.Services;
 /// </summary>
 public class WebhookProcessingService : IWebhookProcessingService
 {
+    private static readonly string[] PaymentCompletedConsumers =
+        ["InvoiceService", "OrderService", "NotificationService", "QuoteEngine"];
+
+    private static readonly string[] PaymentOutcomeConsumers =
+        ["OrderService", "NotificationService", "QuoteEngine"];
+
     private readonly IWebhookRepository _webhookRepository;
     private readonly IPaymentRepository _paymentRepository;
     private readonly IEventPublisher _eventPublisher;
@@ -454,7 +460,7 @@ public class WebhookProcessingService : IWebhookProcessingService
                     MessageType: MessageType.Event,
                     MessageVersion: "1.0",
                     PublishedBy: "PaymentService",
-                    ConsumedBy: new[] { "InvoiceService", "OrderService", "NotificationService", "QuoteEngine" },
+                    ConsumedBy: PaymentCompletedConsumers,
                     CorrelationId: correlationId,
                     CausationId: null,
                     OccurredAtUtc: occurredAt,
@@ -480,7 +486,7 @@ public class WebhookProcessingService : IWebhookProcessingService
                     MessageType: MessageType.Event,
                     MessageVersion: "1.0",
                     PublishedBy: "PaymentService",
-                    ConsumedBy: new[] { "NotificationService", "QuoteEngine" },
+                    ConsumedBy: PaymentOutcomeConsumers,
                     CorrelationId: correlationId,
                     CausationId: null,
                     OccurredAtUtc: occurredAt,
@@ -507,7 +513,7 @@ public class WebhookProcessingService : IWebhookProcessingService
                     MessageType: MessageType.Event,
                     MessageVersion: "1.0",
                     PublishedBy: "PaymentService",
-                    ConsumedBy: new[] { "NotificationService", "QuoteEngine" },
+                    ConsumedBy: PaymentOutcomeConsumers,
                     CorrelationId: correlationId,
                     CausationId: null,
                     OccurredAtUtc: occurredAt,
@@ -534,7 +540,7 @@ public class WebhookProcessingService : IWebhookProcessingService
                     MessageType: MessageType.Event,
                     MessageVersion: "1.0",
                     PublishedBy: "PaymentService",
-                    ConsumedBy: new[] { "NotificationService", "QuoteEngine" },
+                    ConsumedBy: PaymentOutcomeConsumers,
                     CorrelationId: correlationId,
                     CausationId: null,
                     OccurredAtUtc: occurredAt,
@@ -561,7 +567,7 @@ public class WebhookProcessingService : IWebhookProcessingService
                     MessageType: MessageType.Event,
                     MessageVersion: "1.0",
                     PublishedBy: "PaymentService",
-                    ConsumedBy: new[] { "NotificationService", "QuoteEngine" },
+                    ConsumedBy: PaymentOutcomeConsumers,
                     CorrelationId: correlationId,
                     CausationId: null,
                     OccurredAtUtc: occurredAt,

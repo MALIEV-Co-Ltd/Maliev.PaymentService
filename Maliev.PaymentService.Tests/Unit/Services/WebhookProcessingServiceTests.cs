@@ -637,6 +637,7 @@ public class WebhookProcessingServiceTests
                     paymentEvent.Payload.Amount == (double)transaction.Amount &&
                     paymentEvent.Payload.Currency == transaction.Currency &&
                     paymentEvent.Payload.ProviderEventCode == "checkout.session.expired" &&
+                    paymentEvent.ConsumedBy.Contains("OrderService") &&
                     paymentEvent.ConsumedBy.Contains("QuoteEngine")),
                 It.IsAny<CancellationToken>()),
             Times.Once);
@@ -668,9 +669,44 @@ public class WebhookProcessingServiceTests
                 It.Is<PaymentCancelledEvent>(paymentEvent =>
                     paymentEvent.Payload.TransactionId == transaction.Id &&
                     paymentEvent.Payload.CustomerId == transaction.CustomerId &&
+                    paymentEvent.ConsumedBy.Contains("OrderService") &&
                     paymentEvent.ConsumedBy.Contains("QuoteEngine") &&
                     paymentEvent.Payload.OrderId == "ORD-CANCEL-002" &&
                     paymentEvent.Payload.ProviderEventCode == "payment.cancelled"),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task ProcessWebhookAsync_PaymentFailed_ShouldPublishPaymentFailedEventForOrderService()
+    {
+        var webhook = CreateTestWebhook();
+        webhook.EventType = "payment.failed";
+        webhook.RawPayload = JsonSerializer.Serialize(new Dictionary<string, object>
+        {
+            ["id"] = Guid.NewGuid().ToString(),
+            ["transactionId"] = Guid.NewGuid().ToString()
+        });
+
+        var transaction = CreateTestTransaction(PaymentStatus.Processing);
+        transaction.Metadata = new Dictionary<string, string>
+        {
+            ["orderNumber"] = "ORD-FAILED-001"
+        };
+        SetupSuccessfulStatusUpdate(transaction);
+
+        var result = await _service.ProcessWebhookAsync(webhook);
+
+        Assert.True(result.Success);
+        _eventPublisherMock.Verify(
+            e => e.PublishAsync(
+                It.Is<PaymentFailedEvent>(paymentEvent =>
+                    paymentEvent.Payload.TransactionId == transaction.Id &&
+                    paymentEvent.Payload.CustomerId == transaction.CustomerId &&
+                    paymentEvent.ConsumedBy.Contains("OrderService") &&
+                    paymentEvent.ConsumedBy.Contains("QuoteEngine") &&
+                    paymentEvent.Payload.OrderId == "ORD-FAILED-001" &&
+                    paymentEvent.Payload.ProviderErrorCode == "payment.failed"),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -703,6 +739,7 @@ public class WebhookProcessingServiceTests
                     paymentEvent.Payload.CustomerId == transaction.CustomerId &&
                     paymentEvent.Payload.OrderId == "ORD-PENDING-001" &&
                     paymentEvent.Payload.ProviderEventCode == "payment.pending" &&
+                    paymentEvent.ConsumedBy.Contains("OrderService") &&
                     paymentEvent.ConsumedBy.Contains("QuoteEngine")),
                 It.IsAny<CancellationToken>()),
             Times.Once);
