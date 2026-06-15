@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Globalization;
@@ -338,19 +336,8 @@ public class StripeProvider : IPaymentProviderAdapter
 
     public bool ValidateWebhookSignature(string payload, string signature, string secret)
     {
-        try
-        {
-            // Stripe uses HMAC-SHA256 for webhook signature validation
-            using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
-            var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(payload));
-            var computedSignature = "v1=" + BitConverter.ToString(hash).Replace("-", "").ToLower();
-
-            return signature.Contains(computedSignature);
-        }
-        catch
-        {
-            return false;
-        }
+        var validator = new StripeWebhookValidator();
+        return validator.ValidateSignature(payload, signature, secret);
     }
 
     private sealed class StripeCheckoutSessionResponse

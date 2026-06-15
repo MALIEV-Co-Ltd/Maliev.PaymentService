@@ -1,5 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Text;
 using Maliev.PaymentService.Infrastructure.Providers;
 using Xunit;
 
@@ -157,6 +159,48 @@ public sealed class StripeProviderTests
         Assert.Equal("requested_by_customer", form["reason"]);
         Assert.Equal("refund-123", form["metadata[refundId]"]);
         Assert.Equal("ORD-789", form["metadata[orderNumber]"]);
+    }
+
+    [Fact]
+    public void ValidateWebhookSignature_StandardStripeHeader_ReturnsTrue()
+    {
+        using var httpClient = new HttpClient(new CapturingHandler(new HttpResponseMessage(HttpStatusCode.OK)));
+        var provider = new StripeProvider(httpClient, "sk_test_123", "https://api.stripe.com");
+        var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var payload = "{\"id\":\"evt_test\",\"type\":\"checkout.session.completed\"}";
+        var secret = "whsec_test";
+        var signature = ComputeHmacSha256($"{timestamp}.{payload}", secret);
+
+        var result = provider.ValidateWebhookSignature(
+            payload,
+            $"t={timestamp},v1={signature}",
+            secret);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void ValidateWebhookSignature_HeaderWithoutTimestamp_ReturnsFalse()
+    {
+        using var httpClient = new HttpClient(new CapturingHandler(new HttpResponseMessage(HttpStatusCode.OK)));
+        var provider = new StripeProvider(httpClient, "sk_test_123", "https://api.stripe.com");
+        var payload = "{\"id\":\"evt_test\",\"type\":\"checkout.session.completed\"}";
+        var secret = "whsec_test";
+        var legacySignature = ComputeHmacSha256(payload, secret);
+
+        var result = provider.ValidateWebhookSignature(
+            payload,
+            $"v1={legacySignature}",
+            secret);
+
+        Assert.False(result);
+    }
+
+    private static string ComputeHmacSha256(string data, string secret)
+    {
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
+        var hashBytes = hmac.ComputeHash(Encoding.UTF8.GetBytes(data));
+        return BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
     }
 
     private static Dictionary<string, string> ReadForm(string? body)
