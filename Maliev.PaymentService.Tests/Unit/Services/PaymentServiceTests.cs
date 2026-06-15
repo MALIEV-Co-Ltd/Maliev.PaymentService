@@ -256,7 +256,10 @@ public sealed class PaymentServiceTests
                     paymentEvent.Payload.CustomerId == "customer-123" &&
                     paymentEvent.Payload.OrderId == "ORD-456" &&
                     paymentEvent.Payload.ProviderName == "stripe" &&
-                    paymentEvent.Payload.ProviderEventCode == "ProviderSuccess"),
+                    paymentEvent.Payload.ProviderEventCode == "ProviderSuccess" &&
+                    paymentEvent.ConsumedBy.Contains("OrderService") &&
+                    paymentEvent.ConsumedBy.Contains("NotificationService") &&
+                    paymentEvent.ConsumedBy.Contains("QuoteEngine")),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }

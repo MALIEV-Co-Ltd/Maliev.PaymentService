@@ -19,6 +19,9 @@ public class PaymentService : IPaymentService
     private static readonly string[] PaymentFailedConsumers =
         ["OrderService", "NotificationService", "QuoteEngine"];
 
+    private static readonly string[] PaymentPendingConsumers =
+        ["OrderService", "NotificationService", "QuoteEngine"];
+
     private readonly IPaymentRepository _paymentRepository;
     private readonly IPaymentRoutingService _routingService;
     private readonly IIdempotencyService _idempotencyService;
@@ -503,7 +506,7 @@ public class PaymentService : IPaymentService
             MessageType: MessageType.Event,
             MessageVersion: "1.0",
             PublishedBy: "PaymentService",
-            ConsumedBy: new[] { "NotificationService" },
+            ConsumedBy: PaymentPendingConsumers,
             CorrelationId: Guid.TryParse(transaction.CorrelationId, out var correlIdPending) ? correlIdPending : Guid.NewGuid(),
             CausationId: null,
             OccurredAtUtc: DateTimeOffset.UtcNow,
