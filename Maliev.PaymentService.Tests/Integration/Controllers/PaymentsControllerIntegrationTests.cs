@@ -269,7 +269,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
 
         // Assert
         Assert.Equal(HttpStatusCode.Created, response1.StatusCode);
-        Assert.Equal(HttpStatusCode.Created, response2.StatusCode); // Service returns Created for both new and existing transactions
+        Assert.Equal(HttpStatusCode.OK, response2.StatusCode);
         Assert.NotNull(payment1);
         Assert.NotNull(payment2);
         Assert.Equal(payment1.TransactionId, payment2.TransactionId);

@@ -84,4 +84,9 @@ public class PaymentProcessingRequest
     /// Correlation identifier used for distributed tracing.
     /// </summary>
     public required string CorrelationId { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether processing returned an existing transaction.
+    /// </summary>
+    public bool ExistingTransactionReturned { get; set; }
 }

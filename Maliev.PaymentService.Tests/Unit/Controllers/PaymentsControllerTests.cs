@@ -107,6 +107,45 @@ public class PaymentsControllerTests
             UpdatedAt = DateTime.UtcNow
         };
         _paymentServiceMock.Setup(x => x.ProcessPaymentAsync(It.IsAny<PaymentProcessingRequest>(), It.IsAny<CancellationToken>()))
+            .Callback<PaymentProcessingRequest, CancellationToken>((processingRequest, _) => processingRequest.ExistingTransactionReturned = true)
+            .ReturnsAsync(existingTransaction);
+
+        // Act
+        var result = await _controller.ProcessPayment(new PaymentRequest { Amount = 10, Currency = "USD", CustomerId = "c", OrderId = "o", Description = "d", ReturnUrl = "https://r", CancelUrl = "https://c" }, default);
+
+        // Assert
+        Assert.IsType<OkObjectResult>(result.Result);
+    }
+
+    [Fact]
+    public async Task ProcessPayment_FastDuplicateIdempotentRequest_ReturnsOk()
+    {
+        // Arrange
+        _controller.Request.Headers["Idempotency-Key"] = "test-key";
+        var provider = CreateTestProvider("stripe");
+
+        var existingTransaction = new PaymentTransaction
+        {
+            Id = Guid.NewGuid(),
+            CreatedAt = DateTime.UtcNow,
+            Status = PaymentStatus.Processing,
+            PaymentProvider = provider,
+            IdempotencyKey = "test-key",
+            Amount = 10,
+            Currency = "USD",
+            CustomerId = "c",
+            OrderId = "o",
+            Description = "d",
+            PaymentProviderId = provider.Id,
+            ProviderName = "stripe",
+            ProviderTransactionId = "p1",
+            ReturnUrl = "https://r",
+            CancelUrl = "https://c",
+            CorrelationId = "cor1",
+            UpdatedAt = DateTime.UtcNow
+        };
+        _paymentServiceMock.Setup(x => x.ProcessPaymentAsync(It.IsAny<PaymentProcessingRequest>(), It.IsAny<CancellationToken>()))
+            .Callback<PaymentProcessingRequest, CancellationToken>((processingRequest, _) => processingRequest.ExistingTransactionReturned = true)
             .ReturnsAsync(existingTransaction);
 
         // Act
@@ -143,6 +182,7 @@ public class PaymentsControllerTests
         };
         _paymentServiceMock
             .Setup(x => x.ProcessPaymentAsync(It.IsAny<PaymentProcessingRequest>(), It.IsAny<CancellationToken>()))
+            .Callback<PaymentProcessingRequest, CancellationToken>((processingRequest, _) => processingRequest.ExistingTransactionReturned = true)
             .ReturnsAsync(existingTransaction);
 
         var result = await _controller.ProcessPayment(

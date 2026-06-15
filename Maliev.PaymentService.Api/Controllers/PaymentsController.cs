@@ -107,8 +107,8 @@ public class PaymentsController : ControllerBase
             var duration = (DateTime.UtcNow - startTime).TotalSeconds;
             _metricsService.RecordPaymentDuration(transaction.PaymentProvider?.Name ?? "unknown", duration);
 
-            // Return 200 OK if idempotent request (existing transaction)
-            if (transaction.CreatedAt < DateTime.UtcNow.AddSeconds(-1))
+            // Return 200 OK if the service returned an existing transaction.
+            if (processingRequest.ExistingTransactionReturned)
             {
                 _logger.LogInformation(
                     "Returning existing payment {TransactionId} for idempotent request {IdempotencyKey}",

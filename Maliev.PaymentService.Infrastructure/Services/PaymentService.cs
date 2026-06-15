@@ -55,6 +55,7 @@ public class PaymentService : IPaymentService
         {
             _logger.LogInformation("Idempotent request detected. Returning existing transaction {TransactionId}",
                 existingTransaction.Id);
+            request.ExistingTransactionReturned = true;
             return existingTransaction;
         }
 
@@ -68,6 +69,7 @@ public class PaymentService : IPaymentService
                 request.OrderId,
                 completedOrderPayment.Id,
                 request.IdempotencyKey);
+            request.ExistingTransactionReturned = true;
             return completedOrderPayment;
         }
 
@@ -92,6 +94,7 @@ public class PaymentService : IPaymentService
             {
                 _logger.LogInformation("Idempotent request detected after lock acquisition. Returning existing transaction {TransactionId}",
                     existingTransaction.Id);
+                request.ExistingTransactionReturned = true;
                 return existingTransaction;
             }
 
@@ -105,6 +108,7 @@ public class PaymentService : IPaymentService
                     request.OrderId,
                     completedOrderPayment.Id,
                     request.IdempotencyKey);
+                request.ExistingTransactionReturned = true;
                 return completedOrderPayment;
             }
 

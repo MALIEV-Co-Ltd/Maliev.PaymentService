@@ -68,7 +68,7 @@ public sealed class PaymentServiceTests
             new CircuitBreakerStateManager(),
             NullLogger<PaymentOrchestrationService>.Instance);
 
-        var transaction = await service.ProcessPaymentAsync(new PaymentProcessingRequest
+        var request = new PaymentProcessingRequest
         {
             IdempotencyKey = "new-attempt",
             Amount = 2500m,
@@ -81,9 +81,12 @@ public sealed class PaymentServiceTests
             Metadata = new Dictionary<string, string> { ["orderNumber"] = "ORD-456" },
             PreferredProvider = "stripe",
             CorrelationId = Guid.NewGuid().ToString()
-        });
+        };
+
+        var transaction = await service.ProcessPaymentAsync(request);
 
         Assert.Same(completedTransaction, transaction);
+        Assert.True(request.ExistingTransactionReturned);
         routing.Verify(
             r => r.SelectProviderAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
             Times.Never);
