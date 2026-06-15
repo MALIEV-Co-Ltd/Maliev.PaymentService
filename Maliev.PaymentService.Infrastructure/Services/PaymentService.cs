@@ -16,6 +16,9 @@ namespace Maliev.PaymentService.Infrastructure.Services;
 /// </summary>
 public class PaymentService : IPaymentService
 {
+    private static readonly string[] PaymentFailedConsumers =
+        ["OrderService", "NotificationService", "QuoteEngine"];
+
     private readonly IPaymentRepository _paymentRepository;
     private readonly IPaymentRoutingService _routingService;
     private readonly IIdempotencyService _idempotencyService;
@@ -405,7 +408,7 @@ public class PaymentService : IPaymentService
                     MessageType: MessageType.Event,
                     MessageVersion: "1.0",
                     PublishedBy: "PaymentService",
-                    ConsumedBy: Array.Empty<string>(),
+                    ConsumedBy: PaymentFailedConsumers,
                     CorrelationId: Guid.TryParse(transaction.CorrelationId, out var correlIdFail2) ? correlIdFail2 : Guid.NewGuid(),
                     CausationId: null,
                     OccurredAtUtc: DateTimeOffset.UtcNow,
@@ -416,7 +419,7 @@ public class PaymentService : IPaymentService
                         Amount: (double)transaction.Amount,
                         Currency: transaction.Currency,
                         CustomerId: transaction.CustomerId,
-                        OrderId: transaction.OrderId,
+                        OrderId: ResolveOrderReference(transaction),
                         ProviderName: activeProvider.Name,
                         ErrorMessage: ex.Message,
                         ProviderErrorCode: string.Empty,
@@ -534,7 +537,7 @@ public class PaymentService : IPaymentService
             MessageType: MessageType.Event,
             MessageVersion: "1.0",
             PublishedBy: "PaymentService",
-            ConsumedBy: new[] { "NotificationService", "QuoteEngine" },
+            ConsumedBy: PaymentFailedConsumers,
             CorrelationId: Guid.TryParse(transaction.CorrelationId, out var correlIdFail) ? correlIdFail : Guid.NewGuid(),
             CausationId: null,
             OccurredAtUtc: DateTimeOffset.UtcNow,

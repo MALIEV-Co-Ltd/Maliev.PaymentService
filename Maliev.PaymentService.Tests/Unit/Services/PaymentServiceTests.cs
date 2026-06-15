@@ -374,7 +374,7 @@ public sealed class PaymentServiceTests
     }
 
     [Fact]
-    public async Task ProcessPaymentAsync_WhenProviderFailureHasNoFallback_PublishesFailedEventWithOrderNumberForQuoteEngine()
+    public async Task ProcessPaymentAsync_WhenProviderFailureHasNoFallback_PublishesFailedEventWithOrderNumberForDownstreamServices()
     {
         var stripe = CreateStripeProvider();
         var stripeAdapter = new FakePaymentProviderAdapter(
@@ -447,6 +447,8 @@ public sealed class PaymentServiceTests
         events.Verify(
             e => e.PublishAsync(
                 It.Is<PaymentFailedEvent>(paymentEvent =>
+                    paymentEvent.ConsumedBy.Contains("OrderService") &&
+                    paymentEvent.ConsumedBy.Contains("NotificationService") &&
                     paymentEvent.ConsumedBy.Contains("QuoteEngine") &&
                     paymentEvent.Payload.TransactionId == transaction.Id &&
                     paymentEvent.Payload.IdempotencyKey == "idem-failed" &&
