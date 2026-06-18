@@ -114,6 +114,7 @@ public class WebhookProcessingService : IWebhookProcessingService
                     webhookEvent.EventType,
                     parsedData,
                     webhookEvent.CorrelationId,
+                    webhookEvent.ProcessingAttempts,
                     cancellationToken);
                 if (linked)
                 {
@@ -319,6 +320,7 @@ public class WebhookProcessingService : IWebhookProcessingService
         string eventType,
         Dictionary<string, object>? parsedData,
         Guid? correlationId,
+        int processingAttempts,
         CancellationToken cancellationToken)
     {
         var transaction = await _paymentRepository.GetByIdAsync(transactionId, cancellationToken);
@@ -339,7 +341,7 @@ public class WebhookProcessingService : IWebhookProcessingService
                 "Transaction {TransactionId} already in status {Status}, skipping update",
                 transactionId, newStatus);
 
-            if (newStatus == PaymentStatus.Processing && IsPendingLikeEventType(eventType))
+            if (ShouldRepublishSameStatusWebhook(newStatus, eventType, processingAttempts))
             {
                 await PublishPaymentStatusEventAsync(transaction, newStatus, eventType, cancellationToken);
             }
@@ -405,6 +407,23 @@ public class WebhookProcessingService : IWebhookProcessingService
             or PaymentStatus.Cancelled
             or PaymentStatus.Expired
             or PaymentStatus.Refunded;
+    }
+
+    private static bool ShouldRepublishSameStatusWebhook(
+        PaymentStatus status,
+        string eventType,
+        int processingAttempts)
+    {
+        if (status == PaymentStatus.Processing && IsPendingLikeEventType(eventType))
+        {
+            return true;
+        }
+
+        return processingAttempts > 1 &&
+               status is PaymentStatus.Completed
+                   or PaymentStatus.Failed
+                   or PaymentStatus.Cancelled
+                   or PaymentStatus.Expired;
     }
 
     private static string ResolveOrderNumber(PaymentTransaction transaction)

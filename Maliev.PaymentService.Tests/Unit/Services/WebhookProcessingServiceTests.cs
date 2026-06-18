@@ -819,6 +819,55 @@ public class WebhookProcessingServiceTests
         _paymentRepositoryMock.Verify(
             r => r.UpdateAsync(It.IsAny<PaymentTransaction>(), It.IsAny<CancellationToken>()),
             Times.Never);
+        _eventPublisherMock.Verify(
+            e => e.PublishAsync(It.IsAny<PaymentCompletedEvent>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task ProcessWebhookAsync_RetriedSameCompletedStatus_ShouldRepublishPaymentCompletedEvent()
+    {
+        var transactionId = Guid.NewGuid();
+        var webhook = CreateTestWebhook();
+        webhook.ProcessingAttempts = 1;
+        webhook.EventType = "payment.completed";
+        webhook.RawPayload = JsonSerializer.Serialize(new Dictionary<string, object>
+        {
+            ["id"] = "evt_retry_completed",
+            ["transactionId"] = transactionId.ToString()
+        });
+
+        var transaction = CreateTestTransaction(PaymentStatus.Completed);
+
+        _webhookRepositoryMock
+            .Setup(r => r.GetByProviderEventIdAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((WebhookEvent?)null);
+
+        _webhookRepositoryMock
+            .Setup(r => r.UpdateAsync(It.IsAny<WebhookEvent>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        _paymentRepositoryMock
+            .Setup(r => r.GetByIdAsync(transactionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(transaction);
+
+        var result = await _service.ProcessWebhookAsync(webhook);
+
+        Assert.True(result.Success);
+        Assert.Equal(2, webhook.ProcessingAttempts);
+        _paymentRepositoryMock.Verify(
+            r => r.UpdateAsync(It.IsAny<PaymentTransaction>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _paymentRepositoryMock.Verify(
+            r => r.AddLogAsync(It.IsAny<TransactionLog>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _eventPublisherMock.Verify(
+            e => e.PublishAsync(
+                It.Is<PaymentCompletedEvent>(paymentEvent =>
+                    paymentEvent.Payload.PaymentId == transaction.Id &&
+                    paymentEvent.Payload.Amount == (double)transaction.Amount),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     [Fact]
