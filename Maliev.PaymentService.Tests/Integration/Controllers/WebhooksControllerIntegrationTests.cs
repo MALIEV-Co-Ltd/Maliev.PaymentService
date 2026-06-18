@@ -44,7 +44,7 @@ public class WebhooksControllerIntegrationTests : IClassFixture<IntegrationTestW
 
     private async Task SeedTestProviderAsync(Maliev.PaymentService.Application.Interfaces.IEncryptionService encryptionService)
     {
-        var provider = new Maliev.PaymentService.Domain.Entities.PaymentProvider
+        var stripeProvider = new Maliev.PaymentService.Domain.Entities.PaymentProvider
         {
             Id = Guid.NewGuid(),
             Name = "stripe",
@@ -61,7 +61,24 @@ public class WebhooksControllerIntegrationTests : IClassFixture<IntegrationTestW
             UpdatedAt = DateTime.UtcNow
         };
 
-        _dbContext!.PaymentProviders.Add(provider);
+        var omiseProvider = new Maliev.PaymentService.Domain.Entities.PaymentProvider
+        {
+            Id = Guid.NewGuid(),
+            Name = "omise",
+            DisplayName = "Omise",
+            Status = ProviderStatus.Active,
+            SupportedCurrencies = new List<string> { "THB" },
+            Priority = 1,
+            Credentials = new Dictionary<string, string>
+            {
+                { "WebhookSecret", encryptionService.Encrypt("whsec_omise_test") }
+            },
+            Configurations = new List<Maliev.PaymentService.Domain.Entities.ProviderConfiguration>(),
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        _dbContext!.PaymentProviders.AddRange(stripeProvider, omiseProvider);
         await _dbContext.SaveChangesAsync();
     }
 
@@ -220,6 +237,79 @@ public class WebhooksControllerIntegrationTests : IClassFixture<IntegrationTestW
     }
 
     [Fact]
+    public async Task ReceiveWebhook_ValidOmiseSignature_CompletesTransaction()
+    {
+        // Arrange
+        var provider = await _dbContext!.PaymentProviders.SingleAsync(p => p.Name == "omise");
+        var transaction = new Maliev.PaymentService.Domain.Entities.PaymentTransaction
+        {
+            Id = Guid.NewGuid(),
+            IdempotencyKey = "omise-webhook-valid",
+            Amount = 1250m,
+            Currency = "THB",
+            Status = PaymentStatus.Processing,
+            CustomerId = "customer-th-1",
+            OrderId = "order-th-1",
+            Description = "Omise webhook integration payment",
+            PaymentProviderId = provider.Id,
+            ProviderName = provider.Name,
+            ProviderTransactionId = "chrg_test_123",
+            ReturnUrl = "https://quote.example.com/payment/success?orderId=order-th-1",
+            CancelUrl = "https://quote.example.com/payment/cancel?orderId=order-th-1",
+            Metadata = new Dictionary<string, string>
+            {
+                ["orderNumber"] = "ORD-OMISE-WEBHOOK-1",
+                ["transactionId"] = string.Empty
+            },
+            CorrelationId = Guid.NewGuid().ToString(),
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        transaction.Metadata["transactionId"] = transaction.Id.ToString("D");
+        _dbContext.PaymentTransactions.Add(transaction);
+        await _dbContext.SaveChangesAsync();
+
+        var payload = new
+        {
+            id = "evt_omise_complete_123",
+            key = "charge.complete",
+            data = new
+            {
+                @object = new
+                {
+                    id = "chrg_test_123",
+                    status = "successful",
+                    metadata = new
+                    {
+                        transactionId = transaction.Id.ToString("D"),
+                        orderNumber = "ORD-OMISE-WEBHOOK-1"
+                    }
+                }
+            }
+        };
+        var rawPayload = JsonSerializer.Serialize(payload);
+        var headerValue = ComputeOmiseSignature(rawPayload, "whsec_omise_test");
+
+        _client.DefaultRequestHeaders.Remove("Omise-Signature");
+        _client.DefaultRequestHeaders.Add("Omise-Signature", headerValue);
+
+        // Act
+        var response = await _client.PostAsync(
+            "/payment/v1/webhooks/omise",
+            CreateSignedJsonContent(rawPayload));
+
+        // Assert
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var result = await response.Content.ReadFromJsonAsync<WebhookReceivedResponse>();
+        Assert.NotNull(result);
+        Assert.True(result.Accepted);
+
+        var updated = await _dbContext.PaymentTransactions.AsNoTracking().SingleAsync(t => t.Id == transaction.Id);
+        Assert.Equal(PaymentStatus.Completed, updated.Status);
+        Assert.NotNull(updated.CompletedAt);
+    }
+
+    [Fact]
     public async Task WebhookRepository_AddAsync_DuplicateProviderEvent_ReturnsExistingWebhook()
     {
         var provider = await _dbContext!.PaymentProviders.SingleAsync(p => p.Name == "stripe");
@@ -271,6 +361,15 @@ public class WebhooksControllerIntegrationTests : IClassFixture<IntegrationTestW
         var content = new StringContent(rawPayload, System.Text.Encoding.UTF8);
         content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
         return content;
+    }
+
+    private static string ComputeOmiseSignature(string rawPayload, string secret)
+    {
+        var keyBytes = System.Text.Encoding.UTF8.GetBytes(secret);
+        var dataBytes = System.Text.Encoding.UTF8.GetBytes(rawPayload);
+        using var hmac = new System.Security.Cryptography.HMACSHA256(keyBytes);
+        var hashBytes = hmac.ComputeHash(dataBytes);
+        return BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
     }
 
     private static WebhookEvent CreateWebhookEvent(Guid providerId, string providerEventId)
