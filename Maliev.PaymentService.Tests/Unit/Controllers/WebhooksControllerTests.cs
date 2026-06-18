@@ -373,6 +373,67 @@ public class WebhooksControllerTests
     }
 
     [Fact]
+    public async Task ReceiveWebhook_NewWebhook_PropagatesRequestCancellationToken()
+    {
+        var cancellationTokenSource = new CancellationTokenSource();
+        _controller.HttpContext.RequestAborted = cancellationTokenSource.Token;
+        var provider = CreateTestProvider("stripe");
+        _providerRepositoryMock
+            .Setup(x => x.GetByNameAsync("stripe", cancellationTokenSource.Token))
+            .ReturnsAsync(provider);
+        _validationServiceMock
+            .Setup(x => x.ValidateWebhookAsync(It.IsAny<PaymentProvider>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<string>()))
+            .ReturnsAsync(true);
+        _webhookRepositoryMock
+            .Setup(x => x.GetByProviderEventIdAsync(provider.Id, "evt_cancel_token", cancellationTokenSource.Token))
+            .ReturnsAsync((WebhookEvent?)null);
+        _webhookRepositoryMock
+            .Setup(x => x.AddAsync(It.IsAny<WebhookEvent>(), cancellationTokenSource.Token))
+            .ReturnsAsync((WebhookEvent webhookEvent, CancellationToken _) => webhookEvent);
+        _processingServiceMock
+            .Setup(x => x.ProcessWebhookAsync(It.IsAny<WebhookEvent>(), cancellationTokenSource.Token))
+            .ReturnsAsync(new WebhookProcessingResult { Success = true, IsDuplicate = false });
+
+        var json = JsonSerializer.SerializeToElement(new { id = "evt_cancel_token", type = "checkout.session.completed" });
+
+        var result = await _controller.ReceiveWebhook("stripe", json);
+
+        Assert.IsType<OkObjectResult>(result.Result);
+        _providerRepositoryMock.Verify(x => x.GetByNameAsync("stripe", cancellationTokenSource.Token), Times.Once);
+        _webhookRepositoryMock.Verify(x => x.GetByProviderEventIdAsync(provider.Id, "evt_cancel_token", cancellationTokenSource.Token), Times.Once);
+        _webhookRepositoryMock.Verify(x => x.AddAsync(It.IsAny<WebhookEvent>(), cancellationTokenSource.Token), Times.Once);
+        _processingServiceMock.Verify(x => x.ProcessWebhookAsync(It.IsAny<WebhookEvent>(), cancellationTokenSource.Token), Times.Once);
+    }
+
+    [Fact]
+    public async Task ReceiveWebhook_ExistingFailedEvent_PropagatesRequestCancellationTokenToRetry()
+    {
+        var cancellationTokenSource = new CancellationTokenSource();
+        _controller.HttpContext.RequestAborted = cancellationTokenSource.Token;
+        var provider = CreateTestProvider("stripe");
+        var existingEvent = CreateTestWebhookEvent(provider.Id, "retry_token", WebhookProcessingStatus.Failed);
+        _providerRepositoryMock
+            .Setup(x => x.GetByNameAsync("stripe", cancellationTokenSource.Token))
+            .ReturnsAsync(provider);
+        _validationServiceMock
+            .Setup(x => x.ValidateWebhookAsync(It.IsAny<PaymentProvider>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<string>()))
+            .ReturnsAsync(true);
+        _webhookRepositoryMock
+            .Setup(x => x.GetByProviderEventIdAsync(provider.Id, "retry_token", cancellationTokenSource.Token))
+            .ReturnsAsync(existingEvent);
+        _processingServiceMock
+            .Setup(x => x.ProcessWebhookAsync(existingEvent, cancellationTokenSource.Token))
+            .ReturnsAsync(new WebhookProcessingResult { Success = true, IsDuplicate = false });
+
+        var json = JsonSerializer.SerializeToElement(new { id = "retry_token", type = "checkout.session.completed" });
+
+        var result = await _controller.ReceiveWebhook("stripe", json);
+
+        Assert.IsType<OkObjectResult>(result.Result);
+        _processingServiceMock.Verify(x => x.ProcessWebhookAsync(existingEvent, cancellationTokenSource.Token), Times.Once);
+    }
+
+    [Fact]
     public async Task ReceiveWebhook_CamelCaseEventType_ExtractsCorrectly()
     {
         // Arrange

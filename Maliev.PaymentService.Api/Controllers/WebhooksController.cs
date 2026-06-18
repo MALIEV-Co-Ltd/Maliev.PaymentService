@@ -133,6 +133,7 @@ public class WebhooksController : ControllerBase
     {
         var startTime = DateTime.UtcNow;
         var sourceIp = HttpContext.Connection.RemoteIpAddress?.ToString();
+        var cancellationToken = HttpContext.RequestAborted;
 
         _logger.LogInformation(
             "Received webhook from provider: {Provider}, IP: {SourceIp}",
@@ -141,7 +142,7 @@ public class WebhooksController : ControllerBase
         try
         {
             // Get provider configuration
-            var providerEntity = await ResolveProviderAsync(provider);
+            var providerEntity = await ResolveProviderAsync(provider, cancellationToken);
             if (providerEntity == null)
             {
                 _logger.LogWarning("Unknown provider: {Provider}", provider);
@@ -205,11 +206,12 @@ public class WebhooksController : ControllerBase
             // Check for duplicate
             var existing = await _webhookRepository.GetByProviderEventIdAsync(
                 providerEntity.Id,
-                providerEventId);
+                providerEventId,
+                cancellationToken);
 
             if (existing != null)
             {
-                return await HandleExistingWebhookAsync(existing, providerEventId, provider, startTime);
+                return await HandleExistingWebhookAsync(existing, providerEventId, provider, startTime, cancellationToken);
             }
 
             // Extract event type
@@ -235,16 +237,16 @@ public class WebhooksController : ControllerBase
 
             // Save webhook event. The repository can return an existing row when
             // a concurrent duplicate insert wins the provider-event unique key.
-            var persistedWebhookEvent = await _webhookRepository.AddAsync(webhookEvent);
+            var persistedWebhookEvent = await _webhookRepository.AddAsync(webhookEvent, cancellationToken);
             if (persistedWebhookEvent.Id != webhookEvent.Id)
             {
-                return await HandleExistingWebhookAsync(persistedWebhookEvent, providerEventId, provider, startTime);
+                return await HandleExistingWebhookAsync(persistedWebhookEvent, providerEventId, provider, startTime, cancellationToken);
             }
 
             webhookEvent = persistedWebhookEvent;
 
             // Process inline so providers retry if payment state/event publication fails.
-            var processingResult = await _processingService.ProcessWebhookAsync(webhookEvent);
+            var processingResult = await _processingService.ProcessWebhookAsync(webhookEvent, cancellationToken);
             if (!processingResult.Success)
             {
                 _logger.LogError(
@@ -316,9 +318,10 @@ public class WebhooksController : ControllerBase
         _logger.LogInformation(
             "Test webhook requested for provider: {Provider}, event type: {EventType}",
             provider, request.EventType);
+        var cancellationToken = HttpContext.RequestAborted;
 
         // Get provider
-        var providerEntity = await _providerRepository.GetByNameAsync(provider);
+        var providerEntity = await _providerRepository.GetByNameAsync(provider, cancellationToken);
         if (providerEntity == null)
         {
             return BadRequest(new ErrorResponse
@@ -364,10 +367,10 @@ public class WebhooksController : ControllerBase
             UpdatedAt = DateTime.UtcNow
         };
 
-        await _webhookRepository.AddAsync(webhookEvent);
+        await _webhookRepository.AddAsync(webhookEvent, cancellationToken);
 
         // Process immediately for testing - this will publish events based on the test payload
-        var result = await _processingService.ProcessWebhookAsync(webhookEvent);
+        var result = await _processingService.ProcessWebhookAsync(webhookEvent, cancellationToken);
 
         return Ok(new WebhookReceivedResponse
         {
@@ -404,9 +407,9 @@ public class WebhooksController : ControllerBase
         };
     }
 
-    private async Task<PaymentProvider?> ResolveProviderAsync(string provider)
+    private async Task<PaymentProvider?> ResolveProviderAsync(string provider, CancellationToken cancellationToken)
     {
-        var providerEntity = await _providerRepository.GetByNameAsync(provider);
+        var providerEntity = await _providerRepository.GetByNameAsync(provider, cancellationToken);
         if (providerEntity is not null)
         {
             return providerEntity;
@@ -414,7 +417,7 @@ public class WebhooksController : ControllerBase
 
         if (provider.Equals("opn", StringComparison.OrdinalIgnoreCase))
         {
-            return await _providerRepository.GetByNameAsync("omise");
+            return await _providerRepository.GetByNameAsync("omise", cancellationToken);
         }
 
         return null;
@@ -461,7 +464,8 @@ public class WebhooksController : ControllerBase
         WebhookEvent existing,
         string providerEventId,
         string provider,
-        DateTime startTime)
+        DateTime startTime,
+        CancellationToken cancellationToken)
     {
         if (existing.ProcessingStatus != WebhookProcessingStatus.Completed &&
             existing.ProcessingStatus != WebhookProcessingStatus.Duplicate)
@@ -470,7 +474,7 @@ public class WebhooksController : ControllerBase
                 "Retrying webhook {ProviderEventId} from provider {Provider} with processing status {ProcessingStatus}",
                 providerEventId, provider, existing.ProcessingStatus);
 
-            var retryResult = await _processingService.ProcessWebhookAsync(existing);
+            var retryResult = await _processingService.ProcessWebhookAsync(existing, cancellationToken);
             if (!retryResult.Success)
             {
                 _logger.LogError(
