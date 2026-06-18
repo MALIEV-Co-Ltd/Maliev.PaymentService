@@ -87,7 +87,7 @@ public class PaymentsController : ControllerBase
             {
                 IdempotencyKey = idempotencyKey,
                 Amount = request.Amount,
-                Currency = request.Currency,
+                Currency = request.Currency.Trim().ToUpperInvariant(),
                 CustomerId = request.CustomerId,
                 OrderId = request.OrderId,
                 Description = request.Description,

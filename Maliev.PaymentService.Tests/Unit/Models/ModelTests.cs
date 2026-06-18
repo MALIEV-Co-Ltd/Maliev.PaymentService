@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.ComponentModel.DataAnnotations;
 
 using Maliev.PaymentService.Api.Models.Requests;
 using Maliev.PaymentService.Api.Models.Responses;
@@ -313,6 +314,23 @@ public class ModelTests
         var results = model.Validate(context).ToList();
 
         Assert.DoesNotContain(results, r => r.MemberNames.Contains(nameof(PaymentRequest.Metadata)));
+    }
+
+    [Fact]
+    public void PaymentRequest_DataAnnotations_AllowsLowercaseCurrencyForNormalization()
+    {
+        var model = CreateValidPaymentRequest();
+        model.Currency = "thb";
+        var results = new List<ValidationResult>();
+
+        var isValid = Validator.TryValidateObject(
+            model,
+            new ValidationContext(model),
+            results,
+            validateAllProperties: true);
+
+        Assert.True(isValid);
+        Assert.DoesNotContain(results, r => r.MemberNames.Contains(nameof(PaymentRequest.Currency)));
     }
 
     private static PaymentRequest CreateValidPaymentRequest()

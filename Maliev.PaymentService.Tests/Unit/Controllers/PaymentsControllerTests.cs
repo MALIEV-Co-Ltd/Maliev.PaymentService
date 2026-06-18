@@ -217,6 +217,55 @@ public class PaymentsControllerTests
         Assert.IsType<OkObjectResult>(result.Result);
     }
 
+    [Fact]
+    public async Task ProcessPayment_NormalizesCurrencyBeforeCallingPaymentService()
+    {
+        _controller.Request.Headers["Idempotency-Key"] = "test-key";
+        var provider = CreateTestProvider("omise");
+        _paymentServiceMock
+            .Setup(x => x.ProcessPaymentAsync(It.IsAny<PaymentProcessingRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PaymentTransaction
+            {
+                Id = Guid.NewGuid(),
+                CreatedAt = DateTime.UtcNow,
+                Status = PaymentStatus.Processing,
+                PaymentProvider = provider,
+                IdempotencyKey = "test-key",
+                Amount = 10,
+                Currency = "THB",
+                CustomerId = "c",
+                OrderId = "o",
+                Description = "d",
+                PaymentProviderId = provider.Id,
+                ProviderName = "omise",
+                ProviderTransactionId = "chrg_test",
+                ReturnUrl = "https://r",
+                CancelUrl = "https://c",
+                CorrelationId = "cor1",
+                UpdatedAt = DateTime.UtcNow
+            });
+
+        var result = await _controller.ProcessPayment(
+            new PaymentRequest
+            {
+                Amount = 10,
+                Currency = "tHb",
+                CustomerId = "c",
+                OrderId = "o",
+                Description = "d",
+                ReturnUrl = "https://r",
+                CancelUrl = "https://c"
+            },
+            default);
+
+        Assert.IsType<CreatedAtActionResult>(result.Result);
+        _paymentServiceMock.Verify(
+            x => x.ProcessPaymentAsync(
+                It.Is<PaymentProcessingRequest>(request => request.Currency == "THB"),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
     [Theory]
     [InlineData(PaymentStatus.Pending)]
     [InlineData(PaymentStatus.Processing)]

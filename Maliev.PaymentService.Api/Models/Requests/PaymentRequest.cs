@@ -19,11 +19,11 @@ public class PaymentRequest : IValidatableObject
 
     /// <summary>
     /// ISO 4217 currency code (e.g., "USD", "EUR", "GBP").
-    /// Must be 3 uppercase characters.
+    /// Accepted case-insensitively and normalized before processing.
     /// </summary>
     [Required(ErrorMessage = "Currency is required")]
     [StringLength(3, MinimumLength = 3, ErrorMessage = "Currency must be a 3-letter ISO code")]
-    [RegularExpression("^[A-Z]{3}$", ErrorMessage = "Currency must be uppercase letters only (e.g., USD, EUR, THB)")]
+    [RegularExpression("^[A-Za-z]{3}$", ErrorMessage = "Currency must be a 3-letter ISO code (e.g., USD, EUR, THB)")]
     public required string Currency { get; set; }
 
     /// <summary>
