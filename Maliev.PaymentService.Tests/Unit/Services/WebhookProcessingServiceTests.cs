@@ -257,6 +257,7 @@ public class WebhookProcessingServiceTests
         Assert.Equal(transaction.OrderId, publishedEvent.Payload.OrderId.ToString());
         Assert.Equal(transaction.CustomerId, publishedEvent.Payload.CustomerId);
         Assert.Equal("omise", publishedEvent.Payload.ProviderName);
+        Assert.Equal("1.0.0", publishedEvent.MessageVersion);
         Assert.Contains("InvoiceService", publishedEvent.ConsumedBy);
         Assert.Contains("OrderService", publishedEvent.ConsumedBy);
         Assert.Contains("NotificationService", publishedEvent.ConsumedBy);
@@ -701,6 +702,7 @@ public class WebhookProcessingServiceTests
         _eventPublisherMock.Verify(
             e => e.PublishAsync(
                 It.Is<PaymentFailedEvent>(paymentEvent =>
+                    paymentEvent.MessageVersion == "1.0.0" &&
                     paymentEvent.Payload.TransactionId == transaction.Id &&
                     paymentEvent.Payload.CustomerId == transaction.CustomerId &&
                     paymentEvent.ConsumedBy.Contains("OrderService") &&
@@ -735,6 +737,7 @@ public class WebhookProcessingServiceTests
         _eventPublisherMock.Verify(
             e => e.PublishAsync(
                 It.Is<PaymentPendingEvent>(paymentEvent =>
+                    paymentEvent.MessageVersion == "1.0.0" &&
                     paymentEvent.Payload.TransactionId == transaction.Id &&
                     paymentEvent.Payload.CustomerId == transaction.CustomerId &&
                     paymentEvent.Payload.OrderId == "ORD-PENDING-001" &&

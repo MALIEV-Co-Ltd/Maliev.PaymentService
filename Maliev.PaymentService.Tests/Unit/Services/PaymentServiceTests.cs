@@ -249,6 +249,7 @@ public sealed class PaymentServiceTests
         events.Verify(
             e => e.PublishAsync(
                 It.Is<PaymentPendingEvent>(paymentEvent =>
+                    paymentEvent.MessageVersion == "1.0.0" &&
                     paymentEvent.Payload.TransactionId == transaction.Id &&
                     paymentEvent.Payload.IdempotencyKey == "idem-pending" &&
                     paymentEvent.Payload.Amount == 1250d &&
@@ -369,6 +370,7 @@ public sealed class PaymentServiceTests
         events.Verify(
             e => e.PublishAsync(
                 It.Is<PaymentPendingEvent>(paymentEvent =>
+                    paymentEvent.MessageVersion == "1.0.0" &&
                     paymentEvent.Payload.TransactionId == transaction.Id &&
                     paymentEvent.Payload.ProviderName == "stripe" &&
                     paymentEvent.Payload.ProviderEventCode == "ProviderSuccess"),
@@ -450,6 +452,7 @@ public sealed class PaymentServiceTests
         events.Verify(
             e => e.PublishAsync(
                 It.Is<PaymentFailedEvent>(paymentEvent =>
+                    paymentEvent.MessageVersion == "1.0.0" &&
                     paymentEvent.ConsumedBy.Contains("OrderService") &&
                     paymentEvent.ConsumedBy.Contains("NotificationService") &&
                     paymentEvent.ConsumedBy.Contains("QuoteEngine") &&
@@ -565,6 +568,7 @@ public sealed class PaymentServiceTests
         events.Verify(
             e => e.PublishAsync(
                 It.Is<PaymentPendingEvent>(paymentEvent =>
+                    paymentEvent.MessageVersion == "1.0.0" &&
                     paymentEvent.Payload.TransactionId == transaction.Id &&
                     paymentEvent.Payload.ProviderName == "stripe" &&
                     paymentEvent.Payload.ProviderEventCode == "ProviderSuccess"),

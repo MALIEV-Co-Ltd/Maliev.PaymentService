@@ -55,7 +55,7 @@ public class TestController : ControllerBase
             MessageId: Guid.NewGuid(),
             MessageName: nameof(PaymentCompletedEvent),
             MessageType: MessageType.Event,
-            MessageVersion: "1.0",
+            MessageVersion: "1.0.0",
             PublishedBy: "PaymentService",
             ConsumedBy: new[] { "InvoiceService", "OrderService", "NotificationService" },
             CorrelationId: Guid.NewGuid(),
