@@ -161,14 +161,14 @@ Create `appsettings.Development.json` in `Maliev.PaymentService.Api/`:
   },
   "PaymentProviders": {
     "Stripe": {
-      "ApiKey": "sk_test_YOUR_STRIPE_TEST_KEY",
-      "WebhookSecret": "whsec_YOUR_WEBHOOK_SECRET",
+      "ApiKey": "<configured-stripe-api-key>",
+      "WebhookSecret": "<configured-stripe-webhook-secret>",
       "Sandbox": true
     },
     "Omise": {
-      "PublicKey": "pkey_test_YOUR_OMISE_PUBLIC_KEY",
-      "SecretKey": "skey_test_YOUR_OMISE_KEY",
-      "WebhookSecret": "whsec_YOUR_OMISE_WEBHOOK_SECRET",
+      "PublicKey": "<configured-omise-public-key>",
+      "SecretKey": "<configured-omise-secret-key>",
+      "WebhookSecret": "<configured-omise-webhook-secret>",
       "Sandbox": true
     },
     "SCB": {

@@ -67,8 +67,8 @@ public class ProvidersController : ControllerBase
     ///   "supportedCurrencies": ["USD", "EUR", "THB"],
     ///   "priority": 1,
     ///   "credentials": {
-    ///     "apiKey": "sk_test_...",
-    ///     "webhookSecret": "whsec_..."
+    ///     "apiKey": "configured-provider-api-key",
+    ///     "webhookSecret": "configured-provider-webhook-secret"
     ///   },
     ///   "configurations": [{
     ///     "region": "global",
