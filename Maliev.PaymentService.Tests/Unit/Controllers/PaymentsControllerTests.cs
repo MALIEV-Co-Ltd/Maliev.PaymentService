@@ -49,6 +49,21 @@ public class PaymentsControllerTests
     }
 
     [Fact]
+    public async Task ProcessPayment_OverlongIdempotencyKey_ReturnsBadRequestWithoutCallingService()
+    {
+        _controller.Request.Headers["Idempotency-Key"] = new string('k', 256);
+
+        var result = await _controller.ProcessPayment(
+            new PaymentRequest { Amount = 10, Currency = "USD", CustomerId = "c", OrderId = "o", Description = "d", ReturnUrl = "https://r", CancelUrl = "https://c" },
+            default);
+
+        Assert.IsType<BadRequestObjectResult>(result.Result);
+        _paymentServiceMock.Verify(
+            x => x.ProcessPaymentAsync(It.IsAny<PaymentProcessingRequest>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task ProcessPayment_InternalError_Returns500()
     {
         // Arrange
@@ -261,6 +276,28 @@ public class PaymentsControllerTests
 
         // Assert
         Assert.IsType<BadRequestObjectResult>(result.Result);
+    }
+
+    [Fact]
+    public async Task ProcessRefund_OverlongIdempotencyKey_ReturnsBadRequestWithoutCallingService()
+    {
+        _controller.Request.Headers["Idempotency-Key"] = new string('k', 256);
+
+        var result = await _controller.ProcessRefund(
+            Guid.NewGuid(),
+            new RefundRequest { Amount = 10, RefundType = "full" },
+            default);
+
+        Assert.IsType<BadRequestObjectResult>(result.Result);
+        _refundServiceMock.Verify(
+            x => x.ProcessRefundAsync(
+                It.IsAny<Guid>(),
+                It.IsAny<decimal>(),
+                It.IsAny<string?>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     [Fact]

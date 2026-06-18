@@ -21,6 +21,8 @@ namespace Maliev.PaymentService.Api.Controllers;
 [RequirePermission(PaymentPermissions.PaymentsRead)]
 public class PaymentsController : ControllerBase
 {
+    private const int MaxIdempotencyKeyLength = 255;
+
     private readonly IPaymentService _paymentService;
     private readonly IRefundService _refundService;
     private readonly IMetricsService _metricsService;
@@ -69,11 +71,9 @@ public class PaymentsController : ControllerBase
         var startTime = DateTime.UtcNow;
         try
         {
-            // Validate Idempotency-Key header
-            if (!Request.Headers.TryGetValue("Idempotency-Key", out var idempotencyKey) ||
-                string.IsNullOrWhiteSpace(idempotencyKey))
+            if (!TryGetIdempotencyKey(out var idempotencyKey, out var idempotencyError))
             {
-                return BadRequest(new { error = "Idempotency-Key header is required" });
+                return idempotencyError;
             }
 
             // Get Correlation-Id header (optional)
@@ -85,7 +85,7 @@ public class PaymentsController : ControllerBase
             // Create payment processing request
             var processingRequest = new PaymentProcessingRequest
             {
-                IdempotencyKey = idempotencyKey!,
+                IdempotencyKey = idempotencyKey,
                 Amount = request.Amount,
                 Currency = request.Currency,
                 CustomerId = request.CustomerId,
@@ -235,11 +235,9 @@ public class PaymentsController : ControllerBase
         var startTime = DateTime.UtcNow;
         try
         {
-            // Validate Idempotency-Key header
-            if (!Request.Headers.TryGetValue("Idempotency-Key", out var idempotencyKey) ||
-                string.IsNullOrWhiteSpace(idempotencyKey))
+            if (!TryGetIdempotencyKey(out var idempotencyKey, out var idempotencyError))
             {
-                return BadRequest(new { error = "Idempotency-Key header is required" });
+                return idempotencyError;
             }
 
             // Process refund
@@ -248,7 +246,7 @@ public class PaymentsController : ControllerBase
                 request.Amount,
                 request.Reason,
                 request.RefundType,
-                idempotencyKey!,
+                idempotencyKey,
                 cancellationToken);
 
             // Map to response
@@ -317,5 +315,28 @@ public class PaymentsController : ControllerBase
             UpdatedAt = transaction.UpdatedAt,
             CompletedAt = transaction.CompletedAt
         };
+    }
+
+    private bool TryGetIdempotencyKey(out string idempotencyKey, out BadRequestObjectResult error)
+    {
+        idempotencyKey = string.Empty;
+        error = null!;
+
+        if (!Request.Headers.TryGetValue("Idempotency-Key", out var headerValue) ||
+            string.IsNullOrWhiteSpace(headerValue))
+        {
+            error = BadRequest(new { error = "Idempotency-Key header is required" });
+            return false;
+        }
+
+        idempotencyKey = headerValue.ToString();
+        if (idempotencyKey.Length > MaxIdempotencyKeyLength)
+        {
+            error = BadRequest(new { error = $"Idempotency-Key header cannot exceed {MaxIdempotencyKeyLength} characters" });
+            idempotencyKey = string.Empty;
+            return false;
+        }
+
+        return true;
     }
 }
