@@ -169,6 +169,34 @@ public class WebhooksControllerTests
     }
 
     [Fact]
+    public async Task ReceiveWebhook_OpnAlias_UsesConfiguredOmiseProvider()
+    {
+        var provider = CreateTestProvider("omise");
+        _providerRepositoryMock.Setup(x => x.GetByNameAsync("opn")).ReturnsAsync((PaymentProvider?)null);
+        _providerRepositoryMock.Setup(x => x.GetByNameAsync("omise")).ReturnsAsync(provider);
+        _validationServiceMock
+            .Setup(x => x.ValidateWebhookAsync(provider, It.IsAny<string>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<string>()))
+            .ReturnsAsync(true);
+
+        var payload = new { id = "ev_opn_1", key = "charge.complete" };
+        var json = JsonSerializer.SerializeToElement(payload);
+
+        _controller.Request.Headers["Omise-Signature"] = "opn-sig";
+
+        var result = await _controller.ReceiveWebhook("opn", json);
+
+        Assert.IsType<OkObjectResult>(result.Result);
+        _webhookRepositoryMock.Verify(
+            x => x.AddAsync(
+                It.Is<WebhookEvent>(e =>
+                    e.ProviderId == provider.Id &&
+                    e.ProviderEventId == "ev_opn_1" &&
+                    e.Signature == "opn-sig"),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task ReceiveWebhook_OmiseProvider_ExtractsEventKeyAsEventType()
     {
         var provider = CreateTestProvider("omise");

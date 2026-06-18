@@ -141,7 +141,7 @@ public class WebhooksController : ControllerBase
         try
         {
             // Get provider configuration
-            var providerEntity = await _providerRepository.GetByNameAsync(provider);
+            var providerEntity = await ResolveProviderAsync(provider);
             if (providerEntity == null)
             {
                 _logger.LogWarning("Unknown provider: {Provider}", provider);
@@ -402,6 +402,22 @@ public class WebhooksController : ControllerBase
             "stripe" when payload.TryGetProperty("id", out var stripeId) => stripeId.GetString() ?? string.Empty,
             _ => string.Empty
         };
+    }
+
+    private async Task<PaymentProvider?> ResolveProviderAsync(string provider)
+    {
+        var providerEntity = await _providerRepository.GetByNameAsync(provider);
+        if (providerEntity is not null)
+        {
+            return providerEntity;
+        }
+
+        if (provider.Equals("opn", StringComparison.OrdinalIgnoreCase))
+        {
+            return await _providerRepository.GetByNameAsync("omise");
+        }
+
+        return null;
     }
 
     private string ExtractEventType(JsonElement payload, string provider)
