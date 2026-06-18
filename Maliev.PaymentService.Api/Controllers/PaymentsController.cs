@@ -301,7 +301,7 @@ public class PaymentsController : ControllerBase
             TransactionId = transaction.Id,
             Amount = transaction.Amount,
             Currency = transaction.Currency,
-            Status = transaction.Status,
+            Status = FormatPaymentStatus(transaction.Status),
             CustomerId = transaction.CustomerId,
             OrderId = transaction.OrderId,
             Description = transaction.Description ?? string.Empty,
@@ -314,6 +314,15 @@ public class PaymentsController : ControllerBase
             CreatedAt = transaction.CreatedAt,
             UpdatedAt = transaction.UpdatedAt,
             CompletedAt = transaction.CompletedAt
+        };
+    }
+
+    private static string FormatPaymentStatus(PaymentStatus status)
+    {
+        return status switch
+        {
+            PaymentStatus.PartiallyRefunded => "partially_refunded",
+            _ => status.ToString().ToLowerInvariant()
         };
     }
 

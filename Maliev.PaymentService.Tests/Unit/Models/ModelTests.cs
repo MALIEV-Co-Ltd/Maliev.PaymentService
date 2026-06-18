@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 using Maliev.PaymentService.Api.Models.Requests;
 using Maliev.PaymentService.Api.Models.Responses;
 using Maliev.PaymentService.Domain.Enums;
@@ -43,7 +45,7 @@ public class ModelTests
             TransactionId = id,
             Amount = 100,
             Currency = "USD",
-            Status = PaymentStatus.Completed,
+            Status = "completed",
             ProviderTransactionId = "pt1",
             SelectedProvider = "stripe",
             CustomerId = "cust1",
@@ -56,7 +58,35 @@ public class ModelTests
         };
 
         Assert.Equal(id, model.TransactionId);
-        Assert.Equal(PaymentStatus.Completed, model.Status);
+        Assert.Equal("completed", model.Status);
+    }
+
+    [Fact]
+    public void PaymentResponse_SerializesProviderNeutralWireShape()
+    {
+        var model = new PaymentResponse
+        {
+            TransactionId = Guid.Parse("f3537f21-305c-4e0e-8a08-b576f2042729"),
+            Amount = 100,
+            Currency = "THB",
+            Status = "completed",
+            ProviderTransactionId = "chrg_test_123",
+            SelectedProvider = "omise",
+            CustomerId = "cust1",
+            OrderId = "order1",
+            PaymentUrl = "https://pay.example/checkout",
+            Description = "desc",
+            CreatedAt = new DateTime(2026, 6, 18, 8, 0, 0, DateTimeKind.Utc),
+            UpdatedAt = new DateTime(2026, 6, 18, 8, 5, 0, DateTimeKind.Utc),
+            CompletedAt = new DateTime(2026, 6, 18, 8, 10, 0, DateTimeKind.Utc)
+        };
+
+        var json = JsonSerializer.Serialize(model);
+
+        Assert.Contains("\"transactionId\":\"f3537f21-305c-4e0e-8a08-b576f2042729\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"status\":\"completed\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"selectedProvider\":\"omise\"", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"Status\"", json, StringComparison.Ordinal);
     }
 
     [Fact]

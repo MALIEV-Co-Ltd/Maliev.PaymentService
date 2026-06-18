@@ -198,7 +198,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<IntegrationTestW
         Assert.Equal(100.00m, payment.Amount);
         Assert.Equal("THB", payment.Currency);
         Assert.Equal("cust_123456", payment.CustomerId);
-        Assert.Contains(payment.Status, new[] { PaymentStatus.Pending, PaymentStatus.Processing, PaymentStatus.Completed });
+        Assert.Contains(payment.Status, new[] { "pending", "processing", "completed" });
         Assert.NotNull(payment.ProviderTransactionId);
         Assert.NotNull(payment.SelectedProvider);
     }
