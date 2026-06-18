@@ -85,9 +85,8 @@ try
     builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IRefundRepository, Maliev.PaymentService.Infrastructure.Data.Repositories.RefundRepository>();
     builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IWebhookRepository, Maliev.PaymentService.Infrastructure.Data.Repositories.WebhookRepository>();
 
-    // Register HttpClient for provider adapters with resilience
-    builder.Services.AddHttpClient("PaymentProviders")
-        .AddStandardResilienceHandler();
+    // Register HttpClient instances for provider adapters with resilience.
+    builder.Services.AddPaymentProviderHttpClients();
 
     // Register provider factory
     builder.Services.AddScoped<Maliev.PaymentService.Infrastructure.Providers.ProviderFactory>();
