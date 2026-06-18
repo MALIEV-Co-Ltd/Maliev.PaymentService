@@ -24,11 +24,11 @@ public static class PaymentProviderConfigurationValidator
     };
 
     /// <summary>
-    /// Validates that production Omise configuration is explicitly supplied and does not use local placeholders.
+    /// Validates that deployed Omise configuration is explicitly supplied and does not use local placeholders.
     /// </summary>
     /// <param name="configuration">Application configuration.</param>
     /// <param name="environmentName">The current host environment name.</param>
-    /// <exception cref="InvalidOperationException">Thrown when production Omise configuration is missing or unsafe.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when deployed Omise configuration is missing or unsafe.</exception>
     public static void ValidateOmiseForEnvironment(IConfiguration configuration, string environmentName)
     {
         ValidateProviderForEnvironment(
@@ -40,11 +40,11 @@ public static class PaymentProviderConfigurationValidator
     }
 
     /// <summary>
-    /// Validates that production Stripe configuration is explicitly supplied and does not use local placeholders.
+    /// Validates that deployed Stripe configuration is explicitly supplied and does not use local placeholders.
     /// </summary>
     /// <param name="configuration">Application configuration.</param>
     /// <param name="environmentName">The current host environment name.</param>
-    /// <exception cref="InvalidOperationException">Thrown when production Stripe configuration is missing or unsafe.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when deployed Stripe configuration is missing or unsafe.</exception>
     public static void ValidateStripeForEnvironment(IConfiguration configuration, string environmentName)
     {
         ValidateProviderForEnvironment(
@@ -62,7 +62,7 @@ public static class PaymentProviderConfigurationValidator
         IReadOnlyCollection<string> requiredKeys,
         IReadOnlyDictionary<string, string> developmentPlaceholders)
     {
-        if (!string.Equals(environmentName, "Production", StringComparison.OrdinalIgnoreCase))
+        if (IsLocalEnvironment(environmentName))
         {
             return;
         }
@@ -89,7 +89,13 @@ public static class PaymentProviderConfigurationValidator
         if (invalidKeys.Count > 0)
         {
             throw new InvalidOperationException(
-                $"Production {sectionName} payment provider configuration is invalid: " + string.Join("; ", invalidKeys));
+                $"Deployed {sectionName} payment provider configuration is invalid: " + string.Join("; ", invalidKeys));
         }
+    }
+
+    private static bool IsLocalEnvironment(string environmentName)
+    {
+        return string.Equals(environmentName, "Development", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(environmentName, "Testing", StringComparison.OrdinalIgnoreCase);
     }
 }

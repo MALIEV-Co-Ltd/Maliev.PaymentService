@@ -48,6 +48,28 @@ public sealed class PaymentProviderConfigurationValidatorTests
     }
 
     [Fact]
+    public void ValidateOmiseForEnvironment_DevelopmentMissingSecrets_DoesNotThrow()
+    {
+        var configuration = new ConfigurationBuilder().Build();
+
+        PaymentProviderConfigurationValidator.ValidateOmiseForEnvironment(configuration, "Development");
+    }
+
+    [Fact]
+    public void ValidateOmiseForEnvironment_StagingMissingSecrets_Throws()
+    {
+        var configuration = new ConfigurationBuilder().Build();
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            PaymentProviderConfigurationValidator.ValidateOmiseForEnvironment(configuration, "Staging"));
+
+        Assert.Contains("PaymentProviders:Omise:PublicKey", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("PaymentProviders:Omise:SecretKey", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("PaymentProviders:Omise:WebhookSecret", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("PaymentProviders:Omise:ApiBaseUrl", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ValidateOmiseForEnvironment_ProductionConfigured_DoesNotThrow()
     {
         var configuration = CreateConfiguration(new Dictionary<string, string?>
@@ -98,6 +120,27 @@ public sealed class PaymentProviderConfigurationValidatorTests
         var configuration = new ConfigurationBuilder().Build();
 
         PaymentProviderConfigurationValidator.ValidateStripeForEnvironment(configuration, "Testing");
+    }
+
+    [Fact]
+    public void ValidateStripeForEnvironment_DevelopmentMissingSecrets_DoesNotThrow()
+    {
+        var configuration = new ConfigurationBuilder().Build();
+
+        PaymentProviderConfigurationValidator.ValidateStripeForEnvironment(configuration, "Development");
+    }
+
+    [Fact]
+    public void ValidateStripeForEnvironment_StagingMissingSecrets_Throws()
+    {
+        var configuration = new ConfigurationBuilder().Build();
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            PaymentProviderConfigurationValidator.ValidateStripeForEnvironment(configuration, "Staging"));
+
+        Assert.Contains("PaymentProviders:Stripe:ApiKey", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("PaymentProviders:Stripe:WebhookSecret", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("PaymentProviders:Stripe:ApiBaseUrl", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
