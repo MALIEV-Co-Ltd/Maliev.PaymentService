@@ -24,9 +24,9 @@ public sealed class PaymentProviderConfigurationValidatorTests
     {
         var configuration = CreateConfiguration(new Dictionary<string, string?>
         {
-            ["PaymentProviders:Omise:PublicKey"] = "pkey_test_development_omise_key",
-            ["PaymentProviders:Omise:SecretKey"] = "skey_test_development_omise_key",
-            ["PaymentProviders:Omise:WebhookSecret"] = "whsec_omise_development_secret",
+            ["PaymentProviders:Omise:PublicKey"] = "local-placeholder-omise-public-key",
+            ["PaymentProviders:Omise:SecretKey"] = "local-placeholder-omise-secret-key",
+            ["PaymentProviders:Omise:WebhookSecret"] = "local-placeholder-omise-webhook-secret",
             ["PaymentProviders:Omise:ApiBaseUrl"] = "https://api.omise.co"
         });
 
@@ -74,9 +74,9 @@ public sealed class PaymentProviderConfigurationValidatorTests
     {
         var configuration = CreateConfiguration(new Dictionary<string, string?>
         {
-            ["PaymentProviders:Omise:PublicKey"] = "pkey_live_configured",
-            ["PaymentProviders:Omise:SecretKey"] = "skey_live_configured",
-            ["PaymentProviders:Omise:WebhookSecret"] = "whsec_live_configured",
+            ["PaymentProviders:Omise:PublicKey"] = "configured-omise-public-key",
+            ["PaymentProviders:Omise:SecretKey"] = "configured-omise-secret-key",
+            ["PaymentProviders:Omise:WebhookSecret"] = "configured-omise-webhook-secret",
             ["PaymentProviders:Omise:ApiBaseUrl"] = "https://api.omise.co"
         });
 
@@ -101,8 +101,8 @@ public sealed class PaymentProviderConfigurationValidatorTests
     {
         var configuration = CreateConfiguration(new Dictionary<string, string?>
         {
-            ["PaymentProviders:Stripe:ApiKey"] = "sk_test_development_stripe_key",
-            ["PaymentProviders:Stripe:WebhookSecret"] = "whsec_stripe_development_secret",
+            ["PaymentProviders:Stripe:ApiKey"] = "local-placeholder-stripe-api-key",
+            ["PaymentProviders:Stripe:WebhookSecret"] = "local-placeholder-stripe-webhook-secret",
             ["PaymentProviders:Stripe:ApiBaseUrl"] = "https://api.stripe.com"
         });
 
@@ -148,8 +148,8 @@ public sealed class PaymentProviderConfigurationValidatorTests
     {
         var configuration = CreateConfiguration(new Dictionary<string, string?>
         {
-            ["PaymentProviders:Stripe:ApiKey"] = "sk_test_configured",
-            ["PaymentProviders:Stripe:WebhookSecret"] = "whsec_configured",
+            ["PaymentProviders:Stripe:ApiKey"] = "configured-stripe-api-key",
+            ["PaymentProviders:Stripe:WebhookSecret"] = "configured-stripe-webhook-secret",
             ["PaymentProviders:Stripe:ApiBaseUrl"] = "https://api.stripe.com"
         });
 

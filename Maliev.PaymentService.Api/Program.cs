@@ -173,9 +173,9 @@ try
             var configuredSecretKey = omiseSection["SecretKey"];
             var configuredWebhookSecret = omiseSection["WebhookSecret"];
             var configuredApiBaseUrl = omiseSection["ApiBaseUrl"];
-            var publicKey = string.IsNullOrWhiteSpace(configuredPublicKey) ? "pkey_test_development_omise_key" : configuredPublicKey;
-            var secretKey = string.IsNullOrWhiteSpace(configuredSecretKey) ? "skey_test_development_omise_key" : configuredSecretKey;
-            var webhookSecret = string.IsNullOrWhiteSpace(configuredWebhookSecret) ? "whsec_omise_development_secret" : configuredWebhookSecret;
+            var publicKey = string.IsNullOrWhiteSpace(configuredPublicKey) ? "local-placeholder-omise-public-key" : configuredPublicKey;
+            var secretKey = string.IsNullOrWhiteSpace(configuredSecretKey) ? "local-placeholder-omise-secret-key" : configuredSecretKey;
+            var webhookSecret = string.IsNullOrWhiteSpace(configuredWebhookSecret) ? "local-placeholder-omise-webhook-secret" : configuredWebhookSecret;
             var apiBaseUrl = string.IsNullOrWhiteSpace(configuredApiBaseUrl) ? "https://api.omise.co" : configuredApiBaseUrl;
 
             if (omiseProvider is null)
@@ -261,8 +261,8 @@ try
             var configuredStripeApiKey = stripeSection["ApiKey"];
             var configuredStripeWebhookSecret = stripeSection["WebhookSecret"];
             var configuredStripeApiBaseUrl = stripeSection["ApiBaseUrl"];
-            var stripeApiKey = string.IsNullOrWhiteSpace(configuredStripeApiKey) ? "sk_test_development_stripe_key" : configuredStripeApiKey;
-            var stripeWebhookSecret = string.IsNullOrWhiteSpace(configuredStripeWebhookSecret) ? "whsec_stripe_development_secret" : configuredStripeWebhookSecret;
+            var stripeApiKey = string.IsNullOrWhiteSpace(configuredStripeApiKey) ? "local-placeholder-stripe-api-key" : configuredStripeApiKey;
+            var stripeWebhookSecret = string.IsNullOrWhiteSpace(configuredStripeWebhookSecret) ? "local-placeholder-stripe-webhook-secret" : configuredStripeWebhookSecret;
             var stripeApiBaseUrl = string.IsNullOrWhiteSpace(configuredStripeApiBaseUrl) ? "https://api.stripe.com" : configuredStripeApiBaseUrl;
 
             if (stripeProvider is null)

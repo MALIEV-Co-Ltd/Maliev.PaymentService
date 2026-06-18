@@ -36,9 +36,12 @@ public sealed class LocalPaymentProviderSeedingTests : IClassFixture<Integration
         Assert.True(omise.Credentials.ContainsKey("PublicKey"));
         Assert.True(omise.Credentials.ContainsKey("SecretKey"));
         Assert.True(omise.Credentials.ContainsKey("WebhookSecret"));
-        Assert.Equal("pkey_test_development_omise_key", encryptionService.Decrypt(omise.Credentials["PublicKey"]));
-        Assert.Equal("skey_test_development_omise_key", encryptionService.Decrypt(omise.Credentials["SecretKey"]));
-        Assert.Equal("whsec_omise_development_secret", encryptionService.Decrypt(omise.Credentials["WebhookSecret"]));
+        Assert.Equal("local-placeholder-omise-public-key", encryptionService.Decrypt(omise.Credentials["PublicKey"]));
+        Assert.Equal("local-placeholder-omise-secret-key", encryptionService.Decrypt(omise.Credentials["SecretKey"]));
+        Assert.Equal("local-placeholder-omise-webhook-secret", encryptionService.Decrypt(omise.Credentials["WebhookSecret"]));
+        AssertLocalPlaceholderIsNotProviderKey(encryptionService.Decrypt(omise.Credentials["PublicKey"]));
+        AssertLocalPlaceholderIsNotProviderKey(encryptionService.Decrypt(omise.Credentials["SecretKey"]));
+        AssertLocalPlaceholderIsNotProviderKey(encryptionService.Decrypt(omise.Credentials["WebhookSecret"]));
 
         var omiseConfiguration = Assert.Single(omise.Configurations);
         Assert.Equal("thailand", omiseConfiguration.Region);
@@ -57,8 +60,10 @@ public sealed class LocalPaymentProviderSeedingTests : IClassFixture<Integration
         Assert.Contains("USD", stripe.SupportedCurrencies);
         Assert.True(stripe.Credentials.ContainsKey("ApiKey"));
         Assert.True(stripe.Credentials.ContainsKey("WebhookSecret"));
-        Assert.Equal("sk_test_development_stripe_key", encryptionService.Decrypt(stripe.Credentials["ApiKey"]));
-        Assert.Equal("whsec_stripe_development_secret", encryptionService.Decrypt(stripe.Credentials["WebhookSecret"]));
+        Assert.Equal("local-placeholder-stripe-api-key", encryptionService.Decrypt(stripe.Credentials["ApiKey"]));
+        Assert.Equal("local-placeholder-stripe-webhook-secret", encryptionService.Decrypt(stripe.Credentials["WebhookSecret"]));
+        AssertLocalPlaceholderIsNotProviderKey(encryptionService.Decrypt(stripe.Credentials["ApiKey"]));
+        AssertLocalPlaceholderIsNotProviderKey(encryptionService.Decrypt(stripe.Credentials["WebhookSecret"]));
 
         var stripeConfiguration = Assert.Single(stripe.Configurations);
         Assert.Equal("global", stripeConfiguration.Region);
@@ -66,5 +71,10 @@ public sealed class LocalPaymentProviderSeedingTests : IClassFixture<Integration
         Assert.True(stripeConfiguration.IsActive);
         Assert.Equal(3, stripeConfiguration.MaxRetries);
         Assert.Equal(30, stripeConfiguration.TimeoutSeconds);
+    }
+
+    private static void AssertLocalPlaceholderIsNotProviderKey(string value)
+    {
+        Assert.DoesNotMatch("^(pkey|skey|sk|whsec)_", value);
     }
 }

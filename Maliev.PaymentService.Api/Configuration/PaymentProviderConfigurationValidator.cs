@@ -12,15 +12,15 @@ public static class PaymentProviderConfigurationValidator
 
     private static readonly Dictionary<string, string> OmiseDevelopmentPlaceholders = new(StringComparer.Ordinal)
     {
-        ["PublicKey"] = "pkey_test_development_omise_key",
-        ["SecretKey"] = "skey_test_development_omise_key",
-        ["WebhookSecret"] = "whsec_omise_development_secret"
+        ["PublicKey"] = "local-placeholder-omise-public-key",
+        ["SecretKey"] = "local-placeholder-omise-secret-key",
+        ["WebhookSecret"] = "local-placeholder-omise-webhook-secret"
     };
 
     private static readonly Dictionary<string, string> StripeDevelopmentPlaceholders = new(StringComparer.Ordinal)
     {
-        ["ApiKey"] = "sk_test_development_stripe_key",
-        ["WebhookSecret"] = "whsec_stripe_development_secret"
+        ["ApiKey"] = "local-placeholder-stripe-api-key",
+        ["WebhookSecret"] = "local-placeholder-stripe-webhook-secret"
     };
 
     /// <summary>
