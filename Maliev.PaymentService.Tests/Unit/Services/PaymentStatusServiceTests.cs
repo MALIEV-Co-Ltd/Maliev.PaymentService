@@ -137,6 +137,8 @@ public class PaymentStatusServiceTests
     [InlineData(PaymentStatus.Failed)]
     [InlineData(PaymentStatus.Cancelled)]
     [InlineData(PaymentStatus.Expired)]
+    [InlineData(PaymentStatus.Refunded)]
+    [InlineData(PaymentStatus.PartiallyRefunded)]
     public async Task GetPaymentStatusAsync_WhenTerminalTransaction_ShouldCacheFor3600Seconds(PaymentStatus status)
     {
         // Arrange

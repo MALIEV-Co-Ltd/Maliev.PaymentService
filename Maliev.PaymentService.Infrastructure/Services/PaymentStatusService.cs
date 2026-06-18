@@ -108,6 +108,8 @@ public class PaymentStatusService : IPaymentStatusService
             PaymentStatus.Failed => TerminalTransactionCacheTtlSeconds,
             PaymentStatus.Cancelled => TerminalTransactionCacheTtlSeconds,
             PaymentStatus.Expired => TerminalTransactionCacheTtlSeconds,
+            PaymentStatus.Refunded => TerminalTransactionCacheTtlSeconds,
+            PaymentStatus.PartiallyRefunded => TerminalTransactionCacheTtlSeconds,
             PaymentStatus.Pending => ActiveTransactionCacheTtlSeconds,
             PaymentStatus.Processing => ActiveTransactionCacheTtlSeconds,
             _ => ActiveTransactionCacheTtlSeconds
