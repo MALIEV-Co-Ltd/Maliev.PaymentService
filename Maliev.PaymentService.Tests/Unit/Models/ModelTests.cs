@@ -178,6 +178,27 @@ public class ModelTests
     }
 
     [Fact]
+    public void WebhookReceivedResponse_SerializesStableWireShape()
+    {
+        var model = new WebhookReceivedResponse
+        {
+            WebhookEventId = Guid.Parse("9803155c-6ceb-4ed0-ae26-cce5ba6e701e"),
+            Accepted = true,
+            IsDuplicate = true,
+            Message = "Webhook already processed",
+            ReceivedAt = new DateTime(2026, 6, 18, 8, 30, 0, DateTimeKind.Utc)
+        };
+
+        var json = JsonSerializer.Serialize(model);
+
+        Assert.Contains("\"webhookEventId\":\"9803155c-6ceb-4ed0-ae26-cce5ba6e701e\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"accepted\":true", json, StringComparison.Ordinal);
+        Assert.Contains("\"isDuplicate\":true", json, StringComparison.Ordinal);
+        Assert.Contains("\"receivedAt\":\"2026-06-18T08:30:00Z\"", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"WebhookEventId\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void UpdateProviderStatusRequest_PropertyTest()
     {
         var model = new UpdateProviderStatusRequest
