@@ -254,7 +254,7 @@ public class WebhookProcessingServiceTests
         Assert.True(result.Success);
         Assert.NotNull(publishedEvent);
         Assert.Equal(orderNumber, publishedEvent.Payload.OrderNumber);
-        Assert.Equal(transaction.OrderId, publishedEvent.Payload.OrderId.ToString());
+        Assert.Equal(CreateDeterministicGuid(orderNumber), publishedEvent.Payload.OrderId);
         Assert.Equal(transaction.CustomerId, publishedEvent.Payload.CustomerId);
         Assert.Equal("omise", publishedEvent.Payload.ProviderName);
         Assert.Equal("1.0.0", publishedEvent.MessageVersion);
@@ -263,6 +263,61 @@ public class WebhookProcessingServiceTests
         Assert.Contains("NotificationService", publishedEvent.ConsumedBy);
         Assert.Contains("QuoteEngine", publishedEvent.ConsumedBy);
         Assert.Contains("ProjectService", publishedEvent.ConsumedBy);
+    }
+
+    [Fact]
+    public async Task ProcessWebhookAsync_PaymentCompletedWithGuidOrderIdAndOrderNumberMetadata_ShouldPublishOrderNumberGuid()
+    {
+        var transactionId = Guid.NewGuid();
+        var internalOrderId = Guid.NewGuid();
+        var orderNumber = "ORD-2026-0099";
+        var webhook = CreateTestWebhook();
+        webhook.RawPayload = JsonSerializer.Serialize(new Dictionary<string, object>
+        {
+            ["transactionId"] = transactionId.ToString()
+        });
+        webhook.EventType = "payment.completed";
+
+        var transaction = CreateTestTransaction(PaymentStatus.Processing);
+        transaction.OrderId = internalOrderId.ToString("D");
+        transaction.Metadata = new Dictionary<string, string>
+        {
+            ["orderNumber"] = orderNumber
+        };
+
+        _webhookRepositoryMock
+            .Setup(r => r.GetByProviderEventIdAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((WebhookEvent?)null);
+
+        _webhookRepositoryMock
+            .Setup(r => r.UpdateAsync(It.IsAny<WebhookEvent>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        _paymentRepositoryMock
+            .Setup(r => r.GetByIdAsync(transactionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(transaction);
+
+        _paymentRepositoryMock
+            .Setup(r => r.UpdateAsync(It.IsAny<PaymentTransaction>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PaymentTransaction t, CancellationToken _) => t);
+
+        _paymentRepositoryMock
+            .Setup(r => r.AddLogAsync(It.IsAny<TransactionLog>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        PaymentCompletedEvent? publishedEvent = null;
+        _eventPublisherMock
+            .Setup(e => e.PublishAsync(It.IsAny<PaymentCompletedEvent>(), It.IsAny<CancellationToken>()))
+            .Callback<PaymentCompletedEvent, CancellationToken>((paymentEvent, _) => publishedEvent = paymentEvent)
+            .Returns(Task.CompletedTask);
+
+        var result = await _service.ProcessWebhookAsync(webhook);
+
+        Assert.True(result.Success);
+        Assert.NotNull(publishedEvent);
+        Assert.Equal(CreateDeterministicGuid(orderNumber), publishedEvent.Payload.OrderId);
+        Assert.NotEqual(internalOrderId, publishedEvent.Payload.OrderId);
+        Assert.Equal(orderNumber, publishedEvent.Payload.OrderNumber);
     }
 
     [Fact]

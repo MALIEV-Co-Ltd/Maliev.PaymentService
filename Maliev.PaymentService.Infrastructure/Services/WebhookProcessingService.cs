@@ -443,20 +443,19 @@ public class WebhookProcessingService : IWebhookProcessingService
     private static Guid ResolveOrderId(PaymentTransaction transaction)
     {
         var orderNumber = ResolveOrderNumber(transaction);
-        var candidate = !string.IsNullOrWhiteSpace(transaction.OrderId) ? transaction.OrderId : orderNumber;
-
-        if (Guid.TryParse(candidate, out var orderId))
+        if (!string.IsNullOrWhiteSpace(orderNumber) &&
+            !string.Equals(orderNumber, "Unknown", StringComparison.Ordinal))
         {
-            return orderId;
+            byte[] hash = System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(orderNumber));
+            return new Guid(hash);
         }
 
-        if (string.IsNullOrWhiteSpace(orderNumber) || string.Equals(orderNumber, "Unknown", StringComparison.Ordinal))
+        if (string.IsNullOrWhiteSpace(transaction.OrderId))
         {
             return Guid.Empty;
         }
 
-        byte[] hash = System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(orderNumber));
-        return new Guid(hash);
+        return Guid.TryParse(transaction.OrderId, out var orderId) ? orderId : Guid.Empty;
     }
 
     private async Task PublishPaymentStatusEventAsync(
