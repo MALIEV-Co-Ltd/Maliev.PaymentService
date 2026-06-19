@@ -2,6 +2,7 @@ using Maliev.PaymentService.Domain.Entities;
 using Maliev.PaymentService.Domain.Enums;
 using Maliev.PaymentService.Application.Interfaces;
 using Maliev.PaymentService.Infrastructure.Services;
+using Maliev.MessagingContracts.Contracts.Accounting;
 using Maliev.MessagingContracts.Contracts.Payments;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -195,12 +196,18 @@ public class WebhookProcessingServiceTests
         _eventPublisherMock
             .Setup(e => e.PublishAsync(It.IsAny<Maliev.MessagingContracts.Contracts.Payments.PaymentCompletedEvent>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
+        _eventPublisherMock
+            .Setup(e => e.PublishAsync(It.IsAny<PaymentRecordedEvent>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
 
         var result = await _service.ProcessWebhookAsync(webhook);
 
         Assert.True(result.Success);
         _eventPublisherMock.Verify(
             e => e.PublishAsync(It.IsAny<Maliev.MessagingContracts.Contracts.Payments.PaymentCompletedEvent>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+        _eventPublisherMock.Verify(
+            e => e.PublishAsync(It.IsAny<PaymentRecordedEvent>(), It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
@@ -244,9 +251,14 @@ public class WebhookProcessingServiceTests
             .Returns(Task.CompletedTask);
 
         PaymentCompletedEvent? publishedEvent = null;
+        PaymentRecordedEvent? accountingEvent = null;
         _eventPublisherMock
             .Setup(e => e.PublishAsync(It.IsAny<PaymentCompletedEvent>(), It.IsAny<CancellationToken>()))
             .Callback<PaymentCompletedEvent, CancellationToken>((paymentEvent, _) => publishedEvent = paymentEvent)
+            .Returns(Task.CompletedTask);
+        _eventPublisherMock
+            .Setup(e => e.PublishAsync(It.IsAny<PaymentRecordedEvent>(), It.IsAny<CancellationToken>()))
+            .Callback<PaymentRecordedEvent, CancellationToken>((paymentEvent, _) => accountingEvent = paymentEvent)
             .Returns(Task.CompletedTask);
 
         var result = await _service.ProcessWebhookAsync(webhook);
@@ -263,6 +275,16 @@ public class WebhookProcessingServiceTests
         Assert.Contains("NotificationService", publishedEvent.ConsumedBy);
         Assert.Contains("QuoteEngine", publishedEvent.ConsumedBy);
         Assert.Contains("ProjectService", publishedEvent.ConsumedBy);
+        Assert.NotNull(accountingEvent);
+        Assert.Equal(transaction.Id, accountingEvent.Payload.PaymentRecordId);
+        Assert.Equal(transaction.Id, accountingEvent.Payload.PaymentId);
+        Assert.Equal(transaction.ProviderTransactionId, accountingEvent.Payload.PaymentNumber);
+        Assert.Equal((double)transaction.Amount, accountingEvent.Payload.Amount);
+        Assert.Equal(transaction.Currency, accountingEvent.Payload.Currency);
+        Assert.Equal(transaction.ProviderName, accountingEvent.Payload.PaymentMethod);
+        Assert.Null(accountingEvent.Payload.CustomerId);
+        Assert.Null(accountingEvent.Payload.InvoiceId);
+        Assert.Contains("AccountingService", accountingEvent.ConsumedBy);
     }
 
     [Fact]

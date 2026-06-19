@@ -1,4 +1,5 @@
 using Maliev.MessagingContracts;
+using Maliev.MessagingContracts.Contracts.Accounting;
 using Maliev.MessagingContracts.Contracts.Payments;
 using Maliev.PaymentService.Domain.Entities;
 using Maliev.PaymentService.Domain.Enums;
@@ -528,6 +529,32 @@ public class WebhookProcessingService : IWebhookProcessingService
                         ProviderName = transaction.ProviderName
                     }
                 ), cancellationToken);
+
+                await _eventPublisher.PublishAsync(new PaymentRecordedEvent(
+                    MessageId: Guid.NewGuid(),
+                    MessageName: nameof(PaymentRecordedEvent),
+                    MessageType: MessageType.Event,
+                    MessageVersion: "1.0.0",
+                    PublishedBy: "PaymentService",
+                    ConsumedBy: ["AccountingService"],
+                    CorrelationId: correlationId,
+                    CausationId: null,
+                    OccurredAtUtc: occurredAt,
+                    IsPublic: false,
+                    Payload: new PaymentRecordedEventPayload(
+                        PaymentRecordId: transaction.Id,
+                        PaymentId: transaction.Id,
+                        PaymentNumber: ResolvePaymentNumber(transaction),
+                        PaymentDate: transaction.CompletedAt.HasValue
+                            ? new DateTimeOffset(DateTime.SpecifyKind(transaction.CompletedAt.Value, DateTimeKind.Utc))
+                            : occurredAt,
+                        Amount: (double)transaction.Amount,
+                        Currency: transaction.Currency,
+                        PaymentMethod: transaction.ProviderName,
+                        CustomerId: Guid.TryParse(transaction.CustomerId, out var customerId) ? customerId : null,
+                        InvoiceId: null,
+                        RecordedAt: occurredAt)
+                ), cancellationToken);
                 break;
 
             case PaymentStatus.Failed:
@@ -663,6 +690,13 @@ public class WebhookProcessingService : IWebhookProcessingService
         return TryExtractProviderPaymentStatus(parsedData, out var providerStatus)
             ? providerStatus
             : statusFromEventType;
+    }
+
+    private static string ResolvePaymentNumber(PaymentTransaction transaction)
+    {
+        return !string.IsNullOrWhiteSpace(transaction.ProviderTransactionId)
+            ? transaction.ProviderTransactionId
+            : transaction.Id.ToString("D");
     }
 
     private static bool TryExtractProviderPaymentStatus(Dictionary<string, object>? parsedData, out PaymentStatus status)
