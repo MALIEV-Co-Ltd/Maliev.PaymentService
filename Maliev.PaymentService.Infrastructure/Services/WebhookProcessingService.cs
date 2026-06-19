@@ -15,7 +15,7 @@ namespace Maliev.PaymentService.Infrastructure.Services;
 public class WebhookProcessingService : IWebhookProcessingService
 {
     private static readonly string[] PaymentCompletedConsumers =
-        ["InvoiceService", "OrderService", "NotificationService", "QuoteEngine"];
+        ["InvoiceService", "OrderService", "NotificationService", "QuoteEngine", "ProjectService"];
 
     private static readonly string[] PaymentOutcomeConsumers =
         ["OrderService", "NotificationService", "QuoteEngine"];
