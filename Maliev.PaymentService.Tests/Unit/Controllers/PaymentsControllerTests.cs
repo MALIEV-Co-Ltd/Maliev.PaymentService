@@ -4,6 +4,7 @@ using Maliev.PaymentService.Api.Models.Responses;
 using Maliev.PaymentService.Domain.Entities;
 using Maliev.PaymentService.Domain.Enums;
 using Maliev.PaymentService.Application.Interfaces;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Distributed;
@@ -19,16 +20,19 @@ public class PaymentsControllerTests
     private readonly Mock<IRefundService> _refundServiceMock = new();
     private readonly Mock<IMetricsService> _metricsServiceMock = new();
     private readonly Mock<IDistributedCache> _cacheMock = new();
+    private readonly Mock<IWebHostEnvironment> _environmentMock = new();
     private readonly Mock<ILogger<PaymentsController>> _loggerMock = new();
     private readonly PaymentsController _controller;
 
     public PaymentsControllerTests()
     {
+        _environmentMock.Setup(environment => environment.EnvironmentName).Returns("Testing");
         _controller = new PaymentsController(
             _paymentServiceMock.Object,
             _refundServiceMock.Object,
             _metricsServiceMock.Object,
             _cacheMock.Object,
+            _environmentMock.Object,
             _loggerMock.Object);
 
         var httpContext = new DefaultHttpContext();

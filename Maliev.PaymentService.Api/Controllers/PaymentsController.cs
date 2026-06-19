@@ -27,6 +27,7 @@ public class PaymentsController : ControllerBase
     private readonly IRefundService _refundService;
     private readonly IMetricsService _metricsService;
     private readonly IDistributedCache _cache;
+    private readonly IWebHostEnvironment _environment;
     private readonly ILogger<PaymentsController> _logger;
 
     /// <summary>
@@ -36,18 +37,21 @@ public class PaymentsController : ControllerBase
     /// <param name="refundService">Refund processing service</param>
     /// <param name="metricsService">Metrics collection service</param>
     /// <param name="cache">Distributed cache for performance</param>
+    /// <param name="environment">Current host environment</param>
     /// <param name="logger">Logger instance</param>
     public PaymentsController(
         IPaymentService paymentService,
         IRefundService refundService,
         IMetricsService metricsService,
         IDistributedCache cache,
+        IWebHostEnvironment environment,
         ILogger<PaymentsController> logger)
     {
         _paymentService = paymentService;
         _refundService = refundService;
         _metricsService = metricsService;
         _cache = cache;
+        _environment = environment;
         _logger = logger;
     }
 
@@ -129,7 +133,13 @@ public class PaymentsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error processing payment");
-            return StatusCode(500, new { error = "An error occurred while processing the payment" });
+            return StatusCode(500, new
+            {
+                error = "An error occurred while processing the payment",
+                detail = _environment.IsDevelopment() || _environment.IsEnvironment("Testing")
+                    ? $"{ex.Message} Base exception: {ex.GetBaseException().Message}"
+                    : null
+            });
         }
     }
 

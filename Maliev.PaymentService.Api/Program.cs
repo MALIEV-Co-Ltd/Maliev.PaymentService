@@ -86,7 +86,7 @@ try
     builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IWebhookRepository, Maliev.PaymentService.Infrastructure.Data.Repositories.WebhookRepository>();
 
     // Register HttpClient instances for provider adapters with resilience.
-    builder.Services.AddPaymentProviderHttpClients();
+    builder.Services.AddPaymentProviderHttpClients(builder.Environment.EnvironmentName);
 
     // Register provider factory
     builder.Services.AddScoped<Maliev.PaymentService.Infrastructure.Providers.ProviderFactory>();
