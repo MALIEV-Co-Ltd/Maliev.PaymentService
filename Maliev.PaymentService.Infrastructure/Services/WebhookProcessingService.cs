@@ -344,6 +344,12 @@ public class WebhookProcessingService : IWebhookProcessingService
             if (ShouldRepublishSameStatusWebhook(newStatus, eventType, processingAttempts))
             {
                 await PublishPaymentStatusEventAsync(transaction, newStatus, eventType, cancellationToken);
+                await AddPaymentStatusEventPublicationLogAsync(
+                    transaction,
+                    newStatus,
+                    eventType,
+                    correlationId,
+                    cancellationToken);
             }
 
             return true;
@@ -384,6 +390,12 @@ public class WebhookProcessingService : IWebhookProcessingService
         }, cancellationToken);
 
         await PublishPaymentStatusEventAsync(transaction, newStatus, eventType, cancellationToken);
+        await AddPaymentStatusEventPublicationLogAsync(
+            transaction,
+            newStatus,
+            eventType,
+            correlationId,
+            cancellationToken);
 
         _logger.LogInformation(
             "Transaction {TransactionId} status updated from {PreviousStatus} to {NewStatus} via webhook",
@@ -419,11 +431,12 @@ public class WebhookProcessingService : IWebhookProcessingService
             return true;
         }
 
-        return processingAttempts > 1 &&
-               status is PaymentStatus.Completed
-                   or PaymentStatus.Failed
-                   or PaymentStatus.Cancelled
-                   or PaymentStatus.Expired;
+        var retryableTerminalStatus = status is PaymentStatus.Failed
+            or PaymentStatus.Cancelled
+            or PaymentStatus.Expired;
+
+        return status is PaymentStatus.Completed ||
+               processingAttempts > 1 && retryableTerminalStatus;
     }
 
     private static string ResolveOrderNumber(PaymentTransaction transaction)
@@ -437,6 +450,26 @@ public class WebhookProcessingService : IWebhookProcessingService
         }
 
         return string.IsNullOrWhiteSpace(transaction.OrderId) ? "Unknown" : transaction.OrderId;
+    }
+
+    private Task AddPaymentStatusEventPublicationLogAsync(
+        PaymentTransaction transaction,
+        PaymentStatus status,
+        string eventType,
+        Guid? correlationId,
+        CancellationToken cancellationToken)
+    {
+        return _paymentRepository.AddLogAsync(new TransactionLog
+        {
+            Id = Guid.NewGuid(),
+            PaymentTransactionId = transaction.Id,
+            PreviousStatus = status,
+            NewStatus = status,
+            EventType = $"WebhookEventPublished:{eventType}",
+            Message = $"Published {status} payment status event for webhook {eventType}",
+            CorrelationId = correlationId?.ToString() ?? transaction.CorrelationId,
+            CreatedAt = DateTime.UtcNow
+        }, cancellationToken);
     }
 
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Security", "CA5351:Do Not Use Broken Cryptographic Algorithms", Justification = "MD5 is used for deterministic non-cryptographic ID mapping to match OrderService events.")]

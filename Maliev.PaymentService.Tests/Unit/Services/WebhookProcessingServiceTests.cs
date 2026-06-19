@@ -848,7 +848,7 @@ public class WebhookProcessingServiceTests
     }
 
     [Fact]
-    public async Task ProcessWebhookAsync_SameStatus_ShouldNotUpdate()
+    public async Task ProcessWebhookAsync_SameCompletedStatus_ShouldNotUpdateButPublishCompletion()
     {
         var transactionId = Guid.NewGuid();
         var webhook = CreateTestWebhook();
@@ -879,8 +879,11 @@ public class WebhookProcessingServiceTests
             r => r.UpdateAsync(It.IsAny<PaymentTransaction>(), It.IsAny<CancellationToken>()),
             Times.Never);
         _eventPublisherMock.Verify(
-            e => e.PublishAsync(It.IsAny<PaymentCompletedEvent>(), It.IsAny<CancellationToken>()),
-            Times.Never);
+            e => e.PublishAsync(
+                It.Is<PaymentCompletedEvent>(paymentEvent =>
+                    paymentEvent.Payload.PaymentId == transaction.Id),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     [Fact]
@@ -919,7 +922,14 @@ public class WebhookProcessingServiceTests
             Times.Never);
         _paymentRepositoryMock.Verify(
             r => r.AddLogAsync(It.IsAny<TransactionLog>(), It.IsAny<CancellationToken>()),
-            Times.Never);
+            Times.Once);
+        _paymentRepositoryMock.Verify(
+            r => r.AddLogAsync(
+                It.Is<TransactionLog>(log =>
+                    log.PaymentTransactionId == transaction.Id &&
+                    log.EventType == "WebhookEventPublished:payment.completed"),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
         _eventPublisherMock.Verify(
             e => e.PublishAsync(
                 It.Is<PaymentCompletedEvent>(paymentEvent =>
