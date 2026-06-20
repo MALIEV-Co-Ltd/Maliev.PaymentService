@@ -275,6 +275,7 @@ public class WebhookProcessingServiceTests
         Assert.Contains("NotificationService", publishedEvent.ConsumedBy);
         Assert.Contains("QuoteEngine", publishedEvent.ConsumedBy);
         Assert.Contains("ProjectService", publishedEvent.ConsumedBy);
+        Assert.Contains("JobService", publishedEvent.ConsumedBy);
         Assert.NotNull(accountingEvent);
         Assert.Equal(transaction.Id, accountingEvent.Payload.PaymentRecordId);
         Assert.Equal(transaction.Id, accountingEvent.Payload.PaymentId);
