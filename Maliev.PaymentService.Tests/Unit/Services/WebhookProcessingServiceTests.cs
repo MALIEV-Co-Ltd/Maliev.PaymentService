@@ -54,6 +54,38 @@ public class WebhookProcessingServiceTests
 
         Assert.True(result.Success);
         Assert.True(result.IsDuplicate);
+        _eventPublisherMock.Verify(
+            e => e.PublishAsync(It.IsAny<PaymentCompletedEvent>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _eventPublisherMock.Verify(
+            e => e.PublishAsync(It.IsAny<PaymentFailedEvent>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _eventPublisherMock.Verify(
+            e => e.PublishAsync(It.IsAny<PaymentPendingEvent>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task ProcessWebhookAsync_CompletedWebhookRetry_ShouldNotRepublishTerminalEvents()
+    {
+        var webhook = CreateTestWebhook();
+        webhook.ProcessingStatus = WebhookProcessingStatus.Completed;
+        webhook.PaymentTransactionId = Guid.NewGuid();
+
+        var result = await _service.ProcessWebhookAsync(webhook);
+
+        Assert.True(result.Success);
+        Assert.False(result.IsDuplicate);
+        Assert.Equal(webhook.PaymentTransactionId, result.TransactionId);
+        _eventPublisherMock.Verify(
+            e => e.PublishAsync(It.IsAny<PaymentCompletedEvent>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _eventPublisherMock.Verify(
+            e => e.PublishAsync(It.IsAny<PaymentFailedEvent>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _eventPublisherMock.Verify(
+            e => e.PublishAsync(It.IsAny<PaymentPendingEvent>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     [Fact]
