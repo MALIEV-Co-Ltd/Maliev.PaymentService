@@ -1,4 +1,6 @@
 using Asp.Versioning;
+using System;
+using System.Text.Json;
 using Maliev.Aspire.ServiceDefaults.Authorization;
 using Maliev.PaymentService.Api.Authorization;
 using Maliev.PaymentService.Application.Authorization;
@@ -8,7 +10,6 @@ using Maliev.PaymentService.Domain.Enums;
 using Maliev.PaymentService.Application.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Distributed;
-using System.Text.Json;
 
 namespace Maliev.PaymentService.Api.Controllers;
 
@@ -302,6 +303,54 @@ public class PaymentsController : ControllerBase
     }
 
     /// <summary>
+    /// Get a paged list of payments.
+    /// </summary>
+    /// <param name="page">Page number (1-based).</param>
+    /// <param name="pageSize">Items per page.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Paged list of payment summaries.</returns>
+    [HttpGet]
+    [ProducesResponseType(typeof(PagedResponse<PaymentSummaryResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<PagedResponse<PaymentSummaryResponse>>> GetPayments(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var (items, totalCount) = await _paymentService.GetPaymentsAsync(page, pageSize, cancellationToken);
+
+            var normalizedPageSize = pageSize < 1 ? 20 : pageSize;
+            if (normalizedPageSize > 100)
+            {
+                normalizedPageSize = 100;
+            }
+
+            var normalizedPage = page < 1 ? 1 : page;
+            var normalizedTotalPages = (int)Math.Ceiling(totalCount / (double)normalizedPageSize);
+
+            return Ok(new PagedResponse<PaymentSummaryResponse>
+            {
+                Data = items.Select(MapToPaymentSummary),
+                Meta = new PaginationMeta
+                {
+                    CurrentPage = normalizedPage,
+                    TotalPages = normalizedTotalPages,
+                    TotalItems = totalCount,
+                    TotalCount = items.Count,
+                    PageSize = normalizedPageSize
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving payments page {Page} size {PageSize}", page, pageSize);
+            return StatusCode(500, new { error = "An error occurred while retrieving payments" });
+        }
+    }
+
+    /// <summary>
     /// Maps a payment transaction entity to API response model.
     /// </summary>
     private static PaymentResponse MapToPaymentResponse(Maliev.PaymentService.Domain.Entities.PaymentTransaction transaction)
@@ -324,6 +373,25 @@ public class PaymentsController : ControllerBase
             CreatedAt = transaction.CreatedAt,
             UpdatedAt = transaction.UpdatedAt,
             CompletedAt = transaction.CompletedAt
+        };
+    }
+
+    private static PaymentSummaryResponse MapToPaymentSummary(Maliev.PaymentService.Domain.Entities.PaymentTransaction transaction)
+    {
+        var providerName = transaction.PaymentProvider?.Name ?? transaction.ProviderName;
+
+        return new PaymentSummaryResponse
+        {
+            Id = transaction.Id,
+            PaymentNumber = transaction.Id.ToString("N"),
+            InvoiceNumber = transaction.OrderId,
+            CustomerName = transaction.CustomerId,
+            Amount = transaction.Amount,
+            Method = providerName,
+            PaymentMethod = transaction.ProviderName,
+            Status = FormatPaymentStatus(transaction.Status),
+            CreatedAt = transaction.CreatedAt,
+            PaymentDate = transaction.CompletedAt ?? transaction.UpdatedAt
         };
     }
 

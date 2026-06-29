@@ -23,6 +23,18 @@ public interface IPaymentService
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Payment transaction if found, null otherwise</returns>
     Task<PaymentTransaction?> GetPaymentByIdAsync(Guid transactionId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets a paged list of payment transactions.
+    /// </summary>
+    /// <param name="page">Page number (1-based)</param>
+    /// <param name="pageSize">Number of items per page</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Paged payment transactions with total count.</returns>
+    Task<(IReadOnlyList<PaymentTransaction> Items, int TotalCount)> GetPaymentsAsync(
+        int page = 1,
+        int pageSize = 20,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>

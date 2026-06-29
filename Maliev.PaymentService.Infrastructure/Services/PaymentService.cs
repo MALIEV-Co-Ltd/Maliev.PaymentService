@@ -601,4 +601,12 @@ public class PaymentService : IPaymentService
     {
         return await _paymentRepository.GetByIdAsync(transactionId, cancellationToken);
     }
+
+    public async Task<(IReadOnlyList<PaymentTransaction> Items, int TotalCount)> GetPaymentsAsync(
+        int page = 1,
+        int pageSize = 20,
+        CancellationToken cancellationToken = default)
+    {
+        return await _paymentRepository.GetPaymentsAsync(page, pageSize, cancellationToken);
+    }
 }

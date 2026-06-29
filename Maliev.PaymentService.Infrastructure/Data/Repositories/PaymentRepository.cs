@@ -68,6 +68,35 @@ public class PaymentRepository : IPaymentRepository
     }
 
     /// <summary>
+    /// Gets a paged list of payment transactions and total matching count.
+    /// </summary>
+    public async Task<(IReadOnlyList<PaymentTransaction> Items, int TotalCount)> GetPaymentsAsync(
+        int page = 1,
+        int pageSize = 20,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedPage = page < 1 ? 1 : page;
+        var normalizedPageSize = pageSize < 1 ? 20 : pageSize;
+        if (normalizedPageSize > 100)
+        {
+            normalizedPageSize = 100;
+        }
+
+        var query = _context.PaymentTransactions
+            .AsNoTracking()
+            .Include(p => p.PaymentProvider)
+            .OrderByDescending(p => p.CreatedAt);
+
+        var totalCount = await query.CountAsync(cancellationToken);
+        var items = await query
+            .Skip((normalizedPage - 1) * normalizedPageSize)
+            .Take(normalizedPageSize)
+            .ToListAsync(cancellationToken);
+
+        return (items, totalCount);
+    }
+
+    /// <summary>
     /// Adds a new payment transaction.
     /// </summary>
     public async Task<PaymentTransaction> AddAsync(PaymentTransaction transaction, CancellationToken cancellationToken = default)

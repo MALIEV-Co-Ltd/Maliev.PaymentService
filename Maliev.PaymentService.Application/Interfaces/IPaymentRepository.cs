@@ -67,4 +67,16 @@ public interface IPaymentRepository
     /// <param name="log">Transaction log to add</param>
     /// <param name="cancellationToken">Cancellation token</param>
     Task AddLogAsync(TransactionLog log, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets a paged set of payment transactions along with total count.
+    /// </summary>
+    /// <param name="page">Page number (1-based)</param>
+    /// <param name="pageSize">Number of items per page</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Tuple containing requested payment transactions and full result total count.</returns>
+    Task<(IReadOnlyList<PaymentTransaction> Items, int TotalCount)> GetPaymentsAsync(
+        int page = 1,
+        int pageSize = 20,
+        CancellationToken cancellationToken = default);
 }

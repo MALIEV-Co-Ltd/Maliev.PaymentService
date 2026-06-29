@@ -317,6 +317,31 @@ public class PaymentsControllerTests
     }
 
     [Fact]
+    public async Task GetPayments_ReturnsPagedResponseWithMetadata()
+    {
+        // Arrange
+        var firstTransaction = CreateTestTransaction();
+        var secondTransaction = CreateTestTransaction();
+
+        _paymentServiceMock.Setup(x => x.GetPaymentsAsync(1, 2, default))
+            .ReturnsAsync((new[] { firstTransaction, secondTransaction }, 2));
+
+        // Act
+        var result = await _controller.GetPayments(page: 1, pageSize: 2, cancellationToken: default);
+
+        // Assert
+        var okResult = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<PagedResponse<PaymentSummaryResponse>>(okResult.Value);
+        Assert.Equal(1, response.Meta.CurrentPage);
+        Assert.Equal(1, response.Meta.TotalPages);
+        Assert.Equal(2, response.Meta.TotalItems);
+        Assert.Equal(2, response.Meta.TotalCount);
+        Assert.Equal(2, response.Meta.PageSize);
+        Assert.Equal(2, response.Data.Count());
+        _paymentServiceMock.Verify(x => x.GetPaymentsAsync(1, 2, default), Times.Once);
+    }
+
+    [Fact]
     public async Task ProcessRefund_InvalidOperation_ReturnsBadRequest()
     {
         // Arrange
@@ -448,6 +473,32 @@ public class PaymentsControllerTests
             Configurations = new List<ProviderConfiguration>(),
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
+        };
+    }
+
+    private PaymentTransaction CreateTestTransaction()
+    {
+        var provider = CreateTestProvider("stripe");
+        return new PaymentTransaction
+        {
+            Id = Guid.NewGuid(),
+            IdempotencyKey = Guid.NewGuid().ToString(),
+            Amount = 125.5m,
+            Currency = "USD",
+            Status = PaymentStatus.Completed,
+            CustomerId = "customer-1",
+            OrderId = "order-1",
+            Description = "Test payment",
+            PaymentProviderId = provider.Id,
+            ProviderName = "Stripe",
+            ProviderTransactionId = Guid.NewGuid().ToString(),
+            ReturnUrl = "https://example.com/return",
+            CancelUrl = "https://example.com/cancel",
+            Metadata = new Dictionary<string, string>(),
+            CorrelationId = Guid.NewGuid().ToString(),
+            CreatedAt = DateTime.UtcNow.AddHours(-1),
+            UpdatedAt = DateTime.UtcNow,
+            CompletedAt = DateTime.UtcNow
         };
     }
 }
