@@ -70,6 +70,19 @@ public class ProviderPaymentResult
     public required string ProviderTransactionId { get; set; }
     public required string Status { get; set; }
     public string? PaymentUrl { get; set; }
+
+    /// <summary>Download URL of the scannable QR image (e.g. PromptPay), when the source is QR-based.</summary>
+    public string? QrImageUrl { get; set; }
+
+    /// <summary>Raw QR payload (e.g. PromptPay EMVCo string) for clients that render the code themselves.</summary>
+    public string? QrRawData { get; set; }
+
+    /// <summary>When the QR / charge source expires, if the provider supplies it.</summary>
+    public DateTime? ExpiresAt { get; set; }
+
+    /// <summary>Payment method resolved for the charge (e.g. "promptpay", "card").</summary>
+    public string? PaymentMethod { get; set; }
+
     public string? ErrorMessage { get; set; }
     public string? ErrorCode { get; set; }
     public string? RawResponse { get; set; }

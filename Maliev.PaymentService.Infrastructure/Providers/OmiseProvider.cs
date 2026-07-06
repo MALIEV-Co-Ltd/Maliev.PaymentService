@@ -42,11 +42,12 @@ public class OmiseProvider : IPaymentProviderAdapter
                 ["orderId"] = request.OrderId
             };
 
+            var sourceType = ResolveSourceType(request);
             var form = new Dictionary<string, string>
             {
                 ["amount"] = ToOmiseMinorUnits(request.Amount).ToString(CultureInfo.InvariantCulture),
                 ["currency"] = request.Currency.ToLowerInvariant(),
-                ["source[type]"] = ResolveSourceType(request),
+                ["source[type]"] = sourceType,
                 ["return_uri"] = request.ReturnUrl,
                 ["description"] = request.Description
             };
@@ -103,6 +104,10 @@ public class OmiseProvider : IPaymentProviderAdapter
                 ProviderTransactionId = charge.Id,
                 Status = charge.Status ?? "pending",
                 PaymentUrl = ResolvePaymentUrl(charge),
+                QrImageUrl = charge.Source?.ScannableCode?.Image?.DownloadUri,
+                QrRawData = charge.Source?.ScannableCode?.RawData,
+                ExpiresAt = charge.ExpiresAt,
+                PaymentMethod = sourceType,
                 RawResponse = responseBody
             };
         }
@@ -334,6 +339,9 @@ public class OmiseProvider : IPaymentProviderAdapter
         [JsonPropertyName("authorize_uri")]
         public string? AuthorizeUri { get; set; }
 
+        [JsonPropertyName("expires_at")]
+        public DateTime? ExpiresAt { get; set; }
+
         [JsonPropertyName("source")]
         public OmiseSourceResponse? Source { get; set; }
     }
@@ -348,6 +356,9 @@ public class OmiseProvider : IPaymentProviderAdapter
     {
         [JsonPropertyName("image")]
         public OmiseImageResponse? Image { get; set; }
+
+        [JsonPropertyName("raw_data")]
+        public string? RawData { get; set; }
     }
 
     private sealed class OmiseImageResponse

@@ -78,6 +78,51 @@ public sealed class OmiseProviderTests
     }
 
     [Fact]
+    public async Task ProcessPaymentAsync_ExposesPromptPayQrDetails()
+    {
+        var handler = new CapturingHandler(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = JsonContent.Create(new
+            {
+                id = "chrg_test_qr",
+                status = "pending",
+                expires_at = "2026-07-06T12:00:00Z",
+                source = new
+                {
+                    scannable_code = new
+                    {
+                        raw_data = "00020101021129370016A000000677010111-6304ABCD",
+                        image = new
+                        {
+                            download_uri = "https://api.omise.co/charges/chrg_test_qr/documents/docu_qr/downloads/png"
+                        }
+                    }
+                }
+            })
+        });
+        using var httpClient = new HttpClient(handler);
+        var provider = new OmiseProvider(httpClient, "skey_test_123", "https://api.omise.co");
+
+        var result = await provider.ProcessPaymentAsync(new ProviderPaymentRequest
+        {
+            IdempotencyKey = "omise-idem-qr",
+            Amount = 12500m,
+            Currency = "THB",
+            CustomerId = "customer-1",
+            OrderId = "order-1",
+            Description = "PromptPay order",
+            ReturnUrl = "https://quote.example.com/payment/success",
+            CancelUrl = "https://quote.example.com/payment/cancel"
+        });
+
+        Assert.True(result.Success);
+        Assert.Equal("promptpay", result.PaymentMethod);
+        Assert.Equal("https://api.omise.co/charges/chrg_test_qr/documents/docu_qr/downloads/png", result.QrImageUrl);
+        Assert.Equal("00020101021129370016A000000677010111-6304ABCD", result.QrRawData);
+        Assert.NotNull(result.ExpiresAt);
+    }
+
+    [Fact]
     public async Task GetPaymentStatusAsync_RetrievesChargeStatus()
     {
         var handler = new CapturingHandler(new HttpResponseMessage(HttpStatusCode.OK)

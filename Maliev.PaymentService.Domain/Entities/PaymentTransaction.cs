@@ -69,6 +69,22 @@ public class PaymentTransaction
     /// </summary>
     public string? PaymentUrl { get; set; }
 
+    /// <summary>Scannable QR image URL (e.g. PromptPay). Transient — surfaced at initiation, not persisted.</summary>
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+    public string? QrImageUrl { get; set; }
+
+    /// <summary>Raw QR payload for client-side rendering. Transient — not persisted.</summary>
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+    public string? QrRawData { get; set; }
+
+    /// <summary>QR / charge-source expiry, if supplied. Transient — not persisted.</summary>
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+    public DateTime? QrExpiresAt { get; set; }
+
+    /// <summary>Resolved payment method (e.g. "promptpay", "card"). Transient — not persisted.</summary>
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+    public string? PaymentMethod { get; set; }
+
     /// <summary>
     /// Return URL for successful payment.
     /// </summary>

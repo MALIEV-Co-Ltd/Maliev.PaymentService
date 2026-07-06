@@ -67,6 +67,22 @@ public class PaymentResponse
     [JsonPropertyName("paymentUrl")]
     public string? PaymentUrl { get; set; }
 
+    /// <summary>Scannable QR image URL (e.g. PromptPay), when the payment method is QR-based.</summary>
+    [JsonPropertyName("qrImageUrl")]
+    public string? QrImageUrl { get; set; }
+
+    /// <summary>Raw QR payload for clients that render the code themselves.</summary>
+    [JsonPropertyName("qrRawData")]
+    public string? QrRawData { get; set; }
+
+    /// <summary>When the QR / charge source expires, if provided.</summary>
+    [JsonPropertyName("qrExpiresAt")]
+    public DateTime? QrExpiresAt { get; set; }
+
+    /// <summary>Resolved payment method (e.g. "promptpay", "card").</summary>
+    [JsonPropertyName("paymentMethod")]
+    public string? PaymentMethod { get; set; }
+
     /// <summary>
     /// Metadata associated with the payment.
     /// </summary>

@@ -485,6 +485,10 @@ public class PaymentService : IPaymentService
 
         transaction.ProviderTransactionId = providerResult.ProviderTransactionId;
         transaction.PaymentUrl = providerResult.PaymentUrl;
+        transaction.QrImageUrl = providerResult.QrImageUrl;
+        transaction.QrRawData = providerResult.QrRawData;
+        transaction.QrExpiresAt = providerResult.ExpiresAt;
+        transaction.PaymentMethod = providerResult.PaymentMethod;
         transaction.Status = providerResult.Success ? PaymentStatus.Processing : PaymentStatus.Failed;
         transaction.ErrorMessage = providerResult.ErrorMessage;
         transaction.ProviderErrorCode = providerResult.ErrorCode;
