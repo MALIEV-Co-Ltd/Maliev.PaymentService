@@ -1,5 +1,9 @@
 name: CI - Develop
 
+env:
+  ServiceDefaultsVersion: 1.0.81-alpha
+  MessagingContractsVersion: 1.0.91-alpha
+
 on:
   push:
     branches:
@@ -12,14 +16,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
-
-      - name: Switch to PackageReference for Docker build
-        run: |
-          # Use develop version format for shared libraries
-          VERSION_FORMAT="1.0.*-alpha*"
-          find . -name "*.csproj" -type f -exec sed -i             's|<ProjectReference Include=".*Maliev.Aspire.ServiceDefaults.*.csproj" />|<PackageReference Include="Maliev.Aspire.ServiceDefaults" Version="'$VERSION_FORMAT'" />|g'             {} +
-          find . -name "*.csproj" -type f -exec sed -i             's|<ProjectReference Include=".*Maliev.MessagingContracts.*.csproj" />|<PackageReference Include="Maliev.MessagingContracts" Version="'$VERSION_FORMAT'" />|g'             {} +
-          echo "Switched to PackageReference for ServiceDefaults and MessagingContracts"
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v3
@@ -39,6 +35,8 @@ jobs:
             docker build \
             --secret id=nuget_username,env=NUGET_USERNAME \
             --secret id=nuget_password,env=NUGET_PASSWORD \
+            --build-arg SERVICE_DEFAULTS_VERSION=${{ env.ServiceDefaultsVersion }} \
+            --build-arg MESSAGING_CONTRACTS_VERSION=${{ env.MessagingContractsVersion }} \
             -t asia-southeast1-docker.pkg.dev/maliev-website/maliev-website-artifact-dev/maliev-payment-service:${{ github.sha }} \
             -f Maliev.PaymentService.Api/Dockerfile .
           docker push asia-southeast1-docker.pkg.dev/maliev-website/maliev-website-artifact-dev/maliev-payment-service:${{ github.sha }}

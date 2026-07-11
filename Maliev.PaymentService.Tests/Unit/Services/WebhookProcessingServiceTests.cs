@@ -873,6 +873,15 @@ public class WebhookProcessingServiceTests
 
         var transaction = CreateTestTransaction(PaymentStatus.Processing);
         transaction.ProviderName = "opn";
+        PaymentPendingEvent? publishedEvent = null;
+
+        _eventPublisherMock
+            .Setup(publisher => publisher.PublishAsync(
+                It.IsAny<PaymentPendingEvent>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<PaymentPendingEvent, CancellationToken>(
+                (paymentEvent, _) => publishedEvent = paymentEvent)
+            .Returns(Task.CompletedTask);
 
         _webhookRepositoryMock
             .Setup(r => r.GetByProviderEventIdAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -889,6 +898,13 @@ public class WebhookProcessingServiceTests
         var result = await _service.ProcessWebhookAsync(webhook);
 
         Assert.True(result.Success);
+        Assert.NotNull(publishedEvent);
+        using (var document = JsonDocument.Parse(JsonSerializer.Serialize(publishedEvent)))
+        {
+            Assert.Equal(
+                "opn",
+                document.RootElement.GetProperty("payload").GetProperty("providerName").GetString());
+        }
         _paymentRepositoryMock.Verify(
             r => r.UpdateAsync(It.IsAny<PaymentTransaction>(), It.IsAny<CancellationToken>()),
             Times.Never);

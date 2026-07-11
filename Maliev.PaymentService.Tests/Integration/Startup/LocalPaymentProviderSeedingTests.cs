@@ -20,8 +20,10 @@ public sealed class LocalPaymentProviderSeedingTests : IClassFixture<Integration
     [Fact]
     public async Task TestingStartup_SeedsOmisePrimaryAndStripeFallbackProvidersForCheckoutAndWebhooks()
     {
-        using var client = _factory.CreateClient();
-        await using var scope = _factory.Services.CreateAsyncScope();
+        await _factory.CleanDatabaseAsync();
+        using var isolatedFactory = _factory.WithWebHostBuilder(_ => { });
+        using var client = isolatedFactory.CreateClient();
+        await using var scope = isolatedFactory.Services.CreateAsyncScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
         var encryptionService = scope.ServiceProvider.GetRequiredService<IEncryptionService>();
 

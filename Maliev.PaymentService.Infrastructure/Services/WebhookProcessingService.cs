@@ -523,11 +523,9 @@ public class WebhookProcessingService : IWebhookProcessingService
                         CustomerId: transaction.CustomerId,
                         PaymentId: transaction.Id,
                         Amount: (double)transaction.Amount,
-                        Currency: transaction.Currency
+                        Currency: transaction.Currency,
+                        ProviderName: transaction.ProviderName
                     )
-                    {
-                        ProviderName = transaction.ProviderName
-                    }
                 ), cancellationToken);
 
                 await _eventPublisher.PublishAsync(new PaymentRecordedEvent(
