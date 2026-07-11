@@ -11,10 +11,14 @@ EXPOSE 8081
 # This stage is used to build the service project
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG BUILD_CONFIGURATION=Release
+ARG SERVICE_DEFAULTS_VERSION=1.0.81-alpha
+ARG MESSAGING_CONTRACTS_VERSION=1.0.91-alpha
+ENV GITHUB_ACTIONS=true
 WORKDIR /src
 
 # Copy nuget.config and project files
 COPY ["nuget.config", "."]
+COPY ["Directory.Build.props", "."]
 COPY ["Maliev.PaymentService.Api/Maliev.PaymentService.Api.csproj", "Maliev.PaymentService.Api/"]
 COPY ["Maliev.PaymentService.Domain/Maliev.PaymentService.Domain.csproj", "Maliev.PaymentService.Domain/"]
 COPY ["Maliev.PaymentService.Application/Maliev.PaymentService.Application.csproj", "Maliev.PaymentService.Application/"]
@@ -25,16 +29,31 @@ RUN --mount=type=secret,id=nuget_username \
     --mount=type=secret,id=nuget_password \
     NUGET_USERNAME=$(cat /run/secrets/nuget_username) \
     NUGET_PASSWORD=$(cat /run/secrets/nuget_password) \
-    dotnet restore "./Maliev.PaymentService.Api/Maliev.PaymentService.Api.csproj"
+    dotnet restore "./Maliev.PaymentService.Api/Maliev.PaymentService.Api.csproj" \
+      -p:ServiceDefaultsVersion=$SERVICE_DEFAULTS_VERSION \
+      -p:MessagingContractsVersion=$MESSAGING_CONTRACTS_VERSION
 
 COPY . .
 WORKDIR "/src/Maliev.PaymentService.Api"
-RUN dotnet build "./Maliev.PaymentService.Api.csproj" -c $BUILD_CONFIGURATION -o /app/build
+RUN dotnet build "./Maliev.PaymentService.Api.csproj" \
+      -c $BUILD_CONFIGURATION \
+      --no-restore \
+      -o /app/build \
+      -p:ServiceDefaultsVersion=$SERVICE_DEFAULTS_VERSION \
+      -p:MessagingContractsVersion=$MESSAGING_CONTRACTS_VERSION
 
 # This stage is used to publish the service project to be copied to the final stage
 FROM build AS publish
 ARG BUILD_CONFIGURATION=Release
-RUN dotnet publish "./Maliev.PaymentService.Api.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false
+ARG SERVICE_DEFAULTS_VERSION=1.0.81-alpha
+ARG MESSAGING_CONTRACTS_VERSION=1.0.91-alpha
+RUN dotnet publish "./Maliev.PaymentService.Api.csproj" \
+      -c $BUILD_CONFIGURATION \
+      --no-restore \
+      -o /app/publish \
+      /p:UseAppHost=false \
+      -p:ServiceDefaultsVersion=$SERVICE_DEFAULTS_VERSION \
+      -p:MessagingContractsVersion=$MESSAGING_CONTRACTS_VERSION
 
 # This stage is used in production or when running from VS in regular mode (Default when not using the Debug configuration)
 FROM base AS final

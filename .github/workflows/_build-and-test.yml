@@ -1,5 +1,9 @@
 name: Build and Test
 
+env:
+  ServiceDefaultsVersion: 1.0.81-alpha
+  MessagingContractsVersion: 1.0.91-alpha
+
 on:
   workflow_call:
     inputs:
@@ -10,10 +14,6 @@ on:
         required: false
         type: string
         default: Release
-      extra_args:
-        required: false
-        type: string
-        default: ""
     secrets:
       gitops_pat:
         required: true
@@ -33,16 +33,16 @@ jobs:
           dotnet-version: "10.x"
 
       - name: Restore dependencies
-        run: dotnet restore ${{ inputs.solution_file }} ${{ inputs.extra_args }}
+        run: dotnet restore ${{ inputs.solution_file }}
         working-directory: service
         env:
           NUGET_USERNAME: ${{ github.actor }}
           NUGET_PASSWORD: ${{ secrets.gitops_pat }}
 
       - name: Build
-        run: dotnet build ${{ inputs.solution_file }} --no-restore --configuration ${{ inputs.configuration }} ${{ inputs.extra_args }}
+        run: dotnet build ${{ inputs.solution_file }} --no-restore --configuration ${{ inputs.configuration }}
         working-directory: service
 
       - name: Test
-        run: dotnet test ${{ inputs.solution_file }} --no-build --configuration ${{ inputs.configuration }} --verbosity normal ${{ inputs.extra_args }}
+        run: dotnet test ${{ inputs.solution_file }} --no-build --configuration ${{ inputs.configuration }} --verbosity normal
         working-directory: service

@@ -48,7 +48,8 @@ public class TestController : ControllerBase
             CustomerId: request.CustomerId,
             PaymentId: request.PaymentId,
             Amount: request.Amount,
-            Currency: request.Currency
+            Currency: request.Currency,
+            ProviderName: request.ProviderName
         );
 
         var @event = new PaymentCompletedEvent(
@@ -102,4 +103,9 @@ public class PublishPaymentRequest
     /// Currency code.
     /// </summary>
     public string Currency { get; set; } = "THB";
+
+    /// <summary>
+    /// Provider identifier represented by the simulated completion event.
+    /// </summary>
+    public string ProviderName { get; set; } = "manual-test";
 }

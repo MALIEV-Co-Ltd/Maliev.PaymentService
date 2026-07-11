@@ -31,7 +31,14 @@
     <ProjectReference Include="..\Maliev.PaymentService.Application\Maliev.PaymentService.Application.csproj" />
     <ProjectReference Include="..\Maliev.PaymentService.Domain\Maliev.PaymentService.Domain.csproj" />
     <ProjectReference Include="..\Maliev.PaymentService.Infrastructure\Maliev.PaymentService.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(GITHUB_ACTIONS)' != 'true'">
     <ProjectReference Include="..\..\Maliev.Aspire\Maliev.Aspire.ServiceDefaults\Maliev.Aspire.ServiceDefaults.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <PackageReference Include="Maliev.Aspire.ServiceDefaults" Version="$(ServiceDefaultsVersion)" />
   </ItemGroup>
 
 </Project>
