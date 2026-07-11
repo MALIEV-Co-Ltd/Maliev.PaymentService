@@ -2,6 +2,7 @@
 **/bin/
 **/obj/
 **/out/
+.ci-sources/
 
 # Test projects
 **/*Tests/
@@ -33,6 +34,7 @@ specs/
 # NuGet packages
 *.nupkg
 **/packages/
+!.ci-packages/*.nupkg
 
 # Docker files
 **/Dockerfile*

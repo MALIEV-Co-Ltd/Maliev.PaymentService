@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
 namespace Maliev.PaymentService.Tests.Infrastructure;
@@ -18,7 +19,10 @@ public sealed class DeploymentDependencyPinTests
         foreach (var projectFile in Directory.EnumerateFiles(
                      repositoryRoot,
                      "*.csproj",
-                     SearchOption.AllDirectories))
+                     SearchOption.AllDirectories)
+                 .Where(path => !path.Contains(
+                     $"{Path.DirectorySeparatorChar}.ci-sources{Path.DirectorySeparatorChar}",
+                     StringComparison.OrdinalIgnoreCase)))
         {
             var project = XDocument.Load(projectFile);
             foreach (var packageReference in project.Descendants("PackageReference"))
@@ -46,7 +50,6 @@ public sealed class DeploymentDependencyPinTests
 
         foreach (var workflowName in new[]
                  {
-                     "_build-and-test.yml",
                      "ci-develop.yml",
                      "ci-main.yml",
                      "ci-staging.yml",
@@ -60,6 +63,93 @@ public sealed class DeploymentDependencyPinTests
             Assert.DoesNotContain("SharedLibraryVersion", workflow, StringComparison.Ordinal);
             Assert.DoesNotContain("1.0.*", workflow, StringComparison.Ordinal);
         }
+    }
+
+    [Fact]
+    public void PullRequestValidation_ReconstructsExactPackagesWithoutSecrets()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var workflowPath = Path.Combine(repositoryRoot, ".github", "workflows", "pr-validation.yml");
+        var ciNuGetConfigPath = Path.Combine(repositoryRoot, "NuGet.PRValidation.Config");
+        var packageScriptPath = Path.Combine(repositoryRoot, "scripts", "prepare-payment-ci-packages.sh");
+
+        Assert.True(File.Exists(ciNuGetConfigPath), "Expected a credential-free PR validation NuGet configuration.");
+        Assert.True(File.Exists(packageScriptPath), "Expected an exact dependency package reconstruction script.");
+
+        var workflow = File.ReadAllText(workflowPath);
+        var ciNuGetConfig = File.ReadAllText(ciNuGetConfigPath);
+        var packageScript = File.ReadAllText(packageScriptPath);
+        var productionNuGetConfig = File.ReadAllText(Path.Combine(repositoryRoot, "nuget.config"));
+
+        Assert.Contains("pull_request:", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("pull_request_target", workflow, StringComparison.Ordinal);
+        Assert.Contains("permissions:", workflow, StringComparison.Ordinal);
+        Assert.Contains("contents: read", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("packages: read", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("GITOPS_PAT", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("secrets.", workflow, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("NUGET_USERNAME", workflow, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("NUGET_PASSWORD", workflow, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("_build-and-test.yml", workflow, StringComparison.Ordinal);
+        Assert.Contains("concurrency:", workflow, StringComparison.Ordinal);
+        Assert.Contains("cancel-in-progress: true", workflow, StringComparison.Ordinal);
+
+        Assert.Contains("repository: MALIEV-Co-Ltd/Maliev.MessagingContracts", workflow, StringComparison.Ordinal);
+        Assert.Contains("ref: 0bcd4c704d842211c5ff9bd6b9c4b3aacfcbd8e7", workflow, StringComparison.Ordinal);
+        Assert.Contains("repository: MALIEV-Co-Ltd/Maliev.Aspire", workflow, StringComparison.Ordinal);
+        Assert.Contains("ref: 7121d57705fc1eff6c7ebb6a69e33e9c26ebfccc", workflow, StringComparison.Ordinal);
+        Assert.Contains("persist-credentials: false", workflow, StringComparison.Ordinal);
+        Assert.Contains("prepare-payment-ci-packages.sh", workflow, StringComparison.Ordinal);
+        Assert.Contains("github.run_id", workflow, StringComparison.Ordinal);
+        Assert.Contains("github.run_attempt", workflow, StringComparison.Ordinal);
+        Assert.Contains("artifact-digest", workflow, StringComparison.Ordinal);
+        Assert.Contains("SHA256SUMS", workflow, StringComparison.Ordinal);
+        Assert.Contains("sha256sum --check", workflow, StringComparison.Ordinal);
+        Assert.Contains("overwrite: true", workflow, StringComparison.Ordinal);
+        Assert.Contains("retention-days: 1", workflow, StringComparison.Ordinal);
+
+        Assert.Contains("--configfile NuGet.PRValidation.Config", workflow, StringComparison.Ordinal);
+        Assert.Contains("dotnet build Maliev.PaymentService.slnx --configuration Release --no-restore", workflow, StringComparison.Ordinal);
+        Assert.Contains("dotnet test Maliev.PaymentService.slnx --configuration Release --no-build --no-restore", workflow, StringComparison.Ordinal);
+        Assert.Contains("dependency_restore_stage=restore-local", workflow, StringComparison.Ordinal);
+        Assert.Contains("push: false", workflow, StringComparison.Ordinal);
+        Assert.Contains("load: true", workflow, StringComparison.Ordinal);
+        Assert.Contains("Smoke test production image liveness", workflow, StringComparison.Ordinal);
+        Assert.Contains("postgres:18-alpine", workflow, StringComparison.Ordinal);
+        Assert.Contains("trap cleanup EXIT", workflow, StringComparison.Ordinal);
+        Assert.Contains("for attempt in {1..60}", workflow, StringComparison.Ordinal);
+        Assert.Contains("curl --fail --silent \"http://127.0.0.1:18080/payment/liveness\"", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("docker/login-action", workflow, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("gcloud", workflow, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("argocd", workflow, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("kubectl", workflow, StringComparison.OrdinalIgnoreCase);
+
+        Assert.DoesNotContain("nuget.pkg.github.com", ciNuGetConfig, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("packageSourceCredentials", ciNuGetConfig, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("<packageSourceMapping>", ciNuGetConfig, StringComparison.Ordinal);
+        Assert.Contains("<add key=\"maliev-ci\" value=\".ci-packages\" />", ciNuGetConfig, StringComparison.Ordinal);
+        Assert.Contains("<package pattern=\"Maliev.*\" />", ciNuGetConfig, StringComparison.Ordinal);
+        Assert.Contains("<packageSourceMapping>", productionNuGetConfig, StringComparison.Ordinal);
+        Assert.Contains("<packageSource key=\"github\">", productionNuGetConfig, StringComparison.Ordinal);
+        Assert.Contains("<package pattern=\"Maliev.*\" />", productionNuGetConfig, StringComparison.Ordinal);
+
+        Assert.Contains("messaging_commit=\"0bcd4c704d842211c5ff9bd6b9c4b3aacfcbd8e7\"", packageScript, StringComparison.Ordinal);
+        Assert.Contains("aspire_commit=\"7121d57705fc1eff6c7ebb6a69e33e9c26ebfccc\"", packageScript, StringComparison.Ordinal);
+        Assert.Contains("messaging_version=\"1.0.91-alpha\"", packageScript, StringComparison.Ordinal);
+        Assert.Contains("service_defaults_version=\"1.0.81-alpha\"", packageScript, StringComparison.Ordinal);
+        Assert.Contains("dotnet restore \"$generator_project\" --configfile \"$ci_nuget_config\"", packageScript, StringComparison.Ordinal);
+        Assert.Contains("dotnet run --project tools/Generator/Generator.csproj --configuration Release --no-restore", packageScript, StringComparison.Ordinal);
+        Assert.Contains("sha256sum", packageScript, StringComparison.Ordinal);
+        Assert.DoesNotContain("--source", packageScript, StringComparison.Ordinal);
+
+        var dockerfile = File.ReadAllText(Path.Combine(repositoryRoot, "Maliev.PaymentService.Api", "Dockerfile"));
+        Assert.DoesNotContain("HEALTHCHECK", dockerfile, StringComparison.OrdinalIgnoreCase);
+
+        var unpinnedActions = Regex.Matches(
+            workflow,
+            @"uses:\s+[^\s@]+@(?![0-9a-f]{40}(?:\s|$))[^\s]+",
+            RegexOptions.CultureInvariant);
+        Assert.Empty(unpinnedActions.Select(match => match.Value));
     }
 
     private static string FindRepositoryRoot()
