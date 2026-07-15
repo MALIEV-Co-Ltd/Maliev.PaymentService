@@ -61,31 +61,8 @@ jobs:
 
           SOURCE_IMAGE="$REGISTRY_HOST/$GCP_PROJECT_ID/$SOURCE_REPOSITORY/$IMAGE_NAME"
           TARGET_IMAGE="$REGISTRY_HOST/$GCP_PROJECT_ID/$TARGET_REPOSITORY/$IMAGE_NAME"
-          SOURCE_DIGEST="$(gcloud artifacts docker images describe "$SOURCE_IMAGE:dev-$GITHUB_SHA" \
-            --project "$GCP_PROJECT_ID" \
-            --format='value(image_summary.digest)')"
-          [[ "$SOURCE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
-
-          existing_digest="$(gcloud artifacts docker images describe "$TARGET_IMAGE:$RELEASE_VERSION" \
-            --project "$GCP_PROJECT_ID" \
-            --format='value(image_summary.digest)' 2>/dev/null || true)"
-          if [[ -n "$existing_digest" && "$existing_digest" != "$SOURCE_DIGEST" ]]; then
-            echo "Refusing to overwrite release $RELEASE_VERSION: $existing_digest != $SOURCE_DIGEST" >&2
-            exit 1
-          fi
-
-          if [[ -z "$existing_digest" ]]; then
-            docker buildx imagetools create \
-              --tag "$TARGET_IMAGE:$RELEASE_VERSION" \
-              "$SOURCE_IMAGE@$SOURCE_DIGEST"
-          fi
-
-          TARGET_DIGEST="$(gcloud artifacts docker images describe "$TARGET_IMAGE:$RELEASE_VERSION" \
-            --project "$GCP_PROJECT_ID" \
-            --format='value(image_summary.digest)')"
-          test "$TARGET_DIGEST" = "$SOURCE_DIGEST"
-          gcloud artifacts docker images describe "$TARGET_IMAGE@$TARGET_DIGEST" \
-            --project "$GCP_PROJECT_ID" \
-            --format='value(image_summary.digest)' >/dev/null
+          TARGET_DIGEST="$(bash scripts/promote-artifact-image.sh \
+            "$SOURCE_IMAGE" "dev-$GITHUB_SHA" \
+            "$TARGET_IMAGE" "$RELEASE_VERSION")"
           printf 'Promoted `%s@%s` to `%s@%s` as release `%s`.\n' \
-            "$SOURCE_IMAGE" "$SOURCE_DIGEST" "$TARGET_IMAGE" "$TARGET_DIGEST" "$RELEASE_VERSION" >> "$GITHUB_STEP_SUMMARY"
+            "$SOURCE_IMAGE" "$TARGET_DIGEST" "$TARGET_IMAGE" "$TARGET_DIGEST" "$RELEASE_VERSION" >> "$GITHUB_STEP_SUMMARY"

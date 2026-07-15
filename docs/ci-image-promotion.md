@@ -11,7 +11,9 @@ The development workflow first calls the repository's secretless `_build-and-tes
 3. An operator starts the production workflow with the staged version and its complete `sha256:<64 hex characters>` digest. The protected `production` environment must approve the run before the digest is copied to `maliev-payment-artifact-prod:X.Y.Z`.
 4. A separate, reviewed GitOps change may later reference the digest in a disabled overlay. These workflows intentionally do not edit `maliev-gitops`.
 
-The staging and production workflows fail if an existing release tag resolves to another digest. They never invoke a Docker build.
+The staging and production workflows fail if an existing release tag resolves to another digest. They never invoke a Docker build. Artifact lookup is fail-closed: only a `gcloud` response explicitly classified as `NOT_FOUND` permits first-time tag creation; authentication, authorization, API, malformed-output, and other lookup failures stop promotion.
+
+The build workflows check out MessagingContracts commit `0bcd4c704d842211c5ff9bd6b9c4b3aacfcbd8e7` and Aspire commit `7121d57705fc1eff6c7ebb6a69e33e9c26ebfccc` with credential persistence disabled before reconstructing local packages. A missing or different checkout fails package preparation.
 
 ## Required GitHub configuration
 

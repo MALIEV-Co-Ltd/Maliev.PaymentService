@@ -39,6 +39,7 @@ public sealed class ImmutableImageWorkflowTests
         }
 
         var qualityGate = ReadWorkflow(repositoryRoot, "_build-and-test.yml");
+        AssertExactDependencyCheckouts(qualityGate);
         Assert.Contains("workflow_call:", qualityGate, StringComparison.Ordinal);
         Assert.Contains("contents: read", qualityGate, StringComparison.Ordinal);
         Assert.DoesNotContain("id-token: write", qualityGate, StringComparison.Ordinal);
@@ -50,6 +51,8 @@ public sealed class ImmutableImageWorkflowTests
             @"uses:\s+[^\s@]+@(?![0-9a-f]{40}(?:\s|$))[^\s]+",
             RegexOptions.CultureInvariant);
         Assert.Empty(unpinnedQualityActions.Select(match => match.Value));
+
+        AssertExactDependencyCheckouts(ReadWorkflow(repositoryRoot, "ci-develop.yml"));
     }
 
     [Fact]
@@ -72,8 +75,8 @@ public sealed class ImmutableImageWorkflowTests
         Assert.Contains("SOURCE_REPOSITORY: maliev-payment-artifact-dev", staging, StringComparison.Ordinal);
         Assert.Contains("TARGET_REPOSITORY: maliev-payment-artifact-staging", staging, StringComparison.Ordinal);
         Assert.Contains("IMAGE_NAME: maliev-payment-service", staging, StringComparison.Ordinal);
-        Assert.Contains("SOURCE_IMAGE@$SOURCE_DIGEST", staging, StringComparison.Ordinal);
-        Assert.Contains("TARGET_IMAGE@$TARGET_DIGEST", staging, StringComparison.Ordinal);
+        Assert.Contains("bash scripts/promote-artifact-image.sh", staging, StringComparison.Ordinal);
+        Assert.DoesNotContain("2>/dev/null || true", staging, StringComparison.Ordinal);
         Assert.DoesNotContain("docker build \\", staging, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("docker/build-push-action", staging, StringComparison.OrdinalIgnoreCase);
 
@@ -85,8 +88,8 @@ public sealed class ImmutableImageWorkflowTests
         Assert.Contains("SOURCE_REPOSITORY: maliev-payment-artifact-staging", production, StringComparison.Ordinal);
         Assert.Contains("TARGET_REPOSITORY: maliev-payment-artifact-prod", production, StringComparison.Ordinal);
         Assert.Contains("IMAGE_NAME: maliev-payment-service", production, StringComparison.Ordinal);
-        Assert.Contains("SOURCE_IMAGE@$SOURCE_DIGEST", production, StringComparison.Ordinal);
-        Assert.Contains("TARGET_IMAGE@$TARGET_DIGEST", production, StringComparison.Ordinal);
+        Assert.Contains("bash scripts/promote-artifact-image.sh", production, StringComparison.Ordinal);
+        Assert.DoesNotContain("2>/dev/null || true", production, StringComparison.Ordinal);
         Assert.DoesNotContain("docker build \\", production, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("docker/build-push-action", production, StringComparison.OrdinalIgnoreCase);
 
@@ -94,10 +97,32 @@ public sealed class ImmutableImageWorkflowTests
         Assert.DoesNotContain("kustomize", combined, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("gh pr", combined, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("argocd", combined, StringComparison.OrdinalIgnoreCase);
+
+        Assert.Contains(
+            "bash scripts/tests/promote-artifact-image.test.sh",
+            ReadWorkflow(repositoryRoot, "_build-and-test.yml"),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "bash scripts/tests/promote-artifact-image.test.sh",
+            ReadWorkflow(repositoryRoot, "pr-validation.yml"),
+            StringComparison.Ordinal);
     }
 
     private static string ReadWorkflow(string repositoryRoot, string workflowName) =>
         File.ReadAllText(Path.Combine(repositoryRoot, ".github", "workflows", workflowName));
+
+    private static void AssertExactDependencyCheckouts(string workflow)
+    {
+        Assert.Contains("repository: MALIEV-Co-Ltd/Maliev.MessagingContracts", workflow, StringComparison.Ordinal);
+        Assert.Contains("ref: 0bcd4c704d842211c5ff9bd6b9c4b3aacfcbd8e7", workflow, StringComparison.Ordinal);
+        Assert.Contains("path: .ci-sources/Maliev.MessagingContracts", workflow, StringComparison.Ordinal);
+        Assert.Contains("repository: MALIEV-Co-Ltd/Maliev.Aspire", workflow, StringComparison.Ordinal);
+        Assert.Contains("ref: 7121d57705fc1eff6c7ebb6a69e33e9c26ebfccc", workflow, StringComparison.Ordinal);
+        Assert.Contains("path: .ci-sources/Maliev.Aspire", workflow, StringComparison.Ordinal);
+        Assert.True(
+            Regex.Matches(workflow, "persist-credentials: false", RegexOptions.CultureInvariant).Count >= 3,
+            "The service and both dependency checkouts must disable credential persistence.");
+    }
 
     private static string FindRepositoryRoot()
     {
