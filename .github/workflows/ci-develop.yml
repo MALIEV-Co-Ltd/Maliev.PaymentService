@@ -1,106 +1,101 @@
-name: CI - Develop
-
-env:
-  ServiceDefaultsVersion: 1.0.81-alpha
-  MessagingContractsVersion: 1.0.91-alpha
+name: CI - Develop image publication
 
 on:
   push:
-    branches:
-      - develop
+    branches: [develop]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: payment-image-development
+  cancel-in-progress: false
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
+  ServiceDefaultsVersion: 1.0.81-alpha
+  MessagingContractsVersion: 1.0.91-alpha
+  REGISTRY_HOST: asia-southeast1-docker.pkg.dev
+  IMAGE_REPOSITORY: maliev-payment-artifact-dev
+  IMAGE_NAME: maliev-payment-service
 
 jobs:
-  build-and-deploy:
+  validate:
+    name: Validate source before publication
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_build-and-test.yml
+
+  publish:
+    name: Build and publish immutable development image
+    needs: validate
     runs-on: ubuntu-latest
-
+    timeout-minutes: 40
+    environment: development
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v3
+      - name: Checkout source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          persist-credentials: false
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Reconstruct exact MALIEV dependency packages
+        run: bash scripts/prepare-payment-ci-packages.sh
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Authenticate to Google Cloud with Workload Identity Federation
+        id: auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          create_credentials_file: true
 
       - name: Set up Google Cloud SDK
-        uses: google-github-actions/setup-gcloud@v3
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
         with:
-          project_id: maliev-website
+          project_id: ${{ vars.GCP_PROJECT_ID }}
 
-      - name: Build and push Docker image
-        run: |
-          gcloud auth configure-docker asia-southeast1-docker.pkg.dev
-          NUGET_USERNAME=${{ github.actor }} \
-          NUGET_PASSWORD=${{ secrets.GITOPS_PAT }} \
-            docker build \
-            --secret id=nuget_username,env=NUGET_USERNAME \
-            --secret id=nuget_password,env=NUGET_PASSWORD \
-            --build-arg SERVICE_DEFAULTS_VERSION=${{ env.ServiceDefaultsVersion }} \
-            --build-arg MESSAGING_CONTRACTS_VERSION=${{ env.MessagingContractsVersion }} \
-            -t asia-southeast1-docker.pkg.dev/maliev-website/maliev-website-artifact-dev/maliev-payment-service:${{ github.sha }} \
-            -f Maliev.PaymentService.Api/Dockerfile .
-          docker push asia-southeast1-docker.pkg.dev/maliev-website/maliev-website-artifact-dev/maliev-payment-service:${{ github.sha }}
+      - name: Configure Artifact Registry authentication
+        run: gcloud auth configure-docker "$REGISTRY_HOST" --quiet
 
-      - name: Checkout maliev-gitops repository
-        uses: actions/checkout@v5
+      - name: Build and push image once
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
-          repository: MALIEV-Co-Ltd/maliev-gitops
-          token: ${{ secrets.GITOPS_PAT }}
-          path: maliev-gitops
+          context: .
+          file: ./Maliev.PaymentService.Api/Dockerfile
+          push: true
+          tags: ${{ env.REGISTRY_HOST }}/${{ vars.GCP_PROJECT_ID }}/${{ env.IMAGE_REPOSITORY }}/${{ env.IMAGE_NAME }}:dev-${{ github.sha }}
+          build-args: |
+            dependency_restore_stage=restore-local
+            SERVICE_DEFAULTS_VERSION=${{ env.ServiceDefaultsVersion }}
+            MESSAGING_CONTRACTS_VERSION=${{ env.MessagingContractsVersion }}
+          provenance: mode=max
+          sbom: true
 
-      - name: Install Kustomize
-        uses: imranismail/setup-kustomize@v2
-
-
-      - name: Update image tag in maliev-gitops using Kustomize
-        run: |
-          cd maliev-gitops/3-apps/maliev-payment-service/overlays/development
-          kustomize edit set image \
-            asia-southeast1-docker.pkg.dev/maliev-website/maliev-website-artifact/maliev-payment-service=\
-          asia-southeast1-docker.pkg.dev/maliev-website/maliev-website-artifact-dev/maliev-payment-service:${{ github.sha }}
-
-      - name: Create Pull Request
+      - name: Verify published digest
         env:
-          GH_TOKEN: ${{ secrets.GITOPS_PAT }}
-          PR_BODY: |
-            Automated GitOps Update
-
-            - **Service**: PaymentService
-            - **Environment**: Development
-            - **Image Tag**: ${{ github.sha }}
-            - **Source Branch**: ${{ github.ref_name }}
-            - **Commit**: ${{ github.sha }}
-
-            Updates maliev-payment-service image in development overlay.
-            This PR was automatically created by GitHub Actions.
-            Once merged, ArgoCD will automatically sync the changes to the maliev-dev namespace.
-
-            Triggered by: ${{ github.actor }}
-            Workflow: ${{ github.workflow }}
-            Run: [${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          DIGEST: ${{ steps.build.outputs.digest }}
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+        shell: bash
         run: |
-          cd maliev-gitops
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-
-          # Create a new branch for this update
-          BRANCH_NAME="payment-service/dev-${{ github.sha }}"
-          git checkout -b $BRANCH_NAME
-
-          # Commit and push changes to the new branch
-          git add .
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-            exit 0
-          fi
-
-          git commit -m "chore(dev): Update PaymentService image to ${{ github.sha }}"
-          git push origin $BRANCH_NAME
-
-          # Create pull request using GitHub CLI
-          gh pr create \
-            --title "chore(dev): Update payment-service" \
-            --body "$PR_BODY" \
-            --base main \
-            --head $BRANCH_NAME \
-            --repo MALIEV-Co-Ltd/maliev-gitops
+          set -euo pipefail
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          image="$REGISTRY_HOST/$GCP_PROJECT_ID/$IMAGE_REPOSITORY/$IMAGE_NAME"
+          remote_digest="$(gcloud artifacts docker images describe "$image@$DIGEST" \
+            --project "$GCP_PROJECT_ID" \
+            --format='value(image_summary.digest)')"
+          test "$remote_digest" = "$DIGEST"
+          printf 'Published `%s@%s` from commit `%s`.\n' "$image" "$DIGEST" "$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"

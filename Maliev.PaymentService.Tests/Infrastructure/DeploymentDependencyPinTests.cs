@@ -50,9 +50,8 @@ public sealed class DeploymentDependencyPinTests
 
         foreach (var workflowName in new[]
                  {
+                     "_build-and-test.yml",
                      "ci-develop.yml",
-                     "ci-main.yml",
-                     "ci-staging.yml",
                      "pr-validation.yml"
                  })
         {
