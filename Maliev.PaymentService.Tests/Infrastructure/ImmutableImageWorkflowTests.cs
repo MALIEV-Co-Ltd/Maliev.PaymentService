@@ -81,6 +81,7 @@ public sealed class ImmutableImageWorkflowTests
         Assert.Contains("release_version:", production, StringComparison.Ordinal);
         Assert.Contains("expected_digest:", production, StringComparison.Ordinal);
         Assert.Contains("environment: production", production, StringComparison.Ordinal);
+        Assert.Contains("test \"$GITHUB_REF\" = \"refs/heads/main\"", production, StringComparison.Ordinal);
         Assert.Contains("SOURCE_REPOSITORY: maliev-payment-artifact-staging", production, StringComparison.Ordinal);
         Assert.Contains("TARGET_REPOSITORY: maliev-payment-artifact-prod", production, StringComparison.Ordinal);
         Assert.Contains("IMAGE_NAME: maliev-payment-service", production, StringComparison.Ordinal);
