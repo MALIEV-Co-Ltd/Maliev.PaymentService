@@ -11,7 +11,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v5
+      uses: actions/checkout@v7
 
     - name: Set up .NET
       uses: actions/setup-dotnet@v5
@@ -45,7 +45,7 @@ jobs:
         docker push asia-southeast1-docker.pkg.dev/maliev-website/maliev-website-artifact-dev/maliev-payment-service:${{ github.sha }}
 
     - name: Checkout maliev-gitops repository
-      uses: actions/checkout@v5
+      uses: actions/checkout@v7
       with:
         repository: MALIEV-Co-Ltd/maliev-gitops
         token: ${{ secrets.GITOPS_PAT }}
