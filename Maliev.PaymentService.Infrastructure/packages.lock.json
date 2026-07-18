@@ -113,12 +113,13 @@
       },
       "StackExchange.Redis": {
         "type": "Direct",
-        "requested": "[2.8.16, )",
-        "resolved": "2.8.16",
-        "contentHash": "WaoulkOqOC9jHepca3JZKFTqndCWab5uYS7qCzmiQDlrTkFaDN7eLSlEfHycBxipRnQY9ppZM7QSsWAwUEGblw==",
+        "requested": "[3.0.17, )",
+        "resolved": "3.0.17",
+        "contentHash": "ItAm9lokZ1mWsQLF3u4Yw4eb/gvkX6Rp9bLAe1KUKgKAjPkALoQwTc6jJLtBZoOv9LT7RwvSIXZZb9FF30QhOg==",
         "dependencies": {
-          "Microsoft.Extensions.Logging.Abstractions": "6.0.0",
-          "Pipelines.Sockets.Unofficial": "2.2.8"
+          "Microsoft.Extensions.Logging.Abstractions": "10.0.5",
+          "RESPite": "3.0.17",
+          "System.IO.Hashing": "10.0.5"
         }
       },
       "Humanizer.Core": {
@@ -406,11 +407,6 @@
           "Microsoft.Extensions.Logging.Abstractions": "8.0.2"
         }
       },
-      "Pipelines.Sockets.Unofficial": {
-        "type": "Transitive",
-        "resolved": "2.2.8",
-        "contentHash": "zG2FApP5zxSx6OcdJQLbZDk2AVlN2BNQD6MorwIfV6gVj0RRxWPEp2LXAxqDGZqeNV1Zp0BNPcNaey/GXmTdvQ=="
-      },
       "Polly.Core": {
         "type": "Transitive",
         "resolved": "8.5.0",
@@ -423,6 +419,11 @@
         "dependencies": {
           "System.Threading.RateLimiting": "8.0.0"
         }
+      },
+      "RESPite": {
+        "type": "Transitive",
+        "resolved": "3.0.17",
+        "contentHash": "68slEMyRTUNLc75DruEDsEohFmFfNwkHLLtwQ46bobF+8Tl+UXMKM1kM87ihhKy6JdAqy1RrvAfvBWeLmcY9Gg=="
       },
       "System.CodeDom": {
         "type": "Transitive",
@@ -476,6 +477,11 @@
           "System.Composition.Hosting": "7.0.0",
           "System.Composition.Runtime": "7.0.0"
         }
+      },
+      "System.IO.Hashing": {
+        "type": "Transitive",
+        "resolved": "10.0.5",
+        "contentHash": "8IBJWcCT9+e4Bmevm4T7+fQEiAh133KGiz4oiVTgJckd3Q76OFdR1falgn9lpz7+C4HJvogCDJeAa2QmvbeVtg=="
       },
       "System.Security.Cryptography.Pkcs": {
         "type": "Transitive",
