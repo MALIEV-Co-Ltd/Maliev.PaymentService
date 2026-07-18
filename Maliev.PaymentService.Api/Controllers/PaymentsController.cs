@@ -118,9 +118,9 @@ public class PaymentsController : ControllerBase
 
             var response = MapToResponse(transaction);
 
-            // Return 200 OK if idempotent request (existing transaction)
-            // Return 201 Created if new transaction
-            if (transaction.CreatedAt < DateTime.UtcNow.AddSeconds(-1))
+            // Return 200 OK for an idempotent replay and 201 Created for a new transaction.
+            // This must not depend on provider or infrastructure latency.
+            if (transaction.IsReplay)
             {
                 _logger.LogInformation(
                     "Returning existing payment {TransactionId} for idempotent request {IdempotencyKey}",

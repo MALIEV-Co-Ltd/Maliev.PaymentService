@@ -54,11 +54,19 @@ public class ProviderRepository : IProviderRepository
     /// </summary>
     public async Task<IEnumerable<PaymentProvider>> GetActiveByCurrencyAsync(string currency, CancellationToken cancellationToken = default)
     {
-        return await _context.PaymentProviders
+        var activeProviders = await _context.PaymentProviders
+            .AsNoTracking()
             .Include(p => p.Configurations)
-            .Where(p => p.Status == ProviderStatus.Active && p.SupportedCurrencies.Contains(currency))
+            .Where(p => p.Status == ProviderStatus.Active)
             .OrderBy(p => p.Priority)
             .ToListAsync(cancellationToken);
+
+        // SupportedCurrencies is stored through a comma-separated value converter.
+        // EF cannot translate collection membership for that representation, so keep
+        // status/order filtering in PostgreSQL and evaluate only the bounded provider
+        // configuration set in memory.
+        return activeProviders.Where(p =>
+            p.SupportedCurrencies.Contains(currency, StringComparer.OrdinalIgnoreCase));
     }
 
     /// <summary>
