@@ -1,5 +1,4 @@
 using Testcontainers.PostgreSql;
-using Testcontainers.RabbitMq;
 using Testcontainers.Redis;
 
 namespace Maliev.PaymentService.Tests.Integration;
@@ -11,7 +10,6 @@ namespace Maliev.PaymentService.Tests.Integration;
 public class TestContainersFixture : IAsyncLifetime
 {
     private readonly PostgreSqlContainer _postgresContainer;
-    private readonly RabbitMqContainer _rabbitMqContainer;
     private readonly RedisContainer _redisContainer;
 
     public TestContainersFixture()
@@ -22,14 +20,6 @@ public class TestContainersFixture : IAsyncLifetime
             .WithDatabase("payment_gateway_test")
             .WithUsername("test_user")
             .WithPassword("test_password")
-            .WithCleanUp(true)
-            .Build();
-
-        // RabbitMQ 7.0 container for message queue tests
-        _rabbitMqContainer = new RabbitMqBuilder()
-            .WithImage("rabbitmq:3-management-alpine")
-            .WithUsername("guest")
-            .WithPassword("guest")
             .WithCleanUp(true)
             .Build();
 
@@ -46,14 +36,15 @@ public class TestContainersFixture : IAsyncLifetime
     public string PostgresConnectionString => _postgresContainer.GetConnectionString();
 
     /// <summary>
-    /// RabbitMQ connection string for message queue integration tests.
-    /// </summary>
-    public string RabbitMqConnectionString => _rabbitMqContainer.GetConnectionString();
-
-    /// <summary>
     /// Redis connection string for caching and idempotency integration tests.
     /// </summary>
     public string RedisConnectionString => _redisContainer.GetConnectionString();
+
+    /// <summary>
+    /// Redis endpoint in the format expected by StackExchange.Redis.
+    /// </summary>
+    public string RedisConfiguration =>
+        $"{_redisContainer.Hostname}:{_redisContainer.GetMappedPublicPort(6379)}";
 
     /// <summary>
     /// Initializes all containers asynchronously before tests run.
@@ -63,7 +54,6 @@ public class TestContainersFixture : IAsyncLifetime
         // Start all containers in parallel for faster test setup
         await Task.WhenAll(
             _postgresContainer.StartAsync(),
-            _rabbitMqContainer.StartAsync(),
             _redisContainer.StartAsync()
         );
     }
@@ -76,7 +66,6 @@ public class TestContainersFixture : IAsyncLifetime
         // Stop and dispose all containers in parallel
         await Task.WhenAll(
             _postgresContainer.DisposeAsync().AsTask(),
-            _rabbitMqContainer.DisposeAsync().AsTask(),
             _redisContainer.DisposeAsync().AsTask()
         );
     }

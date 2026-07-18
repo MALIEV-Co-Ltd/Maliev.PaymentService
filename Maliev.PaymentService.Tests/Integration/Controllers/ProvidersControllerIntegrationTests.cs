@@ -4,9 +4,15 @@ using Maliev.PaymentService.Api.Models.Requests;
 using Maliev.PaymentService.Api.Models.Responses;
 using Maliev.PaymentService.Core.Enums;
 using Maliev.PaymentService.Infrastructure.Data;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using StackExchange.Redis;
 using Xunit;
 
 namespace Maliev.PaymentService.Tests.Integration.Controllers;
@@ -32,6 +38,14 @@ public class ProvidersControllerIntegrationTests : IClassFixture<TestContainersF
         _factory = new WebApplicationFactory<Program>()
             .WithWebHostBuilder(builder =>
             {
+                builder.UseEnvironment("Testing");
+                builder.ConfigureAppConfiguration((_, configuration) =>
+                    configuration.AddInMemoryCollection(new Dictionary<string, string?>
+                    {
+                        ["ConnectionStrings:PaymentDatabase"] = _fixture.PostgresConnectionString,
+                        ["Redis:Configuration"] = _fixture.RedisConfiguration,
+                    }));
+
                 builder.ConfigureServices(services =>
                 {
                     // Remove existing DbContext registration
@@ -44,7 +58,27 @@ public class ProvidersControllerIntegrationTests : IClassFixture<TestContainersF
 
                     // Add DbContext using TestContainers PostgreSQL
                     services.AddDbContext<PaymentDbContext>(options =>
-                        options.UseNpgsql(_fixture.PostgresConnectionString));
+                    {
+                        var dataSourceBuilder = new Npgsql.NpgsqlDataSourceBuilder(_fixture.PostgresConnectionString);
+                        dataSourceBuilder.EnableDynamicJson();
+                        options.UseNpgsql(dataSourceBuilder.Build());
+                    });
+
+                    services.AddAuthentication("Test")
+                        .AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>("Test", options => { });
+
+                    services.RemoveAll<IHttpClientFactory>();
+                    services.AddSingleton<IHttpClientFactory, NoExternalNetworkHttpClientFactory>();
+
+                    services.RemoveAll<IConnectionMultiplexer>();
+                    services.RemoveAll<IDistributedCache>();
+                    services.AddSingleton<IConnectionMultiplexer>(
+                        ConnectionMultiplexer.Connect(_fixture.RedisConfiguration));
+                    services.AddStackExchangeRedisCache(options =>
+                    {
+                        options.Configuration = _fixture.RedisConfiguration;
+                        options.InstanceName = "payment_gateway_test:";
+                    });
                 });
             });
 
@@ -53,7 +87,7 @@ public class ProvidersControllerIntegrationTests : IClassFixture<TestContainersF
         // Get DbContext and ensure database is created
         var scope = _factory.Services.CreateScope();
         _dbContext = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
-        await _dbContext.Database.EnsureCreatedAsync();
+        await IntegrationTestDatabase.PrepareAsync(_dbContext);
     }
 
     public async Task DisposeAsync()
@@ -80,8 +114,8 @@ public class ProvidersControllerIntegrationTests : IClassFixture<TestContainersF
             Priority = 1,
             Credentials = new Dictionary<string, string>
             {
-                { "ApiKey", "sk_test_123456" },
-                { "WebhookSecret", "whsec_123456" }
+                { "ApiKey", "test" },
+                { "WebhookSecret", "test" }
             },
             Configurations = new List<RegisterProviderRequest.ProviderConfigurationDto>
             {
@@ -97,7 +131,7 @@ public class ProvidersControllerIntegrationTests : IClassFixture<TestContainersF
         };
 
         // Act
-        var response = await _client!.PostAsJsonAsync("/api/v1/providers", request);
+        var response = await _client!.PostAsJsonAsync("/payments/v1/providers", request);
 
         // Assert
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
@@ -132,10 +166,10 @@ public class ProvidersControllerIntegrationTests : IClassFixture<TestContainersF
                 new() { Region = "US", ApiBaseUrl = "https://api.paypal.com", IsActive = true }
             }
         };
-        await _client!.PostAsJsonAsync("/api/v1/providers", registerRequest);
+        await _client!.PostAsJsonAsync("/payments/v1/providers", registerRequest);
 
         // Act
-        var response = await _client!.GetAsync("/api/v1/providers");
+        var response = await _client!.GetAsync("/payments/v1/providers");
 
         // Assert
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -163,11 +197,11 @@ public class ProvidersControllerIntegrationTests : IClassFixture<TestContainersF
                 new() { Region = "US", ApiBaseUrl = "https://connect.squareup.com", IsActive = true }
             }
         };
-        var createResponse = await _client!.PostAsJsonAsync("/api/v1/providers", registerRequest);
+        var createResponse = await _client!.PostAsJsonAsync("/payments/v1/providers", registerRequest);
         var createdProvider = await createResponse.Content.ReadFromJsonAsync<ProviderResponse>();
 
         // Act
-        var response = await _client!.GetAsync($"/api/v1/providers/{createdProvider!.Id}");
+        var response = await _client!.GetAsync($"/payments/v1/providers/{createdProvider!.Id}");
 
         // Assert
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -182,7 +216,7 @@ public class ProvidersControllerIntegrationTests : IClassFixture<TestContainersF
     public async Task GetProviderById_WithNonExistingId_ReturnsNotFound()
     {
         // Act
-        var response = await _client!.GetAsync($"/api/v1/providers/{Guid.NewGuid()}");
+        var response = await _client!.GetAsync($"/payments/v1/providers/{Guid.NewGuid()}");
 
         // Assert
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
@@ -205,7 +239,7 @@ public class ProvidersControllerIntegrationTests : IClassFixture<TestContainersF
                 new() { Region = "US", ApiBaseUrl = "https://api.adyen.com", IsActive = true }
             }
         };
-        var createResponse = await _client!.PostAsJsonAsync("/api/v1/providers", registerRequest);
+        var createResponse = await _client!.PostAsJsonAsync("/payments/v1/providers", registerRequest);
         var createdProvider = await createResponse.Content.ReadFromJsonAsync<ProviderResponse>();
 
         var updateRequest = new UpdateProviderRequest
@@ -217,7 +251,7 @@ public class ProvidersControllerIntegrationTests : IClassFixture<TestContainersF
         };
 
         // Act
-        var response = await _client!.PutAsJsonAsync($"/api/v1/providers/{createdProvider!.Id}", updateRequest);
+        var response = await _client!.PutAsJsonAsync($"/payments/v1/providers/{createdProvider!.Id}", updateRequest);
 
         // Assert
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -247,7 +281,7 @@ public class ProvidersControllerIntegrationTests : IClassFixture<TestContainersF
                 new() { Region = "US", ApiBaseUrl = "https://api.braintreegateway.com", IsActive = true }
             }
         };
-        var createResponse = await _client!.PostAsJsonAsync("/api/v1/providers", registerRequest);
+        var createResponse = await _client!.PostAsJsonAsync("/payments/v1/providers", registerRequest);
         var createdProvider = await createResponse.Content.ReadFromJsonAsync<ProviderResponse>();
 
         var statusRequest = new UpdateProviderStatusRequest
@@ -256,13 +290,13 @@ public class ProvidersControllerIntegrationTests : IClassFixture<TestContainersF
         };
 
         // Act
-        var response = await _client!.PatchAsJsonAsync($"/api/v1/providers/{createdProvider!.Id}/status", statusRequest);
+        var response = await _client!.PatchAsJsonAsync($"/payments/v1/providers/{createdProvider!.Id}/status", statusRequest);
 
         // Assert
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
 
         // Verify status was updated
-        var getResponse = await _client!.GetAsync($"/api/v1/providers/{createdProvider.Id}");
+        var getResponse = await _client!.GetAsync($"/payments/v1/providers/{createdProvider.Id}");
         var provider = await getResponse.Content.ReadFromJsonAsync<ProviderResponse>();
         Assert.Equal(ProviderStatus.Maintenance, provider!.Status);
     }
@@ -284,17 +318,17 @@ public class ProvidersControllerIntegrationTests : IClassFixture<TestContainersF
                 new() { Region = "US", ApiBaseUrl = "https://api.authorize.net", IsActive = true }
             }
         };
-        var createResponse = await _client!.PostAsJsonAsync("/api/v1/providers", registerRequest);
+        var createResponse = await _client!.PostAsJsonAsync("/payments/v1/providers", registerRequest);
         var createdProvider = await createResponse.Content.ReadFromJsonAsync<ProviderResponse>();
 
         // Act
-        var response = await _client!.DeleteAsync($"/api/v1/providers/{createdProvider!.Id}");
+        var response = await _client!.DeleteAsync($"/payments/v1/providers/{createdProvider!.Id}");
 
         // Assert
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
 
         // Verify provider was deleted
-        var getResponse = await _client.GetAsync($"/api/v1/providers/{createdProvider.Id}");
+        var getResponse = await _client.GetAsync($"/payments/v1/providers/{createdProvider.Id}");
         Assert.Equal(HttpStatusCode.NotFound, getResponse.StatusCode);
     }
 
@@ -330,11 +364,11 @@ public class ProvidersControllerIntegrationTests : IClassFixture<TestContainersF
             }
         };
 
-        await _client!.PostAsJsonAsync("/api/v1/providers", provider1);
-        await _client!.PostAsJsonAsync("/api/v1/providers", provider2);
+        await _client!.PostAsJsonAsync("/payments/v1/providers", provider1);
+        await _client!.PostAsJsonAsync("/payments/v1/providers", provider2);
 
         // Act
-        var response = await _client!.GetAsync("/api/v1/providers/active?currency=GBP");
+        var response = await _client!.GetAsync("/payments/v1/providers/active?currency=GBP");
 
         // Assert
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
