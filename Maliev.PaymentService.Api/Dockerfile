@@ -24,9 +24,6 @@ RUN dotnet publish "Maliev.PaymentService.Api.csproj" -c Release -o /app/publish
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 
-# Create non-root user for security
-RUN groupadd -r app && useradd -r -g app app
-
 # Copy published application
 COPY --from=publish /app/publish .
 

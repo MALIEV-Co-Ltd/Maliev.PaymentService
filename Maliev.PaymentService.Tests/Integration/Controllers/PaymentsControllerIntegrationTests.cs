@@ -5,10 +5,16 @@ using Maliev.PaymentService.Api.Models.Requests;
 using Maliev.PaymentService.Api.Models.Responses;
 using Maliev.PaymentService.Core.Enums;
 using Maliev.PaymentService.Infrastructure.Data;
+using Maliev.PaymentService.Infrastructure.Encryption;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using StackExchange.Redis;
 using Xunit;
 
 namespace Maliev.PaymentService.Tests.Integration.Controllers;
@@ -34,6 +40,14 @@ public class PaymentsControllerIntegrationTests : IClassFixture<TestContainersFi
         _factory = new WebApplicationFactory<Program>()
             .WithWebHostBuilder(builder =>
             {
+                builder.UseEnvironment("Testing");
+                builder.ConfigureAppConfiguration((_, configuration) =>
+                    configuration.AddInMemoryCollection(new Dictionary<string, string?>
+                    {
+                        ["ConnectionStrings:PaymentDatabase"] = _fixture.PostgresConnectionString,
+                        ["Redis:Configuration"] = _fixture.RedisConfiguration,
+                    }));
+
                 builder.ConfigureServices(services =>
                 {
                     // Remove existing DbContext registration
@@ -56,6 +70,19 @@ public class PaymentsControllerIntegrationTests : IClassFixture<TestContainersFi
                     // Add test authentication (bypass authentication for integration tests)
                     services.AddAuthentication("Test")
                         .AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>("Test", options => { });
+
+                    services.RemoveAll<IHttpClientFactory>();
+                    services.AddSingleton<IHttpClientFactory, NoExternalNetworkHttpClientFactory>();
+
+                    services.RemoveAll<IConnectionMultiplexer>();
+                    services.RemoveAll<IDistributedCache>();
+                    services.AddSingleton<IConnectionMultiplexer>(
+                        ConnectionMultiplexer.Connect(_fixture.RedisConfiguration));
+                    services.AddStackExchangeRedisCache(options =>
+                    {
+                        options.Configuration = _fixture.RedisConfiguration;
+                        options.InstanceName = "payment_gateway_test:";
+                    });
                 });
             });
 
@@ -64,13 +91,14 @@ public class PaymentsControllerIntegrationTests : IClassFixture<TestContainersFi
         // Get DbContext and ensure database is created
         var scope = _factory.Services.CreateScope();
         _dbContext = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
-        await _dbContext.Database.EnsureCreatedAsync();
+        await IntegrationTestDatabase.PrepareAsync(_dbContext);
 
         // Seed test provider
-        await SeedTestProviderAsync();
+        var encryptionService = scope.ServiceProvider.GetRequiredService<IEncryptionService>();
+        await SeedTestProviderAsync(encryptionService);
     }
 
-    private async Task SeedTestProviderAsync()
+    private async Task SeedTestProviderAsync(IEncryptionService encryptionService)
     {
         var providerId = Guid.NewGuid();
         var provider = new Maliev.PaymentService.Core.Entities.PaymentProvider
@@ -79,11 +107,11 @@ public class PaymentsControllerIntegrationTests : IClassFixture<TestContainersFi
             Name = "stripe",
             DisplayName = "Stripe (Test)",
             Status = ProviderStatus.Active,
-            SupportedCurrencies = new List<string> { "THB", "USD", "EUR" },
+            SupportedCurrencies = new List<string> { "THB", "USD", "EUR", "GBP" },
             Priority = 1,
             Credentials = new Dictionary<string, string>
             {
-                { "ApiKey", "sk_test_mock_key" }
+                { "ApiKey", encryptionService.Encrypt("integration-test-key") }
             },
             Configurations = new List<Maliev.PaymentService.Core.Entities.ProviderConfiguration>
             {
@@ -92,7 +120,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<TestContainersFi
                     Id = Guid.NewGuid(),
                     PaymentProviderId = providerId,
                     Region = "global",
-                    ApiBaseUrl = "https://api.stripe.com",
+                    ApiBaseUrl = "https://stripe.invalid",
                     IsActive = true,
                     MaxRetries = 3,
                     TimeoutSeconds = 30,
@@ -143,7 +171,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<TestContainersFi
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
         // Act
-        var response = await _client.PostAsJsonAsync("/api/v1/payments", request);
+        var response = await _client.PostAsJsonAsync("/payments/v1/payments", request);
 
         // Assert
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
@@ -180,7 +208,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<TestContainersFi
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
         // Act - First request
-        var response1 = await _client.PostAsJsonAsync("/api/v1/payments", request);
+        var response1 = await _client.PostAsJsonAsync("/payments/v1/payments", request);
         var payment1 = await response1.Content.ReadFromJsonAsync<PaymentResponse>();
 
         // Act - Second request with same idempotency key
@@ -188,7 +216,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<TestContainersFi
         _client.DefaultRequestHeaders.Add("Idempotency-Key", idempotencyKey);
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
-        var response2 = await _client.PostAsJsonAsync("/api/v1/payments", request);
+        var response2 = await _client.PostAsJsonAsync("/payments/v1/payments", request);
         var payment2 = await response2.Content.ReadFromJsonAsync<PaymentResponse>();
 
         // Assert
@@ -221,7 +249,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<TestContainersFi
         // Intentionally NOT adding Idempotency-Key
 
         // Act
-        var response = await _client.PostAsJsonAsync("/api/v1/payments", request);
+        var response = await _client.PostAsJsonAsync("/payments/v1/payments", request);
 
         // Assert
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -247,7 +275,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<TestContainersFi
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
         // Act
-        var response = await _client.PostAsJsonAsync("/api/v1/payments", request);
+        var response = await _client.PostAsJsonAsync("/payments/v1/payments", request);
 
         // Assert
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -273,7 +301,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<TestContainersFi
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
         // Act
-        var response = await _client.PostAsJsonAsync("/api/v1/payments", request);
+        var response = await _client.PostAsJsonAsync("/payments/v1/payments", request);
 
         // Assert
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -299,11 +327,11 @@ public class PaymentsControllerIntegrationTests : IClassFixture<TestContainersFi
         _client.DefaultRequestHeaders.Add("Idempotency-Key", idempotencyKey);
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
-        var createResponse = await _client.PostAsJsonAsync("/api/v1/payments", createRequest);
+        var createResponse = await _client.PostAsJsonAsync("/payments/v1/payments", createRequest);
         var createdPayment = await createResponse.Content.ReadFromJsonAsync<PaymentResponse>();
 
         // Act
-        var response = await _client.GetAsync($"/api/v1/payments/{createdPayment!.TransactionId}");
+        var response = await _client.GetAsync($"/payments/v1/payments/{createdPayment!.TransactionId}");
 
         // Assert
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -319,7 +347,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<TestContainersFi
     public async Task GetPaymentById_WithNonExistingId_ReturnsNotFound()
     {
         // Act
-        var response = await _client!.GetAsync($"/api/v1/payments/{Guid.NewGuid()}");
+        var response = await _client!.GetAsync($"/payments/v1/payments/{Guid.NewGuid()}");
 
         // Assert
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
@@ -345,15 +373,15 @@ public class PaymentsControllerIntegrationTests : IClassFixture<TestContainersFi
         _client.DefaultRequestHeaders.Add("Idempotency-Key", idempotencyKey);
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
-        var createResponse = await _client.PostAsJsonAsync("/api/v1/payments", createRequest);
+        var createResponse = await _client.PostAsJsonAsync("/payments/v1/payments", createRequest);
         var createdPayment = await createResponse.Content.ReadFromJsonAsync<PaymentResponse>();
 
         // Act - First call (should query DB and cache)
-        var response1 = await _client.GetAsync($"/api/v1/payments/{createdPayment!.TransactionId}");
+        var response1 = await _client.GetAsync($"/payments/v1/payments/{createdPayment!.TransactionId}");
         var payment1 = await response1.Content.ReadFromJsonAsync<PaymentResponse>();
 
         // Act - Second call (should use cache)
-        var response2 = await _client.GetAsync($"/api/v1/payments/{createdPayment.TransactionId}");
+        var response2 = await _client.GetAsync($"/payments/v1/payments/{createdPayment.TransactionId}");
         var payment2 = await response2.Content.ReadFromJsonAsync<PaymentResponse>();
 
         // Assert - Both calls should return the same data
@@ -389,18 +417,18 @@ public class PaymentsControllerIntegrationTests : IClassFixture<TestContainersFi
         _client.DefaultRequestHeaders.Add("Idempotency-Key", idempotencyKey);
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
-        var createResponse = await _client.PostAsJsonAsync("/api/v1/payments", createRequest);
+        var createResponse = await _client.PostAsJsonAsync("/payments/v1/payments", createRequest);
         var createdPayment = await createResponse.Content.ReadFromJsonAsync<PaymentResponse>();
 
         // Act - First call (caches with 60s TTL for pending)
-        var response1 = await _client.GetAsync($"/api/v1/payments/{createdPayment!.TransactionId}");
+        var response1 = await _client.GetAsync($"/payments/v1/payments/{createdPayment!.TransactionId}");
 
         // Wait for cache to potentially expire (skip in fast tests, or set very short TTL in test config)
         // For this test, we just verify the endpoint still works after delay
         await Task.Delay(100); // Small delay to simulate time passing
 
         // Second call (should still work even if cache expired)
-        var response2 = await _client.GetAsync($"/api/v1/payments/{createdPayment.TransactionId}");
+        var response2 = await _client.GetAsync($"/payments/v1/payments/{createdPayment.TransactionId}");
 
         // Assert
         Assert.Equal(HttpStatusCode.OK, response1.StatusCode);
@@ -436,7 +464,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<TestContainersFi
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
         // Act
-        var response = await _client.PostAsJsonAsync("/api/v1/payments", request);
+        var response = await _client.PostAsJsonAsync("/payments/v1/payments", request);
         var payment = await response.Content.ReadFromJsonAsync<PaymentResponse>();
 
         // Assert
@@ -468,7 +496,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<TestContainersFi
         _client.DefaultRequestHeaders.Add("Idempotency-Key", idempotencyKey);
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
-        var createResponse = await _client.PostAsJsonAsync("/api/v1/payments", createRequest);
+        var createResponse = await _client.PostAsJsonAsync("/payments/v1/payments", createRequest);
         var payment = await createResponse.Content.ReadFromJsonAsync<PaymentResponse>();
 
         // Manually update payment status to Completed (in real scenario, webhook would do this)
@@ -487,7 +515,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<TestContainersFi
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
         // Act
-        var response = await _client.PostAsJsonAsync($"/api/v1/payments/{payment.TransactionId}/refund", refundRequest);
+        var response = await _client.PostAsJsonAsync($"/payments/v1/payments/{payment.TransactionId}/refund", refundRequest);
 
         // Assert
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -518,7 +546,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<TestContainersFi
         _client.DefaultRequestHeaders.Add("Idempotency-Key", idempotencyKey);
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
-        var createResponse = await _client.PostAsJsonAsync("/api/v1/payments", createRequest);
+        var createResponse = await _client.PostAsJsonAsync("/payments/v1/payments", createRequest);
         var payment = await createResponse.Content.ReadFromJsonAsync<PaymentResponse>();
 
         // Try to refund without completing payment
@@ -534,7 +562,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<TestContainersFi
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
         // Act
-        var response = await _client.PostAsJsonAsync($"/api/v1/payments/{payment!.TransactionId}/refund", refundRequest);
+        var response = await _client.PostAsJsonAsync($"/payments/v1/payments/{payment!.TransactionId}/refund", refundRequest);
 
         // Assert
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -560,7 +588,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<TestContainersFi
         _client.DefaultRequestHeaders.Add("Idempotency-Key", idempotencyKey);
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
-        var createResponse = await _client.PostAsJsonAsync("/api/v1/payments", createRequest);
+        var createResponse = await _client.PostAsJsonAsync("/payments/v1/payments", createRequest);
         var payment = await createResponse.Content.ReadFromJsonAsync<PaymentResponse>();
 
         await UpdatePaymentStatusToCompleted(payment!.TransactionId);
@@ -578,7 +606,7 @@ public class PaymentsControllerIntegrationTests : IClassFixture<TestContainersFi
         _client.DefaultRequestHeaders.Add("X-Correlation-Id", Guid.NewGuid().ToString());
 
         // Act
-        var response = await _client.PostAsJsonAsync($"/api/v1/payments/{payment.TransactionId}/refund", refundRequest);
+        var response = await _client.PostAsJsonAsync($"/payments/v1/payments/{payment.TransactionId}/refund", refundRequest);
 
         // Assert
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);

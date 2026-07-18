@@ -1,6 +1,7 @@
 using FluentValidation;
 using Maliev.PaymentService.Api.Middleware;
 using Maliev.PaymentService.Infrastructure.Data;
+using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Prometheus;
@@ -31,164 +32,173 @@ try
     // Use Serilog for logging
     builder.Host.UseSerilog();
 
-// Add services to the container
-builder.Services.AddControllers();
+    // Add services to the container
+    builder.Services.AddControllers();
 
-// Configure OpenAPI
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddOpenApi("v1");
+    // Configure OpenAPI
+    builder.Services.AddEndpointsApiExplorer();
+    builder.Services.AddOpenApi("v1");
 
-// Configure FluentValidation
-builder.Services.AddValidatorsFromAssemblyContaining<Program>();
+    // Configure FluentValidation
+    builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 
-// Configure DbContext with PostgreSQL
-var dataSourceBuilder = new Npgsql.NpgsqlDataSourceBuilder(builder.Configuration.GetConnectionString("PaymentDatabase")!);
-dataSourceBuilder.EnableDynamicJson();
-var dataSource = dataSourceBuilder.Build();
-builder.Services.AddDbContext<PaymentDbContext>(options =>
-    options.UseNpgsql(dataSource));
+    // Configure DbContext with PostgreSQL
+    var dataSourceBuilder = new Npgsql.NpgsqlDataSourceBuilder(builder.Configuration.GetConnectionString("PaymentDatabase")!);
+    dataSourceBuilder.EnableDynamicJson();
+    var dataSource = dataSourceBuilder.Build();
+    builder.Services.AddDbContext<PaymentDbContext>(options =>
+        options.UseNpgsql(dataSource));
 
-// Register metrics service
-builder.Services.AddSingleton<Maliev.PaymentService.Core.Interfaces.IMetricsService, Maliev.PaymentService.Infrastructure.Metrics.PrometheusMetricsService>();
+    // Register metrics service
+    builder.Services.AddSingleton<Maliev.PaymentService.Core.Interfaces.IMetricsService, Maliev.PaymentService.Infrastructure.Metrics.PrometheusMetricsService>();
 
-// Configure MassTransit with RabbitMQ
-Maliev.PaymentService.Infrastructure.Messaging.MassTransitConfiguration.AddMassTransitWithRabbitMQ(builder.Services, builder.Configuration);
-
-// Register event publisher
-builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IEventPublisher, Maliev.PaymentService.Infrastructure.Messaging.MassTransitEventPublisher>();
-
-// Configure Redis
-Maliev.PaymentService.Infrastructure.Caching.RedisConfiguration.AddRedisConfiguration(builder.Services, builder.Configuration);
-
-// Register idempotency service
-builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IIdempotencyService, Maliev.PaymentService.Infrastructure.Caching.RedisIdempotencyService>();
-
-// Register circuit breaker state manager
-builder.Services.AddSingleton<Maliev.PaymentService.Infrastructure.Resilience.CircuitBreakerStateManager>();
-
-// Register Polly resilience pipeline
-builder.Services.AddSingleton<Polly.ResiliencePipeline<System.Net.Http.HttpResponseMessage>>(sp =>
-{
-    var configuration = sp.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>();
-    return Maliev.PaymentService.Infrastructure.Resilience.PollyPolicies.CreateCombinedPolicy(configuration);
-});
-
-// Configure Data Protection for credential encryption
-builder.Services.AddDataProtection();
-
-// Register encryption service
-builder.Services.AddScoped<Maliev.PaymentService.Infrastructure.Encryption.IEncryptionService, Maliev.PaymentService.Infrastructure.Encryption.CredentialEncryptionService>();
-
-// Register repositories
-builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IProviderRepository, Maliev.PaymentService.Infrastructure.Data.Repositories.ProviderRepository>();
-builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IPaymentRepository, Maliev.PaymentService.Infrastructure.Data.Repositories.PaymentRepository>();
-
-// Register HttpClient for provider adapters
-builder.Services.AddHttpClient();
-
-// Register provider factory
-builder.Services.AddScoped<Maliev.PaymentService.Infrastructure.Providers.ProviderFactory>();
-
-// Register services
-builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IProviderManagementService, Maliev.PaymentService.Infrastructure.Services.ProviderManagementService>();
-builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IPaymentRoutingService, Maliev.PaymentService.Infrastructure.Services.PaymentRoutingService>();
-builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IPaymentService, Maliev.PaymentService.Infrastructure.Services.PaymentService>();
-builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IPaymentStatusService, Maliev.PaymentService.Infrastructure.Services.PaymentStatusService>();
-builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IRefundService, Maliev.PaymentService.Infrastructure.Services.RefundService>();
-builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IRefundRepository, Maliev.PaymentService.Infrastructure.Data.Repositories.RefundRepository>();
-
-// Register webhook services
-builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IWebhookRepository, Maliev.PaymentService.Infrastructure.Data.Repositories.WebhookRepository>();
-builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IWebhookValidationService, Maliev.PaymentService.Infrastructure.Services.WebhookValidationService>();
-builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IWebhookProcessingService, Maliev.PaymentService.Infrastructure.Services.WebhookProcessingService>();
-builder.Services.AddHostedService<Maliev.PaymentService.Infrastructure.Services.WebhookCleanupService>();
-
-// Configure JWT Authentication
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
+    // Use an in-memory bus only in the explicit integration-test environment.
+    // Production-like environments always use RabbitMQ.
+    if (builder.Environment.IsEnvironment("Testing"))
     {
-        options.Authority = builder.Configuration["JwtAuthentication:Authority"];
-        options.Audience = builder.Configuration["JwtAuthentication:Audience"];
-        options.RequireHttpsMetadata = builder.Configuration.GetValue<bool>("JwtAuthentication:RequireHttpsMetadata");
-        options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidateAudience = true,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-            ClockSkew = TimeSpan.Zero
-        };
+        builder.Services.AddMassTransit(x => x.UsingInMemory((context, configuration) =>
+            configuration.ConfigureEndpoints(context)));
+    }
+    else
+    {
+        Maliev.PaymentService.Infrastructure.Messaging.MassTransitConfiguration.AddMassTransitWithRabbitMQ(builder.Services, builder.Configuration);
+    }
+
+    // Register event publisher
+    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IEventPublisher, Maliev.PaymentService.Infrastructure.Messaging.MassTransitEventPublisher>();
+
+    // Configure Redis
+    Maliev.PaymentService.Infrastructure.Caching.RedisConfiguration.AddRedisConfiguration(builder.Services, builder.Configuration);
+
+    // Register idempotency service
+    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IIdempotencyService, Maliev.PaymentService.Infrastructure.Caching.RedisIdempotencyService>();
+
+    // Register circuit breaker state manager
+    builder.Services.AddSingleton<Maliev.PaymentService.Infrastructure.Resilience.CircuitBreakerStateManager>();
+
+    // Register Polly resilience pipeline
+    builder.Services.AddSingleton<Polly.ResiliencePipeline<System.Net.Http.HttpResponseMessage>>(sp =>
+    {
+        var configuration = sp.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>();
+        return Maliev.PaymentService.Infrastructure.Resilience.PollyPolicies.CreateCombinedPolicy(configuration);
     });
 
-builder.Services.AddAuthorization();
+    // Configure Data Protection for credential encryption
+    builder.Services.AddDataProtection();
 
-// Configure health checks
-builder.Services.AddHealthChecks()
-    .AddNpgSql(
-        builder.Configuration.GetConnectionString("PaymentDatabase")!,
-        name: "postgresql",
-        tags: new[] { "db", "ready" })
-    .AddRedis(
-        builder.Configuration["Redis:Configuration"]!,
-        name: "redis",
-        tags: new[] { "cache", "ready" })
-    .AddRabbitMQ(
-        sp =>
+    // Register encryption service
+    builder.Services.AddScoped<Maliev.PaymentService.Infrastructure.Encryption.IEncryptionService, Maliev.PaymentService.Infrastructure.Encryption.CredentialEncryptionService>();
+
+    // Register repositories
+    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IProviderRepository, Maliev.PaymentService.Infrastructure.Data.Repositories.ProviderRepository>();
+    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IPaymentRepository, Maliev.PaymentService.Infrastructure.Data.Repositories.PaymentRepository>();
+
+    // Register HttpClient for provider adapters
+    builder.Services.AddHttpClient();
+
+    // Register provider factory
+    builder.Services.AddScoped<Maliev.PaymentService.Infrastructure.Providers.ProviderFactory>();
+
+    // Register services
+    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IProviderManagementService, Maliev.PaymentService.Infrastructure.Services.ProviderManagementService>();
+    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IPaymentRoutingService, Maliev.PaymentService.Infrastructure.Services.PaymentRoutingService>();
+    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IPaymentService, Maliev.PaymentService.Infrastructure.Services.PaymentService>();
+    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IPaymentStatusService, Maliev.PaymentService.Infrastructure.Services.PaymentStatusService>();
+    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IRefundService, Maliev.PaymentService.Infrastructure.Services.RefundService>();
+    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IRefundRepository, Maliev.PaymentService.Infrastructure.Data.Repositories.RefundRepository>();
+
+    // Register webhook services
+    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IWebhookRepository, Maliev.PaymentService.Infrastructure.Data.Repositories.WebhookRepository>();
+    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IWebhookValidationService, Maliev.PaymentService.Infrastructure.Services.WebhookValidationService>();
+    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IWebhookProcessingService, Maliev.PaymentService.Infrastructure.Services.WebhookProcessingService>();
+    builder.Services.AddHostedService<Maliev.PaymentService.Infrastructure.Services.WebhookCleanupService>();
+
+    // Configure JWT Authentication
+    builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+        .AddJwtBearer(options =>
         {
-            var factory = new RabbitMQ.Client.ConnectionFactory
+            options.Authority = builder.Configuration["JwtAuthentication:Authority"];
+            options.Audience = builder.Configuration["JwtAuthentication:Audience"];
+            options.RequireHttpsMetadata = builder.Configuration.GetValue<bool>("JwtAuthentication:RequireHttpsMetadata");
+            options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
             {
-                HostName = builder.Configuration["RabbitMQ:Host"] ?? "localhost",
-                Port = int.TryParse(builder.Configuration["RabbitMQ:Port"], out var port) ? port : 5672,
-                UserName = builder.Configuration["RabbitMQ:Username"] ?? "guest",
-                Password = builder.Configuration["RabbitMQ:Password"] ?? "guest",
-                VirtualHost = builder.Configuration["RabbitMQ:VirtualHost"] ?? "/"
+                ValidateIssuer = true,
+                ValidateAudience = true,
+                ValidateLifetime = true,
+                ValidateIssuerSigningKey = true,
+                ClockSkew = TimeSpan.Zero
             };
-            return factory.CreateConnectionAsync().GetAwaiter().GetResult();
-        },
-        name: "rabbitmq",
-        tags: new[] { "messaging", "ready" });
+        });
 
-// TODO: Additional services will be configured in later tasks
+    builder.Services.AddAuthorization();
 
-var app = builder.Build();
+    // Configure health checks
+    builder.Services.AddHealthChecks()
+        .AddNpgSql(
+            builder.Configuration.GetConnectionString("PaymentDatabase")!,
+            name: "postgresql",
+            tags: new[] { "db", "ready" })
+        .AddRedis(
+            builder.Configuration["Redis:Configuration"]!,
+            name: "redis",
+            tags: new[] { "cache", "ready" })
+        .AddRabbitMQ(
+            sp =>
+            {
+                var factory = new RabbitMQ.Client.ConnectionFactory
+                {
+                    HostName = builder.Configuration["RabbitMQ:Host"] ?? "localhost",
+                    Port = int.TryParse(builder.Configuration["RabbitMQ:Port"], out var port) ? port : 5672,
+                    UserName = builder.Configuration["RabbitMQ:Username"] ?? "guest",
+                    Password = builder.Configuration["RabbitMQ:Password"] ?? "guest",
+                    VirtualHost = builder.Configuration["RabbitMQ:VirtualHost"] ?? "/"
+                };
+                return factory.CreateConnectionAsync().GetAwaiter().GetResult();
+            },
+            name: "rabbitmq",
+            tags: new[] { "messaging", "ready" });
 
-// Configure the HTTP request pipeline
-if (app.Environment.IsDevelopment())
-{
-    app.MapOpenApi("/payments/openapi/{documentName}.json");
-}
+    // TODO: Additional services will be configured in later tasks
 
-// Configure middleware pipeline order: Correlation -> Exception -> Logging -> Auth
-app.UseCorrelationIdMiddleware();
-app.UseExceptionHandlingMiddleware();
-app.UseRequestLoggingMiddleware();
+    var app = builder.Build();
 
-app.UseHttpsRedirection();
+    // Configure the HTTP request pipeline
+    if (app.Environment.IsDevelopment())
+    {
+        app.MapOpenApi("/payments/openapi/{documentName}.json");
+    }
 
-app.UseAuthentication();
-app.UseJwtAuthenticationMiddleware();
-app.UseAuthorization();
+    // Configure middleware pipeline order: Correlation -> Exception -> Logging -> Auth
+    app.UseCorrelationIdMiddleware();
+    app.UseExceptionHandlingMiddleware();
+    app.UseRequestLoggingMiddleware();
 
-// Apply rate limiting to webhook endpoints
-app.UseMiddleware<WebhookRateLimitingMiddleware>();
+    app.UseHttpsRedirection();
 
-// Configure Prometheus metrics endpoint at /payments/metrics
-app.MapMetrics("/payments/metrics");
+    app.UseAuthentication();
+    app.UseJwtAuthenticationMiddleware();
+    app.UseAuthorization();
 
-// Configure health check endpoints
-app.MapHealthChecks("/payments/liveness", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
-{
-    Predicate = _ => false // Liveness - always returns healthy if service is running
-});
+    // Apply rate limiting to webhook endpoints
+    app.UseMiddleware<WebhookRateLimitingMiddleware>();
 
-app.MapHealthChecks("/payments/readiness", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
-{
-    Predicate = check => check.Tags.Contains("ready") // Readiness - checks PostgreSQL, Redis, RabbitMQ
-});
+    // Configure Prometheus metrics endpoint at /payments/metrics
+    app.MapMetrics("/payments/metrics");
 
-app.MapControllers();
+    // Configure health check endpoints
+    app.MapHealthChecks("/payments/liveness", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+    {
+        Predicate = _ => false // Liveness - always returns healthy if service is running
+    });
 
-app.Run();
+    app.MapHealthChecks("/payments/readiness", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+    {
+        Predicate = check => check.Tags.Contains("ready") // Readiness - checks PostgreSQL, Redis, RabbitMQ
+    });
+
+    app.MapControllers();
+
+    app.Run();
 }
 catch (Exception ex)
 {
