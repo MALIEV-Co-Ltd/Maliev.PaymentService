@@ -1,4 +1,5 @@
 using Maliev.PaymentService.Core.Enums;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Maliev.PaymentService.Core.Entities;
 
@@ -8,6 +9,13 @@ namespace Maliev.PaymentService.Core.Entities;
 /// </summary>
 public class PaymentTransaction
 {
+    /// <summary>
+    /// Indicates that this instance was returned for an already-processed idempotency key.
+    /// This orchestration marker is not persisted.
+    /// </summary>
+    [NotMapped]
+    public bool IsReplay { get; set; }
+
     /// <summary>
     /// Unique transaction identifier.
     /// </summary>

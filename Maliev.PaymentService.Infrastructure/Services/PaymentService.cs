@@ -55,6 +55,7 @@ public class PaymentService : IPaymentService
         var existingTransaction = await _paymentRepository.GetByIdempotencyKeyAsync(request.IdempotencyKey, cancellationToken);
         if (existingTransaction != null)
         {
+            existingTransaction.IsReplay = true;
             _logger.LogInformation("Idempotent request detected. Returning existing transaction {TransactionId}",
                 existingTransaction.Id);
             return existingTransaction;
@@ -79,6 +80,7 @@ public class PaymentService : IPaymentService
             existingTransaction = await _paymentRepository.GetByIdempotencyKeyAsync(request.IdempotencyKey, cancellationToken);
             if (existingTransaction != null)
             {
+                existingTransaction.IsReplay = true;
                 _logger.LogInformation("Idempotent request detected after lock acquisition. Returning existing transaction {TransactionId}",
                     existingTransaction.Id);
                 return existingTransaction;
