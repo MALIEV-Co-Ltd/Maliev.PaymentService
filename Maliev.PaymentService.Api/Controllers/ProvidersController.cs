@@ -1,8 +1,11 @@
+using Asp.Versioning;
+using Maliev.Aspire.ServiceDefaults.Authorization;
+using Maliev.PaymentService.Api.Authorization;
+using Maliev.PaymentService.Application.Authorization;
 using Maliev.PaymentService.Api.Models.Requests;
 using Maliev.PaymentService.Api.Models.Responses;
-using Maliev.PaymentService.Core.Entities;
-using Maliev.PaymentService.Core.Interfaces;
-using Microsoft.AspNetCore.Authorization;
+using Maliev.PaymentService.Domain.Entities;
+using Maliev.PaymentService.Application.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Maliev.PaymentService.Api.Controllers;
@@ -12,13 +15,19 @@ namespace Maliev.PaymentService.Api.Controllers;
 /// Handles provider registration, updates, and queries.
 /// </summary>
 [ApiController]
-[Route("payments/v1/providers")]
-[Authorize]
+[ApiVersion("1")]
+[Route("payment/v{version:apiVersion}/providers")]
+[RequirePermission(PaymentPermissions.ProvidersView)]
 public class ProvidersController : ControllerBase
 {
     private readonly IProviderManagementService _providerService;
     private readonly ILogger<ProvidersController> _logger;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ProvidersController"/> class.
+    /// </summary>
+    /// <param name="providerService"></param>
+    /// <param name="logger"></param>
     public ProvidersController(
         IProviderManagementService providerService,
         ILogger<ProvidersController> logger)
@@ -28,9 +37,53 @@ public class ProvidersController : ControllerBase
     }
 
     /// <summary>
-    /// Registers a new payment provider.
+    /// Registers a new payment provider with the gateway.
     /// </summary>
+    /// <param name="request">The provider registration request containing name, credentials, and configuration.</param>
+    /// <returns>The registered provider details including ID and configuration.</returns>
+    /// <remarks>
+    /// Registers a new payment provider (e.g., Omise, SCB, Stripe) with the payment gateway.
+    /// Provider credentials are automatically encrypted using ASP.NET Core Data Protection.
+    ///
+    /// **Required Headers:**
+    /// - `Authorization`: Bearer token for authentication (admin role required)
+    ///
+    /// **Supported Providers:**
+    /// - `stripe`: Stripe payment processor
+    /// - `scb`: Siam Commercial Bank API
+    /// - `omise`: Omise payment gateway (Thailand)
+    ///
+    /// **Configuration:**
+    /// - Provider can have multiple regional configurations
+    /// - Each configuration includes API base URL, timeouts, retry policies
+    /// - Credentials are stored encrypted in the database
+    ///
+    /// **Example Request:**
+    /// ```json
+    /// {
+    ///   "name": "stripe",
+    ///   "displayName": "Stripe Payments",
+    ///   "status": "active",
+    ///   "supportedCurrencies": ["USD", "EUR", "THB"],
+    ///   "priority": 1,
+    ///   "credentials": {
+    ///     "apiKey": "configured-provider-api-key",
+    ///     "webhookSecret": "configured-provider-webhook-secret"
+    ///   },
+    ///   "configurations": [{
+    ///     "region": "global",
+    ///     "apiBaseUrl": "https://api.stripe.com",
+    ///     "isActive": true,
+    ///     "maxRetries": 3,
+    ///     "timeoutSeconds": 30
+    ///   }]
+    /// }
+    /// ```
+    /// </remarks>
+    /// <response code="201">Provider successfully registered. Returns provider details.</response>
+    /// <response code="400">Invalid request. Missing required fields or invalid configuration.</response>
     [HttpPost]
+    [RequirePermission(PaymentPermissions.ProvidersManage)]
     [ProducesResponseType(typeof(ProviderResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ProviderResponse>> RegisterProvider([FromBody] RegisterProviderRequest request)
@@ -68,8 +121,45 @@ public class ProvidersController : ControllerBase
     }
 
     /// <summary>
-    /// Gets all payment providers.
+    /// Gets all registered payment providers with their current status.
     /// </summary>
+    /// <returns>A list of all payment providers with summary information.</returns>
+    /// <remarks>
+    /// Retrieves a list of all payment providers registered in the system, including their current
+    /// status, supported currencies, priority, and health metrics.
+    ///
+    /// **Required Headers:**
+    /// - `Authorization`: Bearer token for authentication
+    ///
+    /// **Provider Status:**
+    /// - `active`: Provider is enabled and accepting payments
+    /// - `inactive`: Provider is disabled (not used for new payments)
+    /// - `maintenance`: Provider is temporarily unavailable
+    /// - `circuit_open`: Circuit breaker triggered (automatic recovery)
+    ///
+    /// **Use Cases:**
+    /// - Admin dashboard for provider management
+    /// - Health monitoring and alerting
+    /// - Provider selection UI for customers
+    /// - Integration testing and validation
+    ///
+    /// **Example Response:**
+    /// ```json
+    /// [
+    ///   {
+    ///     "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    ///     "name": "stripe",
+    ///     "displayName": "Stripe Payments",
+    ///     "status": "active",
+    ///     "supportedCurrencies": ["USD", "EUR", "THB"],
+    ///     "priority": 1,
+    ///     "healthScore": 0.98,
+    ///     "lastHealthCheck": "2025-11-19T12:30:00Z"
+    ///   }
+    /// ]
+    /// ```
+    /// </remarks>
+    /// <response code="200">Returns list of all payment providers with summary information.</response>
     [HttpGet]
     [ProducesResponseType(typeof(List<ProviderSummary>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IEnumerable<ProviderSummary>>> GetAllProviders()
@@ -116,46 +206,56 @@ public class ProvidersController : ControllerBase
     /// Updates a payment provider.
     /// </summary>
     [HttpPut("{id}")]
+    [RequirePermission(PaymentPermissions.ProvidersManage)]
     [ProducesResponseType(typeof(ProviderResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ProviderResponse>> UpdateProvider(Guid id, [FromBody] UpdateProviderRequest request)
     {
-        var existingProvider = await _providerService.GetProviderByIdAsync(id, decryptCredentials: true);
-
-        if (existingProvider == null)
+        try
         {
-            return NotFound();
+            var existingProvider = await _providerService.GetProviderByIdAsync(id, decryptCredentials: true);
+
+            if (existingProvider == null)
+            {
+                return NotFound();
+            }
+
+            // Update only provided fields
+            if (request.DisplayName != null)
+                existingProvider.DisplayName = request.DisplayName;
+
+            if (request.Status.HasValue)
+                existingProvider.Status = request.Status.Value;
+
+            if (request.SupportedCurrencies != null)
+                existingProvider.SupportedCurrencies = request.SupportedCurrencies;
+
+            if (request.Priority.HasValue)
+                existingProvider.Priority = request.Priority.Value;
+
+            if (request.Credentials != null)
+                existingProvider.Credentials = request.Credentials;
+
+            existingProvider.UpdatedAt = DateTime.UtcNow;
+
+            var result = await _providerService.UpdateProviderAsync(existingProvider);
+
+            _logger.LogInformation("Updated provider: {ProviderName} (ID: {ProviderId})", result.Name, result.Id);
+
+            return Ok(MapToResponse(result));
         }
-
-        // Update only provided fields
-        if (request.DisplayName != null)
-            existingProvider.DisplayName = request.DisplayName;
-
-        if (request.Status.HasValue)
-            existingProvider.Status = request.Status.Value;
-
-        if (request.SupportedCurrencies != null)
-            existingProvider.SupportedCurrencies = request.SupportedCurrencies;
-
-        if (request.Priority.HasValue)
-            existingProvider.Priority = request.Priority.Value;
-
-        if (request.Credentials != null)
-            existingProvider.Credentials = request.Credentials;
-
-        existingProvider.UpdatedAt = DateTime.UtcNow;
-
-        var result = await _providerService.UpdateProviderAsync(existingProvider);
-
-        _logger.LogInformation("Updated provider: {ProviderName} (ID: {ProviderId})", result.Name, result.Id);
-
-        return Ok(MapToResponse(result));
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating provider {ProviderId}", id);
+            return StatusCode(500, new { error = "An error occurred while updating the provider" });
+        }
     }
 
     /// <summary>
     /// Updates a provider's operational status.
     /// </summary>
     [HttpPatch("{id}/status")]
+    [RequirePermission(PaymentPermissions.ProvidersManage)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> UpdateProviderStatus(Guid id, [FromBody] UpdateProviderStatusRequest request)
@@ -172,21 +272,36 @@ public class ProvidersController : ControllerBase
         {
             return NotFound();
         }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating status for provider {ProviderId}", id);
+            return StatusCode(500, new { error = "An error occurred while updating the provider status" });
+        }
     }
 
     /// <summary>
     /// Deletes a payment provider (soft delete).
     /// </summary>
     [HttpDelete("{id}")]
+    [RequirePermission(PaymentPermissions.ProvidersManage)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> DeleteProvider(Guid id)
     {
-        await _providerService.DeleteProviderAsync(id);
+        try
+        {
+            await _providerService.DeleteProviderAsync(id);
 
-        _logger.LogInformation("Deleted provider: ID {ProviderId}", id);
+            _logger.LogInformation("Deleted provider: ID {ProviderId}", id);
 
-        return NoContent();
+            return NoContent();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting provider {ProviderId}", id);
+            return StatusCode(500, new { error = "An error occurred while deleting the provider" });
+        }
     }
+
 
     private static ProviderResponse MapToResponse(PaymentProvider provider)
     {

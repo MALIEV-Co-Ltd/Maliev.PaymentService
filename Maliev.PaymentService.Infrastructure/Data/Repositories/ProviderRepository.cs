@@ -1,6 +1,6 @@
-using Maliev.PaymentService.Core.Entities;
-using Maliev.PaymentService.Core.Enums;
-using Maliev.PaymentService.Core.Interfaces;
+using Maliev.PaymentService.Domain.Entities;
+using Maliev.PaymentService.Domain.Enums;
+using Maliev.PaymentService.Application.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
 namespace Maliev.PaymentService.Infrastructure.Data.Repositories;
@@ -24,6 +24,7 @@ public class ProviderRepository : IProviderRepository
     public async Task<IEnumerable<PaymentProvider>> GetAllAsync(CancellationToken cancellationToken = default)
     {
         return await _context.PaymentProviders
+            .AsNoTracking()
             .Include(p => p.Configurations)
             .OrderBy(p => p.Priority)
             .ToListAsync(cancellationToken);
@@ -45,6 +46,7 @@ public class ProviderRepository : IProviderRepository
     public async Task<PaymentProvider?> GetByNameAsync(string name, CancellationToken cancellationToken = default)
     {
         return await _context.PaymentProviders
+            .AsNoTracking()
             .Include(p => p.Configurations)
             .FirstOrDefaultAsync(p => p.Name.ToLower() == name.ToLower(), cancellationToken);
     }
@@ -54,19 +56,29 @@ public class ProviderRepository : IProviderRepository
     /// </summary>
     public async Task<IEnumerable<PaymentProvider>> GetActiveByCurrencyAsync(string currency, CancellationToken cancellationToken = default)
     {
-        var activeProviders = await _context.PaymentProviders
+        var providers = await _context.PaymentProviders
             .AsNoTracking()
             .Include(p => p.Configurations)
             .Where(p => p.Status == ProviderStatus.Active)
             .OrderBy(p => p.Priority)
             .ToListAsync(cancellationToken);
 
-        // SupportedCurrencies is stored through a comma-separated value converter.
-        // EF cannot translate collection membership for that representation, so keep
-        // status/order filtering in PostgreSQL and evaluate only the bounded provider
-        // configuration set in memory.
-        return activeProviders.Where(p =>
-            p.SupportedCurrencies.Contains(currency, StringComparer.OrdinalIgnoreCase));
+        return providers.Where(p => p.SupportedCurrencies.Contains(currency));
+    }
+
+    /// <summary>
+    /// Gets active or degraded providers supporting a specific currency, ordered by priority.
+    /// </summary>
+    public async Task<IEnumerable<PaymentProvider>> GetRoutableByCurrencyAsync(string currency, CancellationToken cancellationToken = default)
+    {
+        var providers = await _context.PaymentProviders
+            .AsNoTracking()
+            .Include(p => p.Configurations)
+            .Where(p => p.Status == ProviderStatus.Active || p.Status == ProviderStatus.Degraded)
+            .OrderBy(p => p.Priority)
+            .ToListAsync(cancellationToken);
+
+        return providers.Where(p => p.SupportedCurrencies.Contains(currency));
     }
 
     /// <summary>
@@ -100,6 +112,7 @@ public class ProviderRepository : IProviderRepository
         {
             provider.DeletedAt = DateTime.UtcNow;
             provider.UpdatedAt = DateTime.UtcNow;
+            _context.PaymentProviders.Update(provider);
             await _context.SaveChangesAsync(cancellationToken);
         }
     }

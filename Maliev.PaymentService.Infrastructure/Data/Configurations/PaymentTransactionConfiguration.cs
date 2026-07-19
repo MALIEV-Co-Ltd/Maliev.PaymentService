@@ -1,4 +1,4 @@
-using Maliev.PaymentService.Core.Entities;
+using Maliev.PaymentService.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -117,11 +117,6 @@ public class PaymentTransactionConfiguration : IEntityTypeConfiguration<PaymentT
         builder.Property(p => p.CompletedAt)
             .HasColumnName("completed_at");
 
-        builder.Property(p => p.RowVersion)
-            .HasColumnName("row_version")
-            .IsRowVersion()
-            .IsRequired();
-
         // Indexes
         builder.HasIndex(p => p.IdempotencyKey)
             .IsUnique()
@@ -158,5 +153,14 @@ public class PaymentTransactionConfiguration : IEntityTypeConfiguration<PaymentT
             .WithOne(l => l.PaymentTransaction)
             .HasForeignKey(l => l.PaymentTransactionId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        // Ensures that transactions for soft-deleted providers are not retrieved
+        builder.HasQueryFilter(t => t.PaymentProvider != null && t.PaymentProvider.DeletedAt == null);
+
+        // PostgreSQL xmin for optimistic concurrency
+        builder.Property<uint>("xmin")
+            .HasColumnType("xid")
+            .IsRowVersion()
+            .HasColumnName("xmin");
     }
 }

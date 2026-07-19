@@ -31,8 +31,7 @@ paths:
 
         Each provider has its own signature validation mechanism:
         - **Stripe**: HMAC SHA-256 signature in `Stripe-Signature` header
-        - **PayPal**: Certificate validation using `CERT-URL` and `TRANSMISSION-SIG` headers
-        - **Omise**: IP whitelist validation (no signature)
+        - **Omise**: HMAC SHA-256 signature in `Omise-Signature` header
         - **SCB**: HMAC signature in custom header
 
         Webhook events are processed asynchronously. A 200 response indicates the webhook was
@@ -44,11 +43,11 @@ paths:
         - name: provider
           in: path
           required: true
-          description: Provider name (stripe, paypal, omise, scb)
+          description: Provider name (omise, scb, stripe)
           schema:
             type: string
-            enum: [stripe, paypal, omise, scb]
-            example: "stripe"
+            enum: [omise, scb, stripe]
+            example: "omise"
         - name: Stripe-Signature
           in: header
           required: false
@@ -56,17 +55,10 @@ paths:
           schema:
             type: string
             example: "t=1234567890,v1=signature_hash"
-        - name: CERT-URL
+        - name: Omise-Signature
           in: header
           required: false
-          description: PayPal certificate URL (required for PayPal webhooks)
-          schema:
-            type: string
-            format: uri
-        - name: TRANSMISSION-SIG
-          in: header
-          required: false
-          description: PayPal transmission signature (required for PayPal webhooks)
+          description: Omise webhook signature (required for Omise webhooks)
           schema:
             type: string
         - name: X-SCB-Signature
@@ -161,7 +153,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [stripe, paypal, omise, scb]
+            enum: [omise, scb, stripe]
       requestBody:
         required: true
         content:
@@ -264,24 +256,6 @@ components:
           type: integer
           description: Unix timestamp
           example: 1699999999
-
-    PayPalWebhookEvent:
-      type: object
-      description: Example PayPal webhook event structure
-      properties:
-        id:
-          type: string
-          example: "WH-12345-67890"
-        event_type:
-          type: string
-          example: "PAYMENT.CAPTURE.COMPLETED"
-        resource:
-          type: object
-          description: The event resource (Payment, Refund, etc.)
-        create_time:
-          type: string
-          format: date-time
-          example: "2025-11-18T10:30:00Z"
 
     OmiseWebhookEvent:
       type: object

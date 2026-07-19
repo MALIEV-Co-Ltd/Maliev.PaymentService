@@ -169,7 +169,7 @@
 
 ### Seed Data for User Story 5
 
-- [ ] T070 [US5] Create provider seed data migration in Maliev.PaymentService.Infrastructure/Data/Migrations/ to insert Stripe, PayPal, Omise, SCB providers with encrypted test credentials
+- [ ] T070 [US5] Create provider seed data migration in Maliev.PaymentService.Infrastructure/Data/Migrations/ to insert Omise, SCB, and Stripe providers with encrypted test credentials; Omise is priority 1 for THB.
 
 **Checkpoint**: User Story 5 complete - Providers can be registered and managed. US1 and US4 can now proceed.
 
@@ -211,7 +211,7 @@
 
 - [X] T084 [US1] Create IPaymentProviderAdapter interface in Maliev.PaymentService.Infrastructure/Providers/IPaymentProviderAdapter.cs (ProcessPaymentAsync, GetPaymentStatusAsync, ProcessRefundAsync, ValidateWebhookSignature)
 - [X] T085 [P] [US1] Create StripeProvider in Maliev.PaymentService.Infrastructure/Providers/StripeProvider.cs implementing IPaymentProviderAdapter using Stripe.net SDK
-- [X] T086 [P] [US1] Create PayPalProvider in Maliev.PaymentService.Infrastructure/Providers/PayPalProvider.cs implementing IPaymentProviderAdapter with OAuth 2.0 token management
+- [X] T086 [P] [US1] Retired: legacy wallet provider removed from the MALIEV payment ecosystem because it is not supported for the target Thai market.
 - [X] T087 [P] [US1] Create OmiseProvider in Maliev.PaymentService.Infrastructure/Providers/OmiseProvider.cs implementing IPaymentProviderAdapter with basic auth
 - [X] T088 [P] [US1] Create ScbApiProvider in Maliev.PaymentService.Infrastructure/Providers/ScbApiProvider.cs implementing IPaymentProviderAdapter with OAuth 2.0
 - [X] T089 [US1] Create ProviderFactory in Maliev.PaymentService.Infrastructure/Providers/ProviderFactory.cs for provider instantiation based on providerType
@@ -282,8 +282,8 @@
 ### Webhook Validation Services
 
 - [ ] T117 [P] [US4] Create StripeWebhookValidator in Maliev.PaymentService.Infrastructure/Providers/StripeWebhookValidator.cs with HMAC SHA-256 signature validation and timestamp verification
-- [ ] T118 [P] [US4] Create PayPalWebhookValidator in Maliev.PaymentService.Infrastructure/Providers/PayPalWebhookValidator.cs with certificate-based validation using CERT-URL and TRANSMISSION-SIG
-- [ ] T119 [P] [US4] Create OmiseWebhookValidator in Maliev.PaymentService.Infrastructure/Providers/OmiseWebhookValidator.cs with IP whitelist validation
+- [X] T118 [P] [US4] Retired: legacy wallet webhook validator removed with retired provider support.
+- [ ] T119 [P] [US4] Create OmiseWebhookValidator in Maliev.PaymentService.Infrastructure/Providers/OmiseWebhookValidator.cs with `Omise-Signature` HMAC validation.
 - [ ] T120 [P] [US4] Create ScbWebhookValidator in Maliev.PaymentService.Infrastructure/Providers/ScbWebhookValidator.cs with HMAC signature validation
 - [ ] T121 [US4] Create IWebhookValidationService interface in Maliev.PaymentService.Core/Interfaces/IWebhookValidationService.cs
 - [ ] T122 [US4] Create WebhookValidationService in Maliev.PaymentService.Core/Services/WebhookValidationService.cs that delegates to provider-specific validators
@@ -389,7 +389,7 @@
 
 - [ ] T154 [US3] Create IRefundService interface in Maliev.PaymentService.Core/Interfaces/IRefundService.cs
 - [ ] T155 [US3] Create RefundService in Maliev.PaymentService.Core/Services/RefundService.cs with refund orchestration, validation (check transaction status, refundable amount), provider adapter calls, transaction logging
-- [ ] T156 [US3] Add refund logic to provider adapters (implement ProcessRefundAsync in StripeProvider, PayPalProvider, OmiseProvider, ScbApiProvider)
+- [ ] T156 [US3] Add refund logic to provider adapters (implement ProcessRefundAsync in OmiseProvider, ScbApiProvider, and StripeProvider)
 
 ### Events for User Story 3
 
@@ -652,7 +652,7 @@ Task T077: "Create TransactionLog entity"
 **Provider Adapters Phase** (can all run together):
 ```bash
 Task T085: "Create StripeProvider"
-Task T086: "Create PayPalProvider"
+Task T086: "Legacy wallet provider retired"
 Task T087: "Create OmiseProvider"
 Task T088: "Create ScbApiProvider"
 ```

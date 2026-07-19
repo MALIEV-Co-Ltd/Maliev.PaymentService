@@ -1,5 +1,5 @@
-using Maliev.PaymentService.Core.Entities;
-using Maliev.PaymentService.Infrastructure.Encryption;
+using Maliev.PaymentService.Domain.Entities;
+using Maliev.PaymentService.Application.Interfaces;
 
 namespace Maliev.PaymentService.Infrastructure.Providers;
 
@@ -25,7 +25,7 @@ public class ProviderFactory
     /// <param name="region">Optional region (defaults to first active configuration)</param>
     /// <returns>Provider adapter instance</returns>
     /// <exception cref="NotSupportedException">Thrown when provider type is not supported</exception>
-    public IPaymentProviderAdapter CreateProvider(PaymentProvider provider, string? region = null)
+    public virtual IPaymentProviderAdapter CreateProvider(PaymentProvider provider, string? region = null)
     {
         var httpClient = _httpClientFactory.CreateClient(provider.Name);
 
@@ -54,13 +54,7 @@ public class ProviderFactory
                 decryptedCredentials.GetValueOrDefault("ApiKey", string.Empty),
                 config.ApiBaseUrl),
 
-            "paypal" => new PayPalProvider(
-                httpClient,
-                decryptedCredentials.GetValueOrDefault("ClientId", string.Empty),
-                decryptedCredentials.GetValueOrDefault("ClientSecret", string.Empty),
-                config.ApiBaseUrl),
-
-            "omise" => new OmiseProvider(
+            "omise" or "opn" => new OmiseProvider(
                 httpClient,
                 decryptedCredentials.GetValueOrDefault("SecretKey", string.Empty),
                 config.ApiBaseUrl),

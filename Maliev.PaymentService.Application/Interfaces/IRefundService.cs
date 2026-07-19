@@ -1,0 +1,28 @@
+using Maliev.PaymentService.Domain.Entities;
+
+namespace Maliev.PaymentService.Application.Interfaces;
+
+/// <summary>
+/// Service interface for refund processing operations.
+/// </summary>
+public interface IRefundService
+{
+    /// <summary>
+    /// Processes a refund for a completed payment.
+    /// Validates refund amount, checks remaining refundable amount, calls provider adapter.
+    /// </summary>
+    /// <param name="paymentTransactionId">ID of the payment to refund</param>
+    /// <param name="amount">Refund amount. Must be positive and not exceed the remaining refundable amount.</param>
+    /// <param name="reason">Reason for refund (customer-facing)</param>
+    /// <param name="refundType">"full" or "partial"</param>
+    /// <param name="idempotencyKey">Client-supplied idempotency key used for duplicate refund protection.</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Created refund transaction</returns>
+    Task<RefundTransaction> ProcessRefundAsync(
+        Guid paymentTransactionId,
+        decimal amount,
+        string? reason,
+        string refundType,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default);
+}

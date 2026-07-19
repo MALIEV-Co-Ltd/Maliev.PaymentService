@@ -1,49 +1,57 @@
-# Multi-stage Dockerfile for Payment Gateway Service
-# Stage 1: Build
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+# syntax=docker/dockerfile:1.7
+
+ARG dependency_restore_stage=restore-private
+
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build-base
+ARG BUILD_CONFIGURATION=Release
+ARG SERVICE_DEFAULTS_VERSION=1.0.81-alpha
+ARG MESSAGING_CONTRACTS_VERSION=1.0.91-alpha
+ENV GITHUB_ACTIONS=true
 WORKDIR /src
 
-# Copy csproj files and restore dependencies (layer caching)
+COPY ["nuget.config", "."]
+COPY ["NuGet.PRValidation.Config", "."]
+COPY ["Directory.Build.props", "."]
 COPY ["Maliev.PaymentService.Api/Maliev.PaymentService.Api.csproj", "Maliev.PaymentService.Api/"]
-COPY ["Maliev.PaymentService.Core/Maliev.PaymentService.Core.csproj", "Maliev.PaymentService.Core/"]
+COPY ["Maliev.PaymentService.Domain/Maliev.PaymentService.Domain.csproj", "Maliev.PaymentService.Domain/"]
+COPY ["Maliev.PaymentService.Application/Maliev.PaymentService.Application.csproj", "Maliev.PaymentService.Application/"]
 COPY ["Maliev.PaymentService.Infrastructure/Maliev.PaymentService.Infrastructure.csproj", "Maliev.PaymentService.Infrastructure/"]
-RUN dotnet restore "Maliev.PaymentService.Api/Maliev.PaymentService.Api.csproj"
+COPY [".ci-packages/", ".ci-packages/"]
 
-# Copy all source code
+FROM build-base AS restore-private
+RUN --mount=type=secret,id=nuget_username,required=true \
+    --mount=type=secret,id=nuget_password,required=true \
+    NUGET_USERNAME="$(cat /run/secrets/nuget_username)" \
+    NUGET_PASSWORD="$(cat /run/secrets/nuget_password)" \
+    dotnet restore "./Maliev.PaymentService.Api/Maliev.PaymentService.Api.csproj" \
+      -p:ServiceDefaultsVersion=$SERVICE_DEFAULTS_VERSION \
+      -p:MessagingContractsVersion=$MESSAGING_CONTRACTS_VERSION
+
+FROM build-base AS restore-local
+RUN dotnet restore "./Maliev.PaymentService.Api/Maliev.PaymentService.Api.csproj" \
+      --configfile "NuGet.PRValidation.Config" \
+      -p:ServiceDefaultsVersion=$SERVICE_DEFAULTS_VERSION \
+      -p:MessagingContractsVersion=$MESSAGING_CONTRACTS_VERSION
+
+FROM ${dependency_restore_stage} AS build
 COPY . .
-
-# Build the application
 WORKDIR "/src/Maliev.PaymentService.Api"
-RUN dotnet build "Maliev.PaymentService.Api.csproj" -c Release -o /app/build
+RUN dotnet publish "./Maliev.PaymentService.Api.csproj" \
+      -c $BUILD_CONFIGURATION \
+      --no-restore \
+      -o /app/publish \
+      /p:UseAppHost=false \
+      -p:ServiceDefaultsVersion=$SERVICE_DEFAULTS_VERSION \
+      -p:MessagingContractsVersion=$MESSAGING_CONTRACTS_VERSION
 
-# Stage 2: Publish
-FROM build AS publish
-RUN dotnet publish "Maliev.PaymentService.Api.csproj" -c Release -o /app/publish /p:UseAppHost=false
-
-# Stage 3: Runtime
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
+COPY --chown=app:app --from=build /app/publish .
 
-# Copy published application
-COPY --from=publish /app/publish .
-
-# Set ownership to app user
-RUN chown -R app:app /app
-
-# Switch to non-root user
 USER app
-
-# Expose ports
 EXPOSE 8080
-EXPOSE 8081
+ENV ASPNETCORE_HTTP_PORTS=8080 \
+    ASPNETCORE_ENVIRONMENT=Production \
+    DOTNET_EnableDiagnostics=0
 
-# Configure health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD curl --fail http://localhost:8080/payments/readiness || exit 1
-
-# Set environment variables
-ENV ASPNETCORE_URLS=http://+:8080
-ENV ASPNETCORE_ENVIRONMENT=Production
-
-# Entry point
 ENTRYPOINT ["dotnet", "Maliev.PaymentService.Api.dll"]

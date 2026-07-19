@@ -1,19 +1,25 @@
-using System.Text.Json;
+using Asp.Versioning;
+using Maliev.Aspire.ServiceDefaults.Authorization;
+using Maliev.PaymentService.Api.Authorization;
+using Maliev.PaymentService.Application.Authorization;
 using Maliev.PaymentService.Api.Models.Requests;
 using Maliev.PaymentService.Api.Models.Responses;
-using Maliev.PaymentService.Core.Entities;
-using Maliev.PaymentService.Core.Enums;
-using Maliev.PaymentService.Core.Interfaces;
+using Maliev.PaymentService.Domain.Entities;
+using Maliev.PaymentService.Domain.Enums;
+using Maliev.PaymentService.Application.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Text.Json;
 
 namespace Maliev.PaymentService.Api.Controllers;
 
 /// <summary>
-/// API controller for receiving webhooks from payment providers.
-/// Handles webhook validation, deduplication, and processing.
+/// Controller for receiving and processing payment provider webhooks.
+/// Webhooks are authenticated via signature verification.
 /// </summary>
 [ApiController]
-[Route("payments/v1/webhooks")]
+[ApiVersion("1")]
+[Route("payment/v{version:apiVersion}/webhooks")]
 public class WebhooksController : ControllerBase
 {
     private readonly IProviderRepository _providerRepository;
@@ -23,6 +29,15 @@ public class WebhooksController : ControllerBase
     private readonly IMetricsService _metricsService;
     private readonly ILogger<WebhooksController> _logger;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="WebhooksController"/> class.
+    /// </summary>
+    /// <param name="providerRepository"></param>
+    /// <param name="webhookRepository"></param>
+    /// <param name="validationService"></param>
+    /// <param name="processingService"></param>
+    /// <param name="metricsService"></param>
+    /// <param name="logger"></param>
     public WebhooksController(
         IProviderRepository providerRepository,
         IWebhookRepository webhookRepository,
@@ -40,19 +55,85 @@ public class WebhooksController : ControllerBase
     }
 
     /// <summary>
-    /// Receives a webhook from a payment provider.
-    /// Validates signature, checks for duplicates, and queues for processing.
+    /// Receives webhook notifications from payment providers.
     /// </summary>
+    /// <param name="provider">The provider name (stripe, scb, omise).</param>
+    /// <param name="payload">The webhook payload from the provider (JSON format).</param>
+    /// <returns>Webhook received confirmation with event ID and processing status.</returns>
+    /// <remarks>
+    /// Receives and processes webhook notifications from payment providers. Webhooks are used by providers
+    /// to notify the gateway about payment status changes (e.g., completed, failed, refunded).
+    ///
+    /// **Security:**
+    /// - Signature validation using provider-specific secrets
+    /// - Source IP validation (optional, provider-dependent)
+    /// - Duplicate detection using event IDs
+    /// - Rate limiting: 100 requests/minute per provider
+    ///
+    /// **Supported Providers:**
+    /// - `stripe`: Stripe webhook events with Stripe-Signature header
+    /// - `scb`: SCB API webhooks with X-SCB-Signature header
+    /// - `omise`: Omise webhook events with Omise-Signature header
+    ///
+    /// **Webhook Processing:**
+    /// 1. Signature validation (prevents tampering)
+    /// 2. Duplicate detection (idempotent processing)
+    /// 3. Event persistence to database
+    /// 4. Inline processing so payment providers retry if state updates or event publication fail
+    /// 5. Payment status update
+    ///
+    /// **Event Types:**
+    /// - `payment.succeeded`: Payment completed successfully
+    /// - `payment.failed`: Payment failed or declined
+    /// - `payment.cancelled`: Payment cancelled by customer
+    /// - `refund.succeeded`: Refund completed successfully
+    /// - `refund.failed`: Refund failed
+    ///
+    /// **Response Time:**
+    /// - Target: &lt; 200ms (fast acknowledgment)
+    /// - Processing: Completed before provider acknowledgment
+    ///
+    /// **Example Stripe Webhook:**
+    /// ```bash
+    /// POST /payments/v1/webhooks/stripe
+    /// Stripe-Signature: t=1234567890,v1=abc123...
+    /// Content-Type: application/json
+    ///
+    /// {
+    ///   "id": "evt_123",
+    ///   "type": "payment_intent.succeeded",
+    ///   "data": {
+    ///     "object": {
+    ///       "id": "pi_123",
+    ///       "amount": 9999,
+    ///       "currency": "usd",
+    ///       "status": "succeeded"
+    ///     }
+    ///   }
+    /// }
+    /// ```
+    ///
+    /// **Testing:**
+    /// - Use provider test/sandbox webhooks for development
+    /// - Stripe CLI: `stripe listen --forward-to localhost:5251/payments/v1/webhooks/stripe`
+    /// - Omise Dashboard: Configure webhook URL and webhook secret in the Omise dashboard
+    /// </remarks>
+    /// <response code="200">Webhook received and processed. Returns event ID.</response>
+    /// <response code="400">Invalid request. Unknown provider or malformed payload.</response>
+    /// <response code="401">Unauthorized. Signature validation failed.</response>
+    [AllowAnonymous] // Webhooks are authenticated via signature verification
     [HttpPost("{provider}")]
     [ProducesResponseType(typeof(WebhookReceivedResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<ActionResult<WebhookReceivedResponse>> ReceiveWebhook(
         string provider,
         [FromBody] JsonElement payload)
     {
         var startTime = DateTime.UtcNow;
         var sourceIp = HttpContext.Connection.RemoteIpAddress?.ToString();
+        var cancellationToken = HttpContext.RequestAborted;
 
         _logger.LogInformation(
             "Received webhook from provider: {Provider}, IP: {SourceIp}",
@@ -61,7 +142,7 @@ public class WebhooksController : ControllerBase
         try
         {
             // Get provider configuration
-            var providerEntity = await _providerRepository.GetByNameAsync(provider);
+            var providerEntity = await ResolveProviderAsync(provider, cancellationToken);
             if (providerEntity == null)
             {
                 _logger.LogWarning("Unknown provider: {Provider}", provider);
@@ -125,22 +206,12 @@ public class WebhooksController : ControllerBase
             // Check for duplicate
             var existing = await _webhookRepository.GetByProviderEventIdAsync(
                 providerEntity.Id,
-                providerEventId);
+                providerEventId,
+                cancellationToken);
 
             if (existing != null)
             {
-                _logger.LogInformation(
-                    "Duplicate webhook detected: {ProviderEventId} from provider {Provider}",
-                    providerEventId, provider);
-
-                return Ok(new WebhookReceivedResponse
-                {
-                    WebhookEventId = existing.Id,
-                    Accepted = true,
-                    IsDuplicate = true,
-                    Message = "Webhook already processed",
-                    ReceivedAt = existing.CreatedAt
-                });
+                return await HandleExistingWebhookAsync(existing, providerEventId, provider, startTime, cancellationToken);
             }
 
             // Extract event type
@@ -161,31 +232,41 @@ public class WebhooksController : ControllerBase
                 ProcessingStatus = WebhookProcessingStatus.Pending,
                 ProcessingAttempts = 0,
                 CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow,
-                RowVersion = Array.Empty<byte>()
+                UpdatedAt = DateTime.UtcNow
             };
 
-            // Save webhook event
-            await _webhookRepository.AddAsync(webhookEvent);
-
-            // Process webhook asynchronously (fire and forget)
-            _ = Task.Run(async () =>
+            // Save webhook event. The repository can return an existing row when
+            // a concurrent duplicate insert wins the provider-event unique key.
+            var persistedWebhookEvent = await _webhookRepository.AddAsync(webhookEvent, cancellationToken);
+            if (persistedWebhookEvent.Id != webhookEvent.Id)
             {
-                try
+                return await HandleExistingWebhookAsync(persistedWebhookEvent, providerEventId, provider, startTime, cancellationToken);
+            }
+
+            webhookEvent = persistedWebhookEvent;
+
+            // Process inline so providers retry if payment state/event publication fails.
+            var processingResult = await _processingService.ProcessWebhookAsync(webhookEvent, cancellationToken);
+            if (!processingResult.Success)
+            {
+                _logger.LogError(
+                    "Webhook {WebhookId} processing failed: {ErrorMessage}",
+                    webhookEvent.Id,
+                    processingResult.ErrorMessage);
+
+                return StatusCode(500, new ErrorResponse
                 {
-                    await _processingService.ProcessWebhookAsync(webhookEvent);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error in background webhook processing for {WebhookId}", webhookEvent.Id);
-                }
-            });
+                    Error = "WEBHOOK_PROCESSING_FAILED",
+                    Message = "Webhook was received but could not be processed. Provider should retry.",
+                    Timestamp = DateTime.UtcNow
+                });
+            }
 
             var duration = (DateTime.UtcNow - startTime).TotalSeconds;
             _metricsService.RecordWebhookDuration(provider, duration);
 
             _logger.LogInformation(
-                "Webhook {WebhookId} accepted and queued for processing",
+                "Webhook {WebhookId} accepted and processed",
                 webhookEvent.Id);
 
             return Ok(new WebhookReceivedResponse
@@ -193,7 +274,7 @@ public class WebhooksController : ControllerBase
                 WebhookEventId = webhookEvent.Id,
                 Accepted = true,
                 IsDuplicate = false,
-                Message = "Webhook received and queued for processing",
+                Message = "Webhook received and processed",
                 ReceivedAt = webhookEvent.CreatedAt
             });
         }
@@ -215,6 +296,7 @@ public class WebhooksController : ControllerBase
     /// Only available when not in Production.
     /// </summary>
     [HttpPost("{provider}/test")]
+    [RequirePermission(PaymentPermissions.GatewayMonitor)]
     [ProducesResponseType(typeof(WebhookReceivedResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<WebhookReceivedResponse>> TestWebhook(
@@ -236,9 +318,10 @@ public class WebhooksController : ControllerBase
         _logger.LogInformation(
             "Test webhook requested for provider: {Provider}, event type: {EventType}",
             provider, request.EventType);
+        var cancellationToken = HttpContext.RequestAborted;
 
         // Get provider
-        var providerEntity = await _providerRepository.GetByNameAsync(provider);
+        var providerEntity = await _providerRepository.GetByNameAsync(provider, cancellationToken);
         if (providerEntity == null)
         {
             return BadRequest(new ErrorResponse
@@ -265,7 +348,7 @@ public class WebhooksController : ControllerBase
 
         var rawPayload = JsonSerializer.Serialize(testPayload);
 
-        // Create webhook event
+        // Create webhook event (don't set PaymentTransactionId for test webhooks to avoid FK constraints)
         var webhookEvent = new WebhookEvent
         {
             Id = Guid.NewGuid(),
@@ -278,16 +361,16 @@ public class WebhooksController : ControllerBase
             UserAgent = "Test",
             ProcessingStatus = WebhookProcessingStatus.Pending,
             ProcessingAttempts = 0,
-            PaymentTransactionId = request.TransactionId,
+            PaymentTransactionId = null, // Don't set for test webhooks - will be extracted during processing
+            CorrelationId = request.TransactionId, // Store transaction ID in correlation instead for testing
             CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
-            RowVersion = Array.Empty<byte>()
+            UpdatedAt = DateTime.UtcNow
         };
 
-        await _webhookRepository.AddAsync(webhookEvent);
+        await _webhookRepository.AddAsync(webhookEvent, cancellationToken);
 
-        // Process immediately for testing
-        var result = await _processingService.ProcessWebhookAsync(webhookEvent);
+        // Process immediately for testing - this will publish events based on the test payload
+        var result = await _processingService.ProcessWebhookAsync(webhookEvent, cancellationToken);
 
         return Ok(new WebhookReceivedResponse
         {
@@ -320,9 +403,24 @@ public class WebhooksController : ControllerBase
         return provider.ToLowerInvariant() switch
         {
             "stripe" when payload.TryGetProperty("id", out var stripeId) => stripeId.GetString() ?? string.Empty,
-            "paypal" when payload.TryGetProperty("id", out var paypalId) => paypalId.GetString() ?? string.Empty,
             _ => string.Empty
         };
+    }
+
+    private async Task<PaymentProvider?> ResolveProviderAsync(string provider, CancellationToken cancellationToken)
+    {
+        var providerEntity = await _providerRepository.GetByNameAsync(provider, cancellationToken);
+        if (providerEntity is not null)
+        {
+            return providerEntity;
+        }
+
+        if (provider.Equals("opn", StringComparison.OrdinalIgnoreCase))
+        {
+            return await _providerRepository.GetByNameAsync("omise", cancellationToken);
+        }
+
+        return null;
     }
 
     private string ExtractEventType(JsonElement payload, string provider)
@@ -343,6 +441,11 @@ public class WebhooksController : ControllerBase
             return camelTypeValue.GetString() ?? "unknown";
         }
 
+        if (payload.TryGetProperty("key", out var keyValue) && keyValue.ValueKind == JsonValueKind.String)
+        {
+            return keyValue.GetString() ?? "unknown";
+        }
+
         return "unknown";
     }
 
@@ -351,10 +454,66 @@ public class WebhooksController : ControllerBase
         return provider.ToLowerInvariant() switch
         {
             "stripe" => headers.GetValueOrDefault("Stripe-Signature"),
-            "paypal" => headers.GetValueOrDefault("PAYPAL-TRANSMISSION-SIG"),
-            "omise" => headers.GetValueOrDefault("X-Omise-Signature"),
+            "omise" or "opn" => headers.GetValueOrDefault("Omise-Signature"),
             "scb" => headers.GetValueOrDefault("X-SCB-Signature"),
             _ => null
         };
+    }
+
+    private async Task<ActionResult<WebhookReceivedResponse>> HandleExistingWebhookAsync(
+        WebhookEvent existing,
+        string providerEventId,
+        string provider,
+        DateTime startTime,
+        CancellationToken cancellationToken)
+    {
+        if (existing.ProcessingStatus != WebhookProcessingStatus.Completed &&
+            existing.ProcessingStatus != WebhookProcessingStatus.Duplicate)
+        {
+            _logger.LogInformation(
+                "Retrying webhook {ProviderEventId} from provider {Provider} with processing status {ProcessingStatus}",
+                providerEventId, provider, existing.ProcessingStatus);
+
+            var retryResult = await _processingService.ProcessWebhookAsync(existing, cancellationToken);
+            if (!retryResult.Success)
+            {
+                _logger.LogError(
+                    "Retried webhook {WebhookId} processing failed: {ErrorMessage}",
+                    existing.Id,
+                    retryResult.ErrorMessage);
+
+                return StatusCode(500, new ErrorResponse
+                {
+                    Error = "WEBHOOK_PROCESSING_FAILED",
+                    Message = "Webhook was received but could not be processed. Provider should retry.",
+                    Timestamp = DateTime.UtcNow
+                });
+            }
+
+            var retryDuration = (DateTime.UtcNow - startTime).TotalSeconds;
+            _metricsService.RecordWebhookDuration(provider, retryDuration);
+
+            return Ok(new WebhookReceivedResponse
+            {
+                WebhookEventId = existing.Id,
+                Accepted = true,
+                IsDuplicate = false,
+                Message = "Webhook received and processed",
+                ReceivedAt = existing.CreatedAt
+            });
+        }
+
+        _logger.LogInformation(
+            "Duplicate webhook detected: {ProviderEventId} from provider {Provider}",
+            providerEventId, provider);
+
+        return Ok(new WebhookReceivedResponse
+        {
+            WebhookEventId = existing.Id,
+            Accepted = true,
+            IsDuplicate = true,
+            Message = "Webhook already processed",
+            ReceivedAt = existing.CreatedAt
+        });
     }
 }

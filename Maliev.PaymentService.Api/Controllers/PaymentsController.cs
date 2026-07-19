@@ -1,109 +1,98 @@
-using FluentValidation;
+using Asp.Versioning;
+using System;
+using System.Text.Json;
+using Maliev.Aspire.ServiceDefaults.Authorization;
+using Maliev.PaymentService.Api.Authorization;
+using Maliev.PaymentService.Application.Authorization;
 using Maliev.PaymentService.Api.Models.Requests;
 using Maliev.PaymentService.Api.Models.Responses;
-using Maliev.PaymentService.Core.Interfaces;
-using Microsoft.AspNetCore.Authorization;
+using Maliev.PaymentService.Domain.Enums;
+using Maliev.PaymentService.Application.Interfaces;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Caching.Distributed;
 
 namespace Maliev.PaymentService.Api.Controllers;
 
 /// <summary>
-/// API controller for payment processing.
-/// Handles payment initiation and status queries.
+/// Controller for payment processing operations.
 /// </summary>
 [ApiController]
-[Route("payments/v1/payments")]
-[Authorize]
+[ApiVersion("1")]
+[Route("payment/v{version:apiVersion}/payments")]
+[RequirePermission(PaymentPermissions.PaymentsRead)]
 public class PaymentsController : ControllerBase
 {
+    private const int MaxIdempotencyKeyLength = 255;
+
     private readonly IPaymentService _paymentService;
-    private readonly IPaymentStatusService _paymentStatusService;
     private readonly IRefundService _refundService;
     private readonly IMetricsService _metricsService;
-    private readonly IValidator<PaymentRequest> _validator;
+    private readonly IDistributedCache _cache;
+    private readonly IWebHostEnvironment _environment;
     private readonly ILogger<PaymentsController> _logger;
 
+    /// <summary>
+    /// Initializes a new instance of the PaymentsController.
+    /// </summary>
+    /// <param name="paymentService">Payment processing service</param>
+    /// <param name="refundService">Refund processing service</param>
+    /// <param name="metricsService">Metrics collection service</param>
+    /// <param name="cache">Distributed cache for performance</param>
+    /// <param name="environment">Current host environment</param>
+    /// <param name="logger">Logger instance</param>
     public PaymentsController(
         IPaymentService paymentService,
-        IPaymentStatusService paymentStatusService,
         IRefundService refundService,
         IMetricsService metricsService,
-        IValidator<PaymentRequest> validator,
+        IDistributedCache cache,
+        IWebHostEnvironment environment,
         ILogger<PaymentsController> logger)
     {
         _paymentService = paymentService;
-        _paymentStatusService = paymentStatusService;
         _refundService = refundService;
         _metricsService = metricsService;
-        _validator = validator;
+        _cache = cache;
+        _environment = environment;
         _logger = logger;
     }
 
     /// <summary>
-    /// Process a payment through the gateway.
-    /// Requires Idempotency-Key header for duplicate detection.
+    /// Process a new payment.
+    /// Requires Idempotency-Key header to prevent duplicate payments.
     /// </summary>
+    /// <param name="request">Payment request details</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Created payment transaction</returns>
     [HttpPost]
+    [RequirePermission(PaymentPermissions.PaymentsProcess)]
     [ProducesResponseType(typeof(PaymentResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(PaymentResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<PaymentResponse>> ProcessPayment([FromBody] PaymentRequest request)
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<PaymentResponse>> ProcessPayment(
+        [FromBody] PaymentRequest request,
+        CancellationToken cancellationToken)
     {
-        // Extract Idempotency-Key header (required)
-        if (!Request.Headers.TryGetValue("Idempotency-Key", out var idempotencyKey) ||
-            string.IsNullOrWhiteSpace(idempotencyKey))
-        {
-            _logger.LogWarning("Payment request received without Idempotency-Key header");
-            return BadRequest(new ErrorResponse
-            {
-                Error = "IDEMPOTENCY_KEY_REQUIRED",
-                Message = "Idempotency-Key header is required",
-                Timestamp = DateTime.UtcNow
-            });
-        }
-
-        // Extract X-Correlation-Id header (optional, generate if not provided)
-        if (!Request.Headers.TryGetValue("X-Correlation-Id", out var correlationId) ||
-            string.IsNullOrWhiteSpace(correlationId))
-        {
-            correlationId = Guid.NewGuid().ToString();
-        }
-
-        // Store correlation ID in HttpContext for middleware logging
-        HttpContext.Items["CorrelationId"] = correlationId.ToString();
-
-        // Validate request
-        var validationResult = await _validator.ValidateAsync(request);
-        if (!validationResult.IsValid)
-        {
-            var errors = validationResult.Errors
-                .GroupBy(e => e.PropertyName)
-                .ToDictionary(g => g.Key, g => g.Select(e => e.ErrorMessage).ToArray());
-
-            _logger.LogWarning("Payment request validation failed. Errors: {Errors}", errors);
-
-            return BadRequest(new ErrorResponse
-            {
-                Error = "VALIDATION_ERROR",
-                Message = "One or more validation errors occurred",
-                Details = errors.ToDictionary(kvp => kvp.Key, kvp => (object)kvp.Value),
-                Timestamp = DateTime.UtcNow,
-                CorrelationId = correlationId
-            });
-        }
-
-        _logger.LogInformation(
-            "Processing payment request. IdempotencyKey: {IdempotencyKey}, Amount: {Amount}, Currency: {Currency}, OrderId: {OrderId}, CorrelationId: {CorrelationId}",
-            idempotencyKey, request.Amount, request.Currency, request.OrderId, correlationId);
-
+        var startTime = DateTime.UtcNow;
         try
         {
+            if (!TryGetIdempotencyKey(out var idempotencyKey, out var idempotencyError))
+            {
+                return idempotencyError;
+            }
+
+            // Get Correlation-Id header (optional)
+            Request.Headers.TryGetValue("X-Correlation-Id", out var correlationId);
+            var correlationIdValue = string.IsNullOrWhiteSpace(correlationId)
+                ? Guid.NewGuid().ToString()
+                : correlationId.ToString();
+
+            // Create payment processing request
             var processingRequest = new PaymentProcessingRequest
             {
-                IdempotencyKey = idempotencyKey!,
+                IdempotencyKey = idempotencyKey,
                 Amount = request.Amount,
-                Currency = request.Currency.ToUpperInvariant(),
+                Currency = request.Currency.Trim().ToUpperInvariant(),
                 CustomerId = request.CustomerId,
                 OrderId = request.OrderId,
                 Description = request.Description,
@@ -111,26 +100,26 @@ public class PaymentsController : ControllerBase
                 CancelUrl = request.CancelUrl,
                 Metadata = request.Metadata,
                 PreferredProvider = request.PreferredProvider,
-                CorrelationId = correlationId!
+                CorrelationId = correlationIdValue
             };
 
-            var transaction = await _paymentService.ProcessPaymentAsync(processingRequest);
+            // Process payment
+            var transaction = await _paymentService.ProcessPaymentAsync(processingRequest, cancellationToken);
 
-            var response = MapToResponse(transaction);
+            // Map to response
+            var response = MapToPaymentResponse(transaction);
 
-            // Return 200 OK for an idempotent replay and 201 Created for a new transaction.
-            // This must not depend on provider or infrastructure latency.
-            if (transaction.IsReplay)
+            var duration = (DateTime.UtcNow - startTime).TotalSeconds;
+            _metricsService.RecordPaymentDuration(transaction.PaymentProvider?.Name ?? "unknown", duration);
+
+            // Return 200 OK if the service returned an existing transaction.
+            if (processingRequest.ExistingTransactionReturned)
             {
                 _logger.LogInformation(
                     "Returning existing payment {TransactionId} for idempotent request {IdempotencyKey}",
                     transaction.Id, idempotencyKey);
                 return Ok(response);
             }
-
-            _logger.LogInformation(
-                "Payment {TransactionId} created successfully. Status: {Status}, Provider: {ProviderName}",
-                transaction.Id, transaction.Status, transaction.ProviderName);
 
             return CreatedAtAction(
                 nameof(GetPaymentById),
@@ -139,176 +128,249 @@ public class PaymentsController : ControllerBase
         }
         catch (InvalidOperationException ex)
         {
-            _logger.LogWarning(ex, "Payment processing failed due to business logic error");
-            return BadRequest(new ErrorResponse
-            {
-                Error = "PAYMENT_PROCESSING_ERROR",
-                Message = ex.Message,
-                Timestamp = DateTime.UtcNow,
-                CorrelationId = correlationId
-            });
+            _logger.LogWarning(ex, "Invalid payment request");
+            return BadRequest(new { error = ex.Message });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Unexpected error processing payment");
-            return StatusCode(500, new ErrorResponse
+            _logger.LogError(ex, "Error processing payment");
+            return StatusCode(500, new
             {
-                Error = "INTERNAL_ERROR",
-                Message = "An error occurred while processing the payment",
-                Timestamp = DateTime.UtcNow,
-                CorrelationId = correlationId
+                error = "An error occurred while processing the payment",
+                detail = _environment.IsDevelopment() || _environment.IsEnvironment("Testing")
+                    ? $"{ex.Message} Base exception: {ex.GetBaseException().Message}"
+                    : null
             });
         }
     }
 
     /// <summary>
-    /// Get payment details by transaction ID with Redis caching.
-    /// Cache TTL: 60 seconds for active transactions, 3600 seconds for terminal states.
+    /// Get a payment by its transaction ID.
+    /// Results are cached for performance.
     /// </summary>
-    [HttpGet("{id}")]
+    /// <param name="id">Transaction ID</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Payment details</returns>
+    [HttpGet("{id:guid}")]
     [ProducesResponseType(typeof(PaymentResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<PaymentResponse>> GetPaymentById(Guid id)
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<PaymentResponse>> GetPaymentById(
+        Guid id,
+        CancellationToken cancellationToken)
     {
         var startTime = DateTime.UtcNow;
-
         try
         {
-            // Use caching service (with automatic cache hit/miss logging)
-            var transaction = await _paymentStatusService.GetPaymentStatusAsync(id);
+            // Try to get from cache first
+            var cacheKey = $"payment:{id}";
+            var cachedValue = await _cache.GetStringAsync(cacheKey, cancellationToken);
+
+            if (!string.IsNullOrEmpty(cachedValue))
+            {
+                if (JsonSerializer.Deserialize<PaymentResponse>(cachedValue) is { } cachedResponse)
+                {
+                    _logger.LogDebug("Payment {TransactionId} retrieved from cache", id);
+                    _metricsService.RecordPaymentStatusCacheHit(cachedResponse.SelectedProvider ?? "unknown");
+                    return Ok(cachedResponse);
+                }
+            }
+
+            // Not in cache, get from database
+            var transaction = await _paymentService.GetPaymentByIdAsync(id, cancellationToken);
 
             if (transaction == null)
             {
-                _logger.LogInformation("Payment {TransactionId} not found", id);
-                return NotFound(new ErrorResponse
-                {
-                    Error = "PAYMENT_NOT_FOUND",
-                    Message = $"Payment with ID {id} not found",
-                    Timestamp = DateTime.UtcNow
-                });
+                return NotFound(new { error = $"Payment {id} not found" });
             }
 
+            var response = MapToPaymentResponse(transaction);
+
             var duration = (DateTime.UtcNow - startTime).TotalSeconds;
+            _metricsService.RecordPaymentStatusQuery(transaction.PaymentProvider?.Name ?? "unknown", duration);
 
-            // Record metrics
-            _metricsService.RecordPaymentStatusQuery(transaction.ProviderName ?? "unknown", duration);
+            // Cache the result
+            var cacheDuration = transaction.Status switch
+            {
+                PaymentStatus.Pending => TimeSpan.FromSeconds(60), // Short cache for pending
+                PaymentStatus.Processing => TimeSpan.FromSeconds(60),
+                PaymentStatus.Completed => TimeSpan.FromMinutes(60), // Longer cache for completed
+                PaymentStatus.Failed => TimeSpan.FromMinutes(30),
+                PaymentStatus.Cancelled => TimeSpan.FromMinutes(30),
+                PaymentStatus.Expired => TimeSpan.FromMinutes(30),
+                PaymentStatus.Refunded => TimeSpan.FromMinutes(30),
+                PaymentStatus.PartiallyRefunded => TimeSpan.FromMinutes(30),
+                _ => TimeSpan.FromMinutes(5)
+            };
 
-            _logger.LogInformation("Retrieved payment {TransactionId}, Status: {Status}", id, transaction.Status);
+            var cacheOptions = new DistributedCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = cacheDuration
+            };
 
-            return Ok(MapToResponse(transaction));
+            await _cache.SetStringAsync(
+                cacheKey,
+                JsonSerializer.Serialize(response),
+                cacheOptions,
+                cancellationToken);
+
+            _logger.LogDebug("Payment {TransactionId} cached for {Duration}", id, cacheDuration);
+
+            return Ok(response);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error retrieving payment {TransactionId}", id);
-
-            return StatusCode(500, new ErrorResponse
-            {
-                Error = "INTERNAL_ERROR",
-                Message = "An error occurred while retrieving the payment",
-                Timestamp = DateTime.UtcNow
-            });
+            return StatusCode(500, new { error = "An error occurred while retrieving the payment" });
         }
     }
 
     /// <summary>
     /// Process a refund for a completed payment.
-    /// Requires Idempotency-Key header for duplicate detection.
     /// </summary>
-    [HttpPost("{transactionId}/refund")]
+    /// <param name="id">Payment transaction ID to refund</param>
+    /// <param name="request">Refund request details</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Refund transaction details</returns>
+    [HttpPost("{id:guid}/refund")]
+    [RequirePermission(PaymentPermissions.PaymentsRefund)]
     [ProducesResponseType(typeof(RefundResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
-    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<RefundResponse>> ProcessRefund(
-        Guid transactionId,
-        [FromBody] RefundRequest request)
+        Guid id,
+        [FromBody] RefundRequest request,
+        CancellationToken cancellationToken)
     {
         var startTime = DateTime.UtcNow;
-
-        // Extract headers
-        if (!Request.Headers.TryGetValue("Idempotency-Key", out var idempotencyKey) ||
-            string.IsNullOrWhiteSpace(idempotencyKey))
-        {
-            _logger.LogWarning("Refund request received without Idempotency-Key header");
-            return BadRequest(new ErrorResponse
-            {
-                Error = "MISSING_IDEMPOTENCY_KEY",
-                Message = "Idempotency-Key header is required for refund requests",
-                Timestamp = DateTime.UtcNow
-            });
-        }
-
-        var correlationId = Request.Headers.TryGetValue("X-Correlation-Id", out var corrId)
-            ? corrId.ToString()
-            : Guid.NewGuid().ToString();
-
-        _logger.LogInformation(
-            "Processing refund request for payment {TransactionId}. Amount: {Amount}, Type: {Type}, IdempotencyKey: {IdempotencyKey}, CorrelationId: {CorrelationId}",
-            transactionId, request.Amount, request.RefundType, idempotencyKey, correlationId);
-
         try
         {
+            if (!TryGetIdempotencyKey(out var idempotencyKey, out var idempotencyError))
+            {
+                return idempotencyError;
+            }
+
             // Process refund
-            var refund = await _refundService.ProcessRefundAsync(
-                transactionId,
+            var refundTransaction = await _refundService.ProcessRefundAsync(
+                id,
                 request.Amount,
                 request.Reason,
-                request.RefundType);
+                request.RefundType,
+                idempotencyKey,
+                cancellationToken);
 
-            var response = MapToRefundResponse(refund);
+            // Map to response
+            var response = new RefundResponse
+            {
+                RefundId = refundTransaction.Id,
+                PaymentTransactionId = refundTransaction.PaymentTransactionId,
+                Amount = refundTransaction.Amount,
+                Currency = refundTransaction.Currency,
+                Status = refundTransaction.Status.ToString().ToLowerInvariant(),
+                Reason = refundTransaction.Reason,
+                RefundType = refundTransaction.RefundType,
+                ProviderRefundId = refundTransaction.ProviderRefundId,
+                ErrorMessage = refundTransaction.ErrorMessage,
+                InitiatedAt = refundTransaction.InitiatedAt,
+                CompletedAt = refundTransaction.CompletedAt,
+                CreatedAt = refundTransaction.CreatedAt,
+                UpdatedAt = refundTransaction.UpdatedAt
+            };
 
             var duration = (DateTime.UtcNow - startTime).TotalSeconds;
             _metricsService.RecordRefundTransaction(
-                refund.Provider?.Name ?? "unknown",
-                refund.Status.ToString(),
-                refund.Amount);
+                refundTransaction.Provider?.Name ?? "unknown",
+                refundTransaction.Status.ToString(),
+                refundTransaction.Amount);
 
-            _logger.LogInformation(
-                "Refund {RefundId} processed successfully for payment {TransactionId}. Status: {Status}, Amount: {Amount}",
-                refund.Id, transactionId, refund.Status, refund.Amount);
+            // Invalidate payment cache since refund affects payment state
+            var cacheKey = $"payment:{id}";
+            await _cache.RemoveAsync(cacheKey, cancellationToken);
 
             return Ok(response);
         }
         catch (InvalidOperationException ex)
         {
-            _logger.LogWarning(ex, "Invalid refund request for payment {TransactionId}", transactionId);
+            _logger.LogWarning(ex, "Invalid refund request for payment {PaymentId}", id);
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error processing refund for payment {PaymentId}", id);
+            return StatusCode(500, new { error = "An error occurred while processing the refund" });
+        }
+    }
 
-            return BadRequest(new ErrorResponse
+    /// <summary>
+    /// Get a paged list of payments.
+    /// </summary>
+    /// <param name="page">Page number (1-based).</param>
+    /// <param name="pageSize">Items per page.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Paged list of payment summaries.</returns>
+    [HttpGet]
+    [ProducesResponseType(typeof(PagedResponse<PaymentSummaryResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<PagedResponse<PaymentSummaryResponse>>> GetPayments(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var (items, totalCount) = await _paymentService.GetPaymentsAsync(page, pageSize, cancellationToken);
+
+            var normalizedPageSize = pageSize < 1 ? 20 : pageSize;
+            if (normalizedPageSize > 100)
             {
-                Error = "INVALID_REFUND",
-                Message = ex.Message,
-                Timestamp = DateTime.UtcNow,
-                CorrelationId = correlationId
+                normalizedPageSize = 100;
+            }
+
+            var normalizedPage = page < 1 ? 1 : page;
+            var normalizedTotalPages = (int)Math.Ceiling(totalCount / (double)normalizedPageSize);
+
+            return Ok(new PagedResponse<PaymentSummaryResponse>
+            {
+                Data = items.Select(MapToPaymentSummary),
+                Meta = new PaginationMeta
+                {
+                    CurrentPage = normalizedPage,
+                    TotalPages = normalizedTotalPages,
+                    TotalItems = totalCount,
+                    TotalCount = items.Count,
+                    PageSize = normalizedPageSize
+                }
             });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error processing refund for payment {TransactionId}", transactionId);
-
-            return StatusCode(500, new ErrorResponse
-            {
-                Error = "INTERNAL_ERROR",
-                Message = "An error occurred while processing the refund",
-                Timestamp = DateTime.UtcNow,
-                CorrelationId = correlationId
-            });
+            _logger.LogError(ex, "Error retrieving payments page {Page} size {PageSize}", page, pageSize);
+            return StatusCode(500, new { error = "An error occurred while retrieving payments" });
         }
     }
 
-    private static PaymentResponse MapToResponse(Core.Entities.PaymentTransaction transaction)
+    /// <summary>
+    /// Maps a payment transaction entity to API response model.
+    /// </summary>
+    private static PaymentResponse MapToPaymentResponse(Maliev.PaymentService.Domain.Entities.PaymentTransaction transaction)
     {
         return new PaymentResponse
         {
             TransactionId = transaction.Id,
             Amount = transaction.Amount,
             Currency = transaction.Currency,
-            Status = transaction.Status,
+            Status = FormatPaymentStatus(transaction.Status),
             CustomerId = transaction.CustomerId,
             OrderId = transaction.OrderId,
-            Description = transaction.Description,
-            SelectedProvider = transaction.ProviderName,
-            ProviderTransactionId = transaction.ProviderTransactionId,
+            Description = transaction.Description ?? string.Empty,
+            SelectedProvider = transaction.PaymentProvider?.Name ?? transaction.ProviderName ?? "Unknown",
+            ProviderTransactionId = transaction.ProviderTransactionId ?? string.Empty,
             PaymentUrl = transaction.PaymentUrl,
+            QrImageUrl = transaction.QrImageUrl,
+            QrRawData = transaction.QrRawData,
+            QrExpiresAt = transaction.QrExpiresAt,
+            PaymentMethod = transaction.PaymentMethod,
             Metadata = transaction.Metadata,
             ErrorMessage = transaction.ErrorMessage,
             ProviderErrorCode = transaction.ProviderErrorCode,
@@ -318,23 +380,54 @@ public class PaymentsController : ControllerBase
         };
     }
 
-    private static RefundResponse MapToRefundResponse(Core.Entities.RefundTransaction refund)
+    private static PaymentSummaryResponse MapToPaymentSummary(Maliev.PaymentService.Domain.Entities.PaymentTransaction transaction)
     {
-        return new RefundResponse
+        var providerName = transaction.PaymentProvider?.Name ?? transaction.ProviderName;
+
+        return new PaymentSummaryResponse
         {
-            RefundId = refund.Id,
-            PaymentTransactionId = refund.PaymentTransactionId,
-            Amount = refund.Amount,
-            Currency = refund.Currency,
-            Status = refund.Status.ToString(),
-            Reason = refund.Reason,
-            RefundType = refund.RefundType,
-            ProviderRefundId = refund.ProviderRefundId,
-            ErrorMessage = refund.ErrorMessage,
-            InitiatedAt = refund.InitiatedAt,
-            CompletedAt = refund.CompletedAt,
-            CreatedAt = refund.CreatedAt,
-            UpdatedAt = refund.UpdatedAt
+            Id = transaction.Id,
+            PaymentNumber = transaction.Id.ToString("N"),
+            InvoiceNumber = transaction.OrderId,
+            CustomerName = transaction.CustomerId,
+            Amount = transaction.Amount,
+            Method = providerName,
+            PaymentMethod = transaction.ProviderName,
+            Status = FormatPaymentStatus(transaction.Status),
+            CreatedAt = transaction.CreatedAt,
+            PaymentDate = transaction.CompletedAt ?? transaction.UpdatedAt
         };
+    }
+
+    private static string FormatPaymentStatus(PaymentStatus status)
+    {
+        return status switch
+        {
+            PaymentStatus.PartiallyRefunded => "partially_refunded",
+            _ => status.ToString().ToLowerInvariant()
+        };
+    }
+
+    private bool TryGetIdempotencyKey(out string idempotencyKey, out BadRequestObjectResult error)
+    {
+        idempotencyKey = string.Empty;
+        error = null!;
+
+        if (!Request.Headers.TryGetValue("Idempotency-Key", out var headerValue) ||
+            string.IsNullOrWhiteSpace(headerValue))
+        {
+            error = BadRequest(new { error = "Idempotency-Key header is required" });
+            return false;
+        }
+
+        idempotencyKey = headerValue.ToString();
+        if (idempotencyKey.Length > MaxIdempotencyKeyLength)
+        {
+            error = BadRequest(new { error = $"Idempotency-Key header cannot exceed {MaxIdempotencyKeyLength} characters" });
+            idempotencyKey = string.Empty;
+            return false;
+        }
+
+        return true;
     }
 }

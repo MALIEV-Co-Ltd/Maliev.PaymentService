@@ -1,11 +1,12 @@
-using System.Diagnostics;
-using Maliev.PaymentService.Core.Entities;
-using Maliev.PaymentService.Core.Enums;
-using Maliev.PaymentService.Core.Interfaces;
+using Maliev.MessagingContracts;
+using Maliev.MessagingContracts.Contracts.Payments;
+using Maliev.PaymentService.Domain.Entities;
+using Maliev.PaymentService.Domain.Enums;
+using Maliev.PaymentService.Application.Interfaces;
 using Maliev.PaymentService.Infrastructure.Providers;
 using Maliev.PaymentService.Infrastructure.Resilience;
 using Microsoft.Extensions.Logging;
-using Polly;
+using System.Diagnostics;
 
 namespace Maliev.PaymentService.Infrastructure.Services;
 
@@ -15,6 +16,12 @@ namespace Maliev.PaymentService.Infrastructure.Services;
 /// </summary>
 public class PaymentService : IPaymentService
 {
+    private static readonly string[] PaymentFailedConsumers =
+        ["OrderService", "NotificationService", "QuoteEngine"];
+
+    private static readonly string[] PaymentPendingConsumers =
+        ["OrderService", "NotificationService", "QuoteEngine"];
+
     private readonly IPaymentRepository _paymentRepository;
     private readonly IPaymentRoutingService _routingService;
     private readonly IIdempotencyService _idempotencyService;
@@ -22,7 +29,6 @@ public class PaymentService : IPaymentService
     private readonly IMetricsService _metricsService;
     private readonly ProviderFactory _providerFactory;
     private readonly CircuitBreakerStateManager _circuitBreakerStateManager;
-    private readonly ResiliencePipeline<HttpResponseMessage> _resiliencePipeline;
     private readonly ILogger<PaymentService> _logger;
 
     public PaymentService(
@@ -33,7 +39,6 @@ public class PaymentService : IPaymentService
         IMetricsService metricsService,
         ProviderFactory providerFactory,
         CircuitBreakerStateManager circuitBreakerStateManager,
-        ResiliencePipeline<HttpResponseMessage> resiliencePipeline,
         ILogger<PaymentService> logger)
     {
         _paymentRepository = paymentRepository;
@@ -43,7 +48,6 @@ public class PaymentService : IPaymentService
         _metricsService = metricsService;
         _providerFactory = providerFactory;
         _circuitBreakerStateManager = circuitBreakerStateManager;
-        _resiliencePipeline = resiliencePipeline;
         _logger = logger;
     }
 
@@ -55,10 +59,24 @@ public class PaymentService : IPaymentService
         var existingTransaction = await _paymentRepository.GetByIdempotencyKeyAsync(request.IdempotencyKey, cancellationToken);
         if (existingTransaction != null)
         {
-            existingTransaction.IsReplay = true;
             _logger.LogInformation("Idempotent request detected. Returning existing transaction {TransactionId}",
                 existingTransaction.Id);
+            request.ExistingTransactionReturned = true;
             return existingTransaction;
+        }
+
+        var completedOrderPayment = await _paymentRepository.GetLatestCompletedByOrderIdAsync(
+            request.OrderId,
+            cancellationToken);
+        if (completedOrderPayment != null)
+        {
+            _logger.LogWarning(
+                "Order {OrderId} already has completed payment {TransactionId}. Returning existing transaction for idempotency key {IdempotencyKey}",
+                request.OrderId,
+                completedOrderPayment.Id,
+                request.IdempotencyKey);
+            request.ExistingTransactionReturned = true;
+            return completedOrderPayment;
         }
 
         // Acquire distributed lock for idempotency key
@@ -80,10 +98,24 @@ public class PaymentService : IPaymentService
             existingTransaction = await _paymentRepository.GetByIdempotencyKeyAsync(request.IdempotencyKey, cancellationToken);
             if (existingTransaction != null)
             {
-                existingTransaction.IsReplay = true;
                 _logger.LogInformation("Idempotent request detected after lock acquisition. Returning existing transaction {TransactionId}",
                     existingTransaction.Id);
+                request.ExistingTransactionReturned = true;
                 return existingTransaction;
+            }
+
+            completedOrderPayment = await _paymentRepository.GetLatestCompletedByOrderIdAsync(
+                request.OrderId,
+                cancellationToken);
+            if (completedOrderPayment != null)
+            {
+                _logger.LogWarning(
+                    "Order {OrderId} already has completed payment {TransactionId} after lock acquisition. Returning existing transaction for idempotency key {IdempotencyKey}",
+                    request.OrderId,
+                    completedOrderPayment.Id,
+                    request.IdempotencyKey);
+                request.ExistingTransactionReturned = true;
+                return completedOrderPayment;
             }
 
             // Select provider based on currency and routing logic
@@ -116,8 +148,16 @@ public class PaymentService : IPaymentService
                 CorrelationId = request.CorrelationId,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
-                RowVersion = new byte[0] // EF Core will set this
+
             };
+
+            var providerMetadata = new Dictionary<string, string>(
+                request.Metadata ?? new Dictionary<string, string>(),
+                StringComparer.OrdinalIgnoreCase)
+            {
+                ["transactionId"] = transaction.Id.ToString()
+            };
+            transaction.Metadata = providerMetadata;
 
             // Save initial transaction
             await _paymentRepository.AddAsync(transaction, cancellationToken);
@@ -136,108 +176,196 @@ public class PaymentService : IPaymentService
             }, cancellationToken);
 
             // Publish PaymentCreated event
-            await _eventPublisher.PublishAsync(new Core.Events.PaymentCreatedEvent
-            {
-                TransactionId = transaction.Id,
-                IdempotencyKey = transaction.IdempotencyKey,
-                Amount = transaction.Amount,
-                Currency = transaction.Currency,
-                CustomerId = transaction.CustomerId,
-                OrderId = transaction.OrderId,
-                ProviderName = provider.Name,
-                CreatedAt = transaction.CreatedAt,
-                CorrelationId = transaction.CorrelationId
-            }, cancellationToken);
+            await _eventPublisher.PublishAsync(new PaymentCreatedEvent(
+                MessageId: Guid.NewGuid(),
+                MessageName: nameof(PaymentCreatedEvent),
+                MessageType: MessageType.Event,
+                MessageVersion: "1.0.0",
+                PublishedBy: "PaymentService",
+                ConsumedBy: Array.Empty<string>(),
+                CorrelationId: Guid.TryParse(request.CorrelationId, out var correlId) ? correlId : Guid.NewGuid(),
+                CausationId: null,
+                OccurredAtUtc: DateTimeOffset.UtcNow,
+                IsPublic: true,
+                Payload: new PaymentCreatedEventPayload(
+                    TransactionId: transaction.Id,
+                    IdempotencyKey: transaction.IdempotencyKey,
+                    Amount: (double)transaction.Amount,
+                    Currency: transaction.Currency,
+                    CustomerId: transaction.CustomerId,
+                    OrderId: transaction.OrderId,
+                    ProviderName: provider.Name
+                )
+            ), cancellationToken);
 
             // Process payment through provider with resilience
+            var activeProvider = provider;
             ProviderPaymentResult? providerResult = null;
+            var firstProviderFailureLogged = false;
             try
             {
-                var providerAdapter = _providerFactory.CreateProvider(provider);
-
-                var providerRequest = new ProviderPaymentRequest
+                try
                 {
-                    Amount = request.Amount,
-                    Currency = request.Currency,
-                    CustomerId = request.CustomerId,
-                    OrderId = request.OrderId,
-                    Description = request.Description,
-                    ReturnUrl = request.ReturnUrl,
-                    CancelUrl = request.CancelUrl,
-                    Metadata = request.Metadata
-                };
+                    providerResult = await ProcessPaymentWithProviderAsync(
+                        request,
+                        transaction,
+                        activeProvider,
+                        providerMetadata,
+                        cancellationToken);
+                }
+                catch (Exception firstProviderException)
+                {
+                    _logger.LogWarning(
+                        firstProviderException,
+                        "Payment {TransactionId} threw while processing via {ProviderName}. Attempting fallback provider.",
+                        transaction.Id,
+                        activeProvider.Name);
 
-                // Call provider (Polly resilience is applied at HTTP client level in production)
-                providerResult = await providerAdapter.ProcessPaymentAsync(providerRequest, cancellationToken);
+                    _circuitBreakerStateManager.RecordStateChange(activeProvider.Name, true, DateTime.UtcNow);
+                    transaction.Status = PaymentStatus.Failed;
+                    transaction.ErrorMessage = firstProviderException.Message;
+                    transaction.ProviderErrorCode = "PROVIDER_EXCEPTION";
+                    transaction.UpdatedAt = DateTime.UtcNow;
+                    await _paymentRepository.AddLogAsync(new TransactionLog
+                    {
+                        Id = Guid.NewGuid(),
+                        PaymentTransactionId = transaction.Id,
+                        PreviousStatus = PaymentStatus.Pending,
+                        NewStatus = PaymentStatus.Failed,
+                        EventType = "ProviderException",
+                        Message = $"Provider {activeProvider.Name} threw while processing payment",
+                        ErrorDetails = firstProviderException.ToString(),
+                        CorrelationId = request.CorrelationId,
+                        CreatedAt = DateTime.UtcNow
+                    }, cancellationToken);
+                    firstProviderFailureLogged = true;
 
-                // Update transaction with provider response
-                transaction.ProviderTransactionId = providerResult.ProviderTransactionId;
-                transaction.PaymentUrl = providerResult.PaymentUrl;
-                transaction.Status = providerResult.Success ? PaymentStatus.Processing : PaymentStatus.Failed;
-                transaction.ErrorMessage = providerResult.ErrorMessage;
-                transaction.ProviderErrorCode = providerResult.ErrorCode;
-                transaction.UpdatedAt = DateTime.UtcNow;
+                    var fallbackProvider = await _routingService.SelectProviderAsync(
+                        request.Currency,
+                        request.PreferredProvider,
+                        cancellationToken);
+
+                    if (fallbackProvider.Id == activeProvider.Id)
+                    {
+                        throw;
+                    }
+
+                    await _paymentRepository.AddLogAsync(new TransactionLog
+                    {
+                        Id = Guid.NewGuid(),
+                        PaymentTransactionId = transaction.Id,
+                        PreviousStatus = PaymentStatus.Failed,
+                        NewStatus = PaymentStatus.Pending,
+                        EventType = "ProviderFallback",
+                        Message = $"Falling back from {activeProvider.Name} to {fallbackProvider.Name}",
+                        CorrelationId = request.CorrelationId,
+                        CreatedAt = DateTime.UtcNow
+                    }, cancellationToken);
+
+                    activeProvider = fallbackProvider;
+                    providerResult = await ProcessPaymentWithProviderAsync(
+                        request,
+                        transaction,
+                        activeProvider,
+                        providerMetadata,
+                        cancellationToken);
+                }
+
+                if (!providerResult.Success)
+                {
+                    _logger.LogWarning(
+                        "Payment {TransactionId} failed via {ProviderName}. Error: {ErrorMessage}",
+                        transaction.Id, activeProvider.Name, providerResult.ErrorMessage);
+
+                    _circuitBreakerStateManager.RecordStateChange(activeProvider.Name, true, DateTime.UtcNow);
+                    await AddProviderResponseLogAsync(
+                        transaction,
+                        PaymentStatus.Pending,
+                        activeProvider,
+                        providerResult,
+                        request.CorrelationId,
+                        cancellationToken);
+                    firstProviderFailureLogged = true;
+
+                    var fallbackProvider = await _routingService.SelectProviderAsync(
+                        request.Currency,
+                        request.PreferredProvider,
+                        cancellationToken);
+
+                    if (fallbackProvider.Id != activeProvider.Id)
+                    {
+                        await _paymentRepository.AddLogAsync(new TransactionLog
+                        {
+                            Id = Guid.NewGuid(),
+                            PaymentTransactionId = transaction.Id,
+                            PreviousStatus = PaymentStatus.Failed,
+                            NewStatus = PaymentStatus.Pending,
+                            EventType = "ProviderFallback",
+                            Message = $"Falling back from {activeProvider.Name} to {fallbackProvider.Name}",
+                            CorrelationId = request.CorrelationId,
+                            CreatedAt = DateTime.UtcNow
+                        }, cancellationToken);
+
+                        activeProvider = fallbackProvider;
+                        providerResult = await ProcessPaymentWithProviderAsync(
+                            request,
+                            transaction,
+                            activeProvider,
+                            providerMetadata,
+                            cancellationToken);
+                    }
+                }
 
                 if (providerResult.Success)
                 {
                     _logger.LogInformation(
                         "Payment {TransactionId} processed successfully via {ProviderName}. Provider transaction: {ProviderTransactionId}",
-                        transaction.Id, provider.Name, providerResult.ProviderTransactionId);
+                        transaction.Id, activeProvider.Name, providerResult.ProviderTransactionId);
+
+                    await PublishPaymentPendingAsync(transaction, activeProvider, cancellationToken);
                 }
                 else
                 {
                     _logger.LogError(
                         "Payment {TransactionId} failed via {ProviderName}. Error: {ErrorMessage}",
-                        transaction.Id, provider.Name, providerResult.ErrorMessage);
+                        transaction.Id, activeProvider.Name, providerResult.ErrorMessage);
 
-                    // Record circuit breaker state change if failure
-                    _circuitBreakerStateManager.RecordStateChange(provider.Name, false, DateTime.UtcNow);
-
-                    // Publish PaymentFailed event
-                    await _eventPublisher.PublishAsync(new Core.Events.PaymentFailedEvent
+                    if (!firstProviderFailureLogged)
                     {
-                        TransactionId = transaction.Id,
-                        IdempotencyKey = transaction.IdempotencyKey,
-                        Amount = transaction.Amount,
-                        Currency = transaction.Currency,
-                        CustomerId = transaction.CustomerId,
-                        OrderId = transaction.OrderId,
-                        ProviderName = provider.Name,
-                        ErrorMessage = providerResult.ErrorMessage ?? "Unknown error",
-                        ProviderErrorCode = providerResult.ErrorCode,
-                        FailedAt = DateTime.UtcNow,
-                        CorrelationId = transaction.CorrelationId
-                    }, cancellationToken);
+                        _circuitBreakerStateManager.RecordStateChange(activeProvider.Name, true, DateTime.UtcNow);
+                    }
+
+                    await PublishPaymentFailedAsync(
+                        transaction,
+                        activeProvider,
+                        providerResult.ErrorMessage ?? "Unknown error",
+                        providerResult.ErrorCode ?? "UNKNOWN",
+                        cancellationToken);
                 }
 
                 await _paymentRepository.UpdateAsync(transaction, cancellationToken);
 
                 // Add transaction log for provider response
-                await _paymentRepository.AddLogAsync(new TransactionLog
+                if (providerResult.Success || !firstProviderFailureLogged || activeProvider.Id != provider.Id)
                 {
-                    Id = Guid.NewGuid(),
-                    PaymentTransactionId = transaction.Id,
-                    PreviousStatus = PaymentStatus.Pending,
-                    NewStatus = transaction.Status,
-                    EventType = providerResult.Success ? "ProviderSuccess" : "ProviderFailure",
-                    Message = providerResult.Success
-                        ? $"Provider {provider.Name} accepted payment"
-                        : $"Provider {provider.Name} rejected payment: {providerResult.ErrorMessage}",
-                    ProviderResponse = providerResult.RawResponse,
-                    ErrorDetails = providerResult.ErrorMessage,
-                    CorrelationId = request.CorrelationId,
-                    CreatedAt = DateTime.UtcNow
-                }, cancellationToken);
+                    await AddProviderResponseLogAsync(
+                        transaction,
+                        activeProvider.Id == provider.Id ? PaymentStatus.Pending : PaymentStatus.Failed,
+                        activeProvider,
+                        providerResult,
+                        request.CorrelationId,
+                        cancellationToken);
+                }
 
                 // Record metrics
                 stopwatch.Stop();
                 _metricsService.RecordPaymentTransaction(
-                    provider.Name,
+                    activeProvider.Name,
                     transaction.Status.ToString(),
                     transaction.Amount,
                     transaction.Currency);
                 _metricsService.RecordPaymentDuration(
-                    provider.Name,
+                    activeProvider.Name,
                     stopwatch.Elapsed.TotalSeconds);
 
                 // Store result in idempotency cache
@@ -253,7 +381,7 @@ public class PaymentService : IPaymentService
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error processing payment {TransactionId} via provider {ProviderName}",
-                    transaction.Id, provider.Name);
+                    transaction.Id, activeProvider.Name);
 
                 // Update transaction as failed
                 transaction.Status = PaymentStatus.Failed;
@@ -277,30 +405,40 @@ public class PaymentService : IPaymentService
                 }, cancellationToken);
 
                 // Publish PaymentFailed event
-                await _eventPublisher.PublishAsync(new Core.Events.PaymentFailedEvent
-                {
-                    TransactionId = transaction.Id,
-                    IdempotencyKey = transaction.IdempotencyKey,
-                    Amount = transaction.Amount,
-                    Currency = transaction.Currency,
-                    CustomerId = transaction.CustomerId,
-                    OrderId = transaction.OrderId,
-                    ProviderName = provider.Name,
-                    ErrorMessage = ex.Message,
-                    ProviderErrorCode = null,
-                    FailedAt = DateTime.UtcNow,
-                    CorrelationId = transaction.CorrelationId
-                }, cancellationToken);
+                await _eventPublisher.PublishAsync(new PaymentFailedEvent(
+                    MessageId: Guid.NewGuid(),
+                    MessageName: nameof(PaymentFailedEvent),
+                    MessageType: MessageType.Event,
+                    MessageVersion: "1.0.0",
+                    PublishedBy: "PaymentService",
+                    ConsumedBy: PaymentFailedConsumers,
+                    CorrelationId: Guid.TryParse(transaction.CorrelationId, out var correlIdFail2) ? correlIdFail2 : Guid.NewGuid(),
+                    CausationId: null,
+                    OccurredAtUtc: DateTimeOffset.UtcNow,
+                    IsPublic: true,
+                    Payload: new PaymentFailedEventPayload(
+                        TransactionId: transaction.Id,
+                        IdempotencyKey: transaction.IdempotencyKey,
+                        Amount: (double)transaction.Amount,
+                        Currency: transaction.Currency,
+                        CustomerId: transaction.CustomerId,
+                        OrderId: ResolveOrderReference(transaction),
+                        ProviderName: activeProvider.Name,
+                        ErrorMessage: ex.Message,
+                        ProviderErrorCode: string.Empty,
+                        FailedAt: DateTimeOffset.UtcNow
+                    )
+                ), cancellationToken);
 
                 // Record metrics for failed payment
                 stopwatch.Stop();
                 _metricsService.RecordPaymentTransaction(
-                    provider.Name,
+                    activeProvider.Name,
                     PaymentStatus.Failed.ToString(),
                     transaction.Amount,
                     transaction.Currency);
                 _metricsService.RecordPaymentDuration(
-                    provider.Name,
+                    activeProvider.Name,
                     stopwatch.Elapsed.TotalSeconds);
 
                 throw;
@@ -313,8 +451,166 @@ public class PaymentService : IPaymentService
         }
     }
 
+    private async Task<ProviderPaymentResult> ProcessPaymentWithProviderAsync(
+        PaymentProcessingRequest request,
+        PaymentTransaction transaction,
+        PaymentProvider provider,
+        Dictionary<string, string> providerMetadata,
+        CancellationToken cancellationToken)
+    {
+        transaction.PaymentProviderId = provider.Id;
+        transaction.ProviderName = provider.Name;
+        transaction.ProviderTransactionId = string.Empty;
+        transaction.PaymentUrl = null;
+        transaction.Status = PaymentStatus.Pending;
+        transaction.ErrorMessage = null;
+        transaction.ProviderErrorCode = null;
+        transaction.UpdatedAt = DateTime.UtcNow;
+
+        var providerAdapter = _providerFactory.CreateProvider(provider);
+        var providerRequest = new ProviderPaymentRequest
+        {
+            IdempotencyKey = request.IdempotencyKey,
+            Amount = request.Amount,
+            Currency = request.Currency,
+            CustomerId = request.CustomerId,
+            OrderId = request.OrderId,
+            Description = request.Description,
+            ReturnUrl = request.ReturnUrl,
+            CancelUrl = request.CancelUrl,
+            Metadata = providerMetadata
+        };
+
+        var providerResult = await providerAdapter.ProcessPaymentAsync(providerRequest, cancellationToken);
+
+        transaction.ProviderTransactionId = providerResult.ProviderTransactionId;
+        transaction.PaymentUrl = providerResult.PaymentUrl;
+        transaction.QrImageUrl = providerResult.QrImageUrl;
+        transaction.QrRawData = providerResult.QrRawData;
+        transaction.QrExpiresAt = providerResult.ExpiresAt;
+        transaction.PaymentMethod = providerResult.PaymentMethod;
+        transaction.Status = providerResult.Success ? PaymentStatus.Processing : PaymentStatus.Failed;
+        transaction.ErrorMessage = providerResult.ErrorMessage;
+        transaction.ProviderErrorCode = providerResult.ErrorCode;
+        transaction.UpdatedAt = DateTime.UtcNow;
+
+        return providerResult;
+    }
+
+    private Task PublishPaymentPendingAsync(
+        PaymentTransaction transaction,
+        PaymentProvider provider,
+        CancellationToken cancellationToken)
+    {
+        var orderReference = ResolveOrderReference(transaction);
+
+        return _eventPublisher.PublishAsync(new PaymentPendingEvent(
+            MessageId: Guid.NewGuid(),
+            MessageName: nameof(PaymentPendingEvent),
+            MessageType: MessageType.Event,
+            MessageVersion: "1.0.0",
+            PublishedBy: "PaymentService",
+            ConsumedBy: PaymentPendingConsumers,
+            CorrelationId: Guid.TryParse(transaction.CorrelationId, out var correlIdPending) ? correlIdPending : Guid.NewGuid(),
+            CausationId: null,
+            OccurredAtUtc: DateTimeOffset.UtcNow,
+            IsPublic: true,
+            Payload: new PaymentPendingEventPayload(
+                TransactionId: transaction.Id,
+                IdempotencyKey: transaction.IdempotencyKey,
+                Amount: (double)transaction.Amount,
+                Currency: transaction.Currency,
+                CustomerId: transaction.CustomerId,
+                OrderId: orderReference,
+                ProviderName: provider.Name,
+                ProviderEventCode: "ProviderSuccess",
+                PendingAt: DateTimeOffset.UtcNow
+            )
+        ), cancellationToken);
+    }
+
+    private Task PublishPaymentFailedAsync(
+        PaymentTransaction transaction,
+        PaymentProvider provider,
+        string errorMessage,
+        string providerErrorCode,
+        CancellationToken cancellationToken)
+    {
+        var orderReference = ResolveOrderReference(transaction);
+
+        return _eventPublisher.PublishAsync(new PaymentFailedEvent(
+            MessageId: Guid.NewGuid(),
+            MessageName: nameof(PaymentFailedEvent),
+            MessageType: MessageType.Event,
+            MessageVersion: "1.0.0",
+            PublishedBy: "PaymentService",
+            ConsumedBy: PaymentFailedConsumers,
+            CorrelationId: Guid.TryParse(transaction.CorrelationId, out var correlIdFail) ? correlIdFail : Guid.NewGuid(),
+            CausationId: null,
+            OccurredAtUtc: DateTimeOffset.UtcNow,
+            IsPublic: true,
+            Payload: new PaymentFailedEventPayload(
+                TransactionId: transaction.Id,
+                IdempotencyKey: transaction.IdempotencyKey,
+                Amount: (double)transaction.Amount,
+                Currency: transaction.Currency,
+                CustomerId: transaction.CustomerId,
+                OrderId: orderReference,
+                ProviderName: provider.Name,
+                ErrorMessage: errorMessage,
+                ProviderErrorCode: providerErrorCode,
+                FailedAt: DateTimeOffset.UtcNow
+            )
+        ), cancellationToken);
+    }
+
+    private static string ResolveOrderReference(PaymentTransaction transaction)
+    {
+        if (transaction.Metadata != null &&
+            transaction.Metadata.TryGetValue("orderNumber", out var orderNumber) &&
+            !string.IsNullOrWhiteSpace(orderNumber))
+        {
+            return orderNumber;
+        }
+
+        return transaction.OrderId;
+    }
+
+    private Task AddProviderResponseLogAsync(
+        PaymentTransaction transaction,
+        PaymentStatus previousStatus,
+        PaymentProvider provider,
+        ProviderPaymentResult providerResult,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        return _paymentRepository.AddLogAsync(new TransactionLog
+        {
+            Id = Guid.NewGuid(),
+            PaymentTransactionId = transaction.Id,
+            PreviousStatus = previousStatus,
+            NewStatus = transaction.Status,
+            EventType = providerResult.Success ? "ProviderSuccess" : "ProviderFailure",
+            Message = providerResult.Success
+                ? $"Provider {provider.Name} accepted payment"
+                : $"Provider {provider.Name} rejected payment: {providerResult.ErrorMessage}",
+            ProviderResponse = providerResult.RawResponse,
+            ErrorDetails = providerResult.ErrorMessage,
+            CorrelationId = correlationId,
+            CreatedAt = DateTime.UtcNow
+        }, cancellationToken);
+    }
+
     public async Task<PaymentTransaction?> GetPaymentByIdAsync(Guid transactionId, CancellationToken cancellationToken = default)
     {
         return await _paymentRepository.GetByIdAsync(transactionId, cancellationToken);
+    }
+
+    public async Task<(IReadOnlyList<PaymentTransaction> Items, int TotalCount)> GetPaymentsAsync(
+        int page = 1,
+        int pageSize = 20,
+        CancellationToken cancellationToken = default)
+    {
+        return await _paymentRepository.GetPaymentsAsync(page, pageSize, cancellationToken);
     }
 }

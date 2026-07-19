@@ -1,6 +1,7 @@
-using Maliev.PaymentService.Core.Entities;
-using Maliev.PaymentService.Core.Enums;
-using Maliev.PaymentService.Core.Interfaces;
+using Maliev.PaymentService.Domain.Entities;
+using Maliev.PaymentService.Domain.Enums;
+using Maliev.PaymentService.Application.Interfaces;
+using Maliev.PaymentService.Infrastructure.Providers;
 using Microsoft.Extensions.Logging;
 
 namespace Maliev.PaymentService.Infrastructure.Services;
@@ -15,6 +16,7 @@ public class RefundService : IRefundService
     private readonly IProviderRepository _providerRepository;
     private readonly IEventPublisher _eventPublisher;
     private readonly IMetricsService _metricsService;
+    private readonly ProviderFactory _providerFactory;
     private readonly ILogger<RefundService> _logger;
 
     public RefundService(
@@ -23,6 +25,7 @@ public class RefundService : IRefundService
         IProviderRepository providerRepository,
         IEventPublisher eventPublisher,
         IMetricsService metricsService,
+        ProviderFactory providerFactory,
         ILogger<RefundService> logger)
     {
         _paymentRepository = paymentRepository;
@@ -30,6 +33,7 @@ public class RefundService : IRefundService
         _providerRepository = providerRepository;
         _eventPublisher = eventPublisher;
         _metricsService = metricsService;
+        _providerFactory = providerFactory;
         _logger = logger;
     }
 
@@ -38,8 +42,23 @@ public class RefundService : IRefundService
         decimal amount,
         string? reason,
         string refundType,
+        string idempotencyKey,
         CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            throw new ArgumentException("Refund idempotency key is required", nameof(idempotencyKey));
+        }
+
+        var existingRefund = await _refundRepository.GetByIdempotencyKeyAsync(idempotencyKey, cancellationToken);
+        if (existingRefund != null)
+        {
+            _logger.LogInformation(
+                "Idempotent refund request detected. Returning existing refund {RefundId}",
+                existingRefund.Id);
+            return existingRefund;
+        }
+
         // Validate amount
         if (amount <= 0)
         {
@@ -77,6 +96,12 @@ public class RefundService : IRefundService
                 $"Payment amount: {payment.Amount}, Total refunded: {totalRefunded}");
         }
 
+        var provider = await _providerRepository.GetByIdAsync(payment.PaymentProviderId, cancellationToken);
+        if (provider == null)
+        {
+            throw new InvalidOperationException($"Payment provider {payment.PaymentProviderId} not found for refund");
+        }
+
         // Create refund transaction
         var refund = new RefundTransaction
         {
@@ -88,20 +113,54 @@ public class RefundService : IRefundService
             Status = RefundStatus.Pending,
             Reason = reason,
             RefundType = refundType,
-            IdempotencyKey = Guid.NewGuid().ToString(), // Will be overridden by controller with actual idempotency key
+            IdempotencyKey = idempotencyKey,
             CorrelationId = Guid.NewGuid(),
             InitiatedAt = DateTime.UtcNow,
             CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
-            RowVersion = Array.Empty<byte>()
+            UpdatedAt = DateTime.UtcNow
         };
 
         // Save refund
         await _refundRepository.AddAsync(refund, cancellationToken);
 
+        var adapter = _providerFactory.CreateProvider(provider);
+        var providerResult = await adapter.ProcessRefundAsync(new ProviderRefundRequest
+        {
+            IdempotencyKey = idempotencyKey,
+            ProviderTransactionId = payment.ProviderTransactionId,
+            Amount = amount,
+            Currency = payment.Currency,
+            Reason = reason ?? refundType,
+            Metadata = new Dictionary<string, string>
+            {
+                ["refundId"] = refund.Id.ToString(),
+                ["paymentTransactionId"] = payment.Id.ToString(),
+                ["orderId"] = payment.OrderId,
+                ["refundType"] = refundType
+            }
+        }, cancellationToken);
+
+        refund.ProviderRefundId = providerResult.ProviderRefundId;
+        refund.UpdatedAt = DateTime.UtcNow;
+
+        if (providerResult.Success)
+        {
+            refund.Status = RefundStatus.Completed;
+            refund.CompletedAt = DateTime.UtcNow;
+        }
+        else
+        {
+            refund.Status = RefundStatus.Failed;
+            refund.ErrorMessage = providerResult.ErrorMessage;
+            refund.ProviderErrorCode = providerResult.ErrorCode;
+            refund.FailedAt = DateTime.UtcNow;
+        }
+
+        await _refundRepository.UpdateAsync(refund, cancellationToken);
+
         _logger.LogInformation(
-            "Refund {RefundId} created for payment {PaymentId}. Amount: {Amount} {Currency}, Type: {Type}",
-            refund.Id, paymentTransactionId, amount, payment.Currency, refundType);
+            "Refund {RefundId} processed for payment {PaymentId}. Amount: {Amount} {Currency}, Type: {Type}, Status: {Status}",
+            refund.Id, paymentTransactionId, amount, payment.Currency, refundType, refund.Status);
 
         return refund;
     }

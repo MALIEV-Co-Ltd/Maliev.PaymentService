@@ -1,213 +1,410 @@
-using FluentValidation;
-using Maliev.PaymentService.Api.Middleware;
+using Maliev.Aspire.ServiceDefaults;
+using Maliev.PaymentService.Api.Configuration;
+using Maliev.PaymentService.Api.Services;
 using Maliev.PaymentService.Infrastructure.Data;
 using MassTransit;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
-using Prometheus;
-using Serilog;
-
-// Configure Serilog
-Log.Logger = new LoggerConfiguration()
-    .ReadFrom.Configuration(new ConfigurationBuilder()
-        .AddJsonFile("appsettings.json")
-        .AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production"}.json", optional: true)
-        .Build())
-    .Enrich.FromLogContext()
-    .Enrich.WithProperty("Application", "PaymentGatewayService")
-    .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}")
-    .WriteTo.File(
-        path: "logs/payment-gateway-.txt",
-        rollingInterval: RollingInterval.Day,
-        outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}",
-        retainedFileCountLimit: 30)
-    .CreateLogger();
+// Initialize bootstrap logging
+using var loggerFactory = LoggerFactory.Create(logBuilder => logBuilder.AddConsole());
+var bootstrapLogger = loggerFactory.CreateLogger("Program");
 
 try
 {
-    Log.Information("Starting Payment Gateway Service");
+    Program.Log.StartingHost(bootstrapLogger, "Payment Service");
 
     var builder = WebApplication.CreateBuilder(args);
 
-    // Use Serilog for logging
-    builder.Host.UseSerilog();
+    // --- Infrastructure & Observability ---
+    builder.AddServiceDefaults(); // OpenTelemetry, health checks, resilience
+    builder.AddDefaultApiVersioning(); // API versioning with URL segment reader
 
-    // Add services to the container
-    builder.Services.AddControllers();
-
-    // Configure OpenAPI
-    builder.Services.AddEndpointsApiExplorer();
-    builder.Services.AddOpenApi("v1");
-
-    // Configure FluentValidation
-    builder.Services.AddValidatorsFromAssemblyContaining<Program>();
-
-    // Configure DbContext with PostgreSQL
-    var dataSourceBuilder = new Npgsql.NpgsqlDataSourceBuilder(builder.Configuration.GetConnectionString("PaymentDatabase")!);
-    dataSourceBuilder.EnableDynamicJson();
-    var dataSource = dataSourceBuilder.Build();
-    builder.Services.AddDbContext<PaymentDbContext>(options =>
-        options.UseNpgsql(dataSource));
-
-    // Register metrics service
-    builder.Services.AddSingleton<Maliev.PaymentService.Core.Interfaces.IMetricsService, Maliev.PaymentService.Infrastructure.Metrics.PrometheusMetricsService>();
-
-    // Use an in-memory bus only in the explicit integration-test environment.
-    // Production-like environments always use RabbitMQ.
-    if (builder.Environment.IsEnvironment("Testing"))
+    // --- Secrets & Configuration ---
+    builder.AddGoogleSecretManagerVolume(); // Load secrets from /mnt/secrets if available
+    builder.AddStandardMiddleware(options =>
     {
-        builder.Services.AddMassTransit(x => x.UsingInMemory((context, configuration) =>
-            configuration.ConfigureEndpoints(context)));
-    }
-    else
-    {
-        Maliev.PaymentService.Infrastructure.Messaging.MassTransitConfiguration.AddMassTransitWithRabbitMQ(builder.Services, builder.Configuration);
-    }
-
-    // Register event publisher
-    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IEventPublisher, Maliev.PaymentService.Infrastructure.Messaging.MassTransitEventPublisher>();
-
-    // Configure Redis
-    Maliev.PaymentService.Infrastructure.Caching.RedisConfiguration.AddRedisConfiguration(builder.Services, builder.Configuration);
-
-    // Register idempotency service
-    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IIdempotencyService, Maliev.PaymentService.Infrastructure.Caching.RedisIdempotencyService>();
-
-    // Register circuit breaker state manager
-    builder.Services.AddSingleton<Maliev.PaymentService.Infrastructure.Resilience.CircuitBreakerStateManager>();
-
-    // Register Polly resilience pipeline
-    builder.Services.AddSingleton<Polly.ResiliencePipeline<System.Net.Http.HttpResponseMessage>>(sp =>
-    {
-        var configuration = sp.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>();
-        return Maliev.PaymentService.Infrastructure.Resilience.PollyPolicies.CreateCombinedPolicy(configuration);
+        options.EnableRequestLogging = true;
     });
+    builder.AddServiceMeters("payments-meter"); // Register service meters for OpenTelemetry business metrics
+
+    builder.AddStandardCache("payment:"); // Redis + in-memory fallback, memory-optimized (includes IConnectionMultiplexer)
+    builder.AddMassTransitWithRabbitMq(x =>
+    {
+        x.AddEntityFrameworkOutbox<PaymentDbContext>(options =>
+        {
+            _ = options.UsePostgres();
+            options.UseBusOutbox();
+        });
+
+        x.AddConsumer<Maliev.PaymentService.Api.Consumers.OrderAcceptedEventConsumer>();
+        x.AddConsumer<Maliev.PaymentService.Api.Consumers.InvoiceCreatedEventConsumer>();
+    }); // RabbitMQ message bus (non-blocking startup)
+    builder.AddPostgresDbContext<PaymentDbContext>(
+        connectionName: "PaymentDbContext",
+        enableDynamicJson: true); // Enable dynamic JSON for polymorphic payment provider data
+
+    const string ServiceName = "payment";
+    builder.AddIAMServiceClient(ServiceName);
+
+    // IAM Registration Service
+    builder.Services.AddIAMRegistration<PaymentIAMRegistrationService>(ServiceName);
+
+    // --- API Configuration ---
+    builder.AddStandardCors(); // CORS with fail-fast validation
+
+    // JWT Authentication (tests override via PostConfigureAll with dynamic RSA keys)
+    builder.AddJwtAuthentication();
+
+    // Permission-based Authorization
+    builder.Services.AddPermissionAuthorization();
+
+    // Add OpenAPI (must be in Program.cs for XML comments to work via source generator)
+    if (!builder.Environment.IsProduction())
+    {
+        builder.AddStandardOpenApi(
+            title: "MALIEV Payment Gateway Service API",
+            description: "Payment processing gateway service. Handles payment initiation with idempotency keys, multi-provider support, payment status tracking, full and partial refund processing, and webhook endpoints for provider callbacks.");
+    }
+
+    // Rate Limiting
+    builder.AddStandardRateLimiting(); // Memory-optimized for low-spec nodes
+    // Register metrics service
+    builder.Services.AddSingleton<Maliev.PaymentService.Application.Interfaces.IMetricsService, Maliev.PaymentService.Infrastructure.Metrics.PrometheusMetricsService>();
 
     // Configure Data Protection for credential encryption
     builder.Services.AddDataProtection();
 
+    // Register circuit breaker state manager
+    builder.Services.AddSingleton<Maliev.PaymentService.Infrastructure.Resilience.CircuitBreakerStateManager>();
+
     // Register encryption service
-    builder.Services.AddScoped<Maliev.PaymentService.Infrastructure.Encryption.IEncryptionService, Maliev.PaymentService.Infrastructure.Encryption.CredentialEncryptionService>();
+    builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IEncryptionService, Maliev.PaymentService.Infrastructure.Encryption.CredentialEncryptionService>();
 
     // Register repositories
-    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IProviderRepository, Maliev.PaymentService.Infrastructure.Data.Repositories.ProviderRepository>();
-    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IPaymentRepository, Maliev.PaymentService.Infrastructure.Data.Repositories.PaymentRepository>();
+    builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IProviderRepository, Maliev.PaymentService.Infrastructure.Data.Repositories.ProviderRepository>();
+    builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IPaymentRepository, Maliev.PaymentService.Infrastructure.Data.Repositories.PaymentRepository>();
+    builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IRefundRepository, Maliev.PaymentService.Infrastructure.Data.Repositories.RefundRepository>();
+    builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IWebhookRepository, Maliev.PaymentService.Infrastructure.Data.Repositories.WebhookRepository>();
 
-    // Register HttpClient for provider adapters
-    builder.Services.AddHttpClient();
+    // Register HttpClient instances for provider adapters with resilience.
+    builder.Services.AddPaymentProviderHttpClients(builder.Environment.EnvironmentName);
 
     // Register provider factory
     builder.Services.AddScoped<Maliev.PaymentService.Infrastructure.Providers.ProviderFactory>();
 
     // Register services
-    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IProviderManagementService, Maliev.PaymentService.Infrastructure.Services.ProviderManagementService>();
-    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IPaymentRoutingService, Maliev.PaymentService.Infrastructure.Services.PaymentRoutingService>();
-    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IPaymentService, Maliev.PaymentService.Infrastructure.Services.PaymentService>();
-    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IPaymentStatusService, Maliev.PaymentService.Infrastructure.Services.PaymentStatusService>();
-    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IRefundService, Maliev.PaymentService.Infrastructure.Services.RefundService>();
-    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IRefundRepository, Maliev.PaymentService.Infrastructure.Data.Repositories.RefundRepository>();
+    builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IProviderManagementService, Maliev.PaymentService.Infrastructure.Services.ProviderManagementService>();
+    builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IPaymentRoutingService, Maliev.PaymentService.Infrastructure.Services.PaymentRoutingService>();
+    builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IPaymentService, Maliev.PaymentService.Infrastructure.Services.PaymentService>();
+    builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IPaymentStatusService, Maliev.PaymentService.Infrastructure.Services.PaymentStatusService>();
+    builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IRefundService, Maliev.PaymentService.Infrastructure.Services.RefundService>();
 
     // Register webhook services
-    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IWebhookRepository, Maliev.PaymentService.Infrastructure.Data.Repositories.WebhookRepository>();
-    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IWebhookValidationService, Maliev.PaymentService.Infrastructure.Services.WebhookValidationService>();
-    builder.Services.AddScoped<Maliev.PaymentService.Core.Interfaces.IWebhookProcessingService, Maliev.PaymentService.Infrastructure.Services.WebhookProcessingService>();
+    builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IWebhookValidationService, Maliev.PaymentService.Infrastructure.Services.WebhookValidationService>();
+    builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IWebhookProcessingService, Maliev.PaymentService.Infrastructure.Services.WebhookProcessingService>();
+    builder.Services.AddHostedService<Maliev.PaymentService.Infrastructure.Services.WebhookRetryService>();
     builder.Services.AddHostedService<Maliev.PaymentService.Infrastructure.Services.WebhookCleanupService>();
 
-    // Configure JWT Authentication
-    builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-        .AddJwtBearer(options =>
-        {
-            options.Authority = builder.Configuration["JwtAuthentication:Authority"];
-            options.Audience = builder.Configuration["JwtAuthentication:Audience"];
-            options.RequireHttpsMetadata = builder.Configuration.GetValue<bool>("JwtAuthentication:RequireHttpsMetadata");
-            options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
-            {
-                ValidateIssuer = true,
-                ValidateAudience = true,
-                ValidateLifetime = true,
-                ValidateIssuerSigningKey = true,
-                ClockSkew = TimeSpan.Zero
-            };
-        });
+    // Register idempotency service. Redis is required for shared production
+    // idempotency, while local/test hosts use the in-memory fallback.
+    if (builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing"))
+    {
+        builder.Services.AddSingleton<Maliev.PaymentService.Application.Interfaces.IIdempotencyService, Maliev.PaymentService.Infrastructure.Caching.InMemoryIdempotencyService>();
+    }
+    else
+    {
+        builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IIdempotencyService, Maliev.PaymentService.Infrastructure.Caching.RedisIdempotencyService>();
+    }
 
-    builder.Services.AddAuthorization();
+    // Register event publisher
+    builder.Services.AddScoped<Maliev.PaymentService.Application.Interfaces.IEventPublisher, Maliev.PaymentService.Infrastructure.Messaging.MassTransitEventPublisher>();
 
-    // Configure health checks
-    builder.Services.AddHealthChecks()
-        .AddNpgSql(
-            builder.Configuration.GetConnectionString("PaymentDatabase")!,
-            name: "postgresql",
-            tags: new[] { "db", "ready" })
-        .AddRedis(
-            builder.Configuration["Redis:Configuration"]!,
-            name: "redis",
-            tags: new[] { "cache", "ready" })
-        .AddRabbitMQ(
-            sp =>
-            {
-                var factory = new RabbitMQ.Client.ConnectionFactory
-                {
-                    HostName = builder.Configuration["RabbitMQ:Host"] ?? "localhost",
-                    Port = int.TryParse(builder.Configuration["RabbitMQ:Port"], out var port) ? port : 5672,
-                    UserName = builder.Configuration["RabbitMQ:Username"] ?? "guest",
-                    Password = builder.Configuration["RabbitMQ:Password"] ?? "guest",
-                    VirtualHost = builder.Configuration["RabbitMQ:VirtualHost"] ?? "/"
-                };
-                return factory.CreateConnectionAsync().GetAwaiter().GetResult();
-            },
-            name: "rabbitmq",
-            tags: new[] { "messaging", "ready" });
-
-    // TODO: Additional services will be configured in later tasks
+    builder.Services.AddControllers();
 
     var app = builder.Build();
 
-    // Configure the HTTP request pipeline
-    if (app.Environment.IsDevelopment())
+    // Force instantiation of metrics service to ensure OpenTelemetry meters are created
+    var metricsService = app.Services.GetRequiredService<Maliev.PaymentService.Application.Interfaces.IMetricsService>();
+
+    var logger = app.Services.GetRequiredService<ILogger<Program>>();
+
+    PaymentProviderConfigurationValidator.ValidateOmiseForEnvironment(app.Configuration, app.Environment.EnvironmentName);
+    PaymentProviderConfigurationValidator.ValidateStripeForEnvironment(app.Configuration, app.Environment.EnvironmentName);
+
+    // Run database migrations on startup
+    await app.MigrateDatabaseAsync<PaymentDbContext>();
+
+    // Seed local payment providers for development/testing.
+    if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
     {
-        app.MapOpenApi("/payments/openapi/{documentName}.json");
+        try
+        {
+            using var scope = app.Services.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
+            var encryptionService = scope.ServiceProvider.GetRequiredService<Maliev.PaymentService.Application.Interfaces.IEncryptionService>();
+            var omiseSection = app.Configuration.GetSection("PaymentProviders:Omise");
+            var stripeSection = app.Configuration.GetSection("PaymentProviders:Stripe");
+            var now = DateTime.UtcNow;
+
+            var retiredUnsupportedProviders = await dbContext.PaymentProviders
+                .IgnoreQueryFilters()
+                .Include(provider => provider.Configurations)
+                .Where(provider => provider.Name.ToLower() == "paypal" && provider.DeletedAt == null)
+                .ToListAsync();
+
+            foreach (var provider in retiredUnsupportedProviders)
+            {
+                provider.Status = Maliev.PaymentService.Domain.Enums.ProviderStatus.Disabled;
+                provider.DeletedAt = now;
+                provider.UpdatedAt = now;
+
+                foreach (var configuration in provider.Configurations)
+                {
+                    configuration.IsActive = false;
+                    configuration.UpdatedAt = now;
+                }
+            }
+
+            var omiseProvider = await dbContext.PaymentProviders
+                .IgnoreQueryFilters()
+                .Include(provider => provider.Configurations)
+                .FirstOrDefaultAsync(provider => provider.Name.ToLower() == "omise");
+
+            var configuredPublicKey = omiseSection["PublicKey"];
+            var configuredSecretKey = omiseSection["SecretKey"];
+            var configuredWebhookSecret = omiseSection["WebhookSecret"];
+            var configuredApiBaseUrl = omiseSection["ApiBaseUrl"];
+            var publicKey = string.IsNullOrWhiteSpace(configuredPublicKey) ? "local-placeholder-omise-public-key" : configuredPublicKey;
+            var secretKey = string.IsNullOrWhiteSpace(configuredSecretKey) ? "local-placeholder-omise-secret-key" : configuredSecretKey;
+            var webhookSecret = string.IsNullOrWhiteSpace(configuredWebhookSecret) ? "local-placeholder-omise-webhook-secret" : configuredWebhookSecret;
+            var apiBaseUrl = string.IsNullOrWhiteSpace(configuredApiBaseUrl) ? "https://api.omise.co" : configuredApiBaseUrl;
+
+            if (omiseProvider is null)
+            {
+                var providerId = Guid.NewGuid();
+                omiseProvider = new Maliev.PaymentService.Domain.Entities.PaymentProvider
+                {
+                    Id = providerId,
+                    Name = "omise",
+                    DisplayName = "Omise",
+                    Status = Maliev.PaymentService.Domain.Enums.ProviderStatus.Active,
+                    SupportedCurrencies = new List<string> { "THB" },
+                    Priority = 1,
+                    Credentials = new Dictionary<string, string>
+                    {
+                        { "PublicKey", encryptionService.Encrypt(publicKey) },
+                        { "SecretKey", encryptionService.Encrypt(secretKey) },
+                        { "WebhookSecret", encryptionService.Encrypt(webhookSecret) }
+                    },
+                    Configurations = new List<Maliev.PaymentService.Domain.Entities.ProviderConfiguration>
+                    {
+                        new()
+                        {
+                            Id = Guid.NewGuid(),
+                            PaymentProviderId = providerId,
+                            Region = "thailand",
+                            ApiBaseUrl = apiBaseUrl,
+                            IsActive = true,
+                            MaxRetries = 3,
+                            TimeoutSeconds = 30,
+                            CreatedAt = now,
+                            UpdatedAt = now
+                        }
+                    },
+                    CreatedAt = now,
+                    UpdatedAt = now
+                };
+
+                dbContext.PaymentProviders.Add(omiseProvider);
+                logger.LogInformation("Seeded primary local payment provider: {ProviderName}", omiseProvider.Name);
+            }
+            else
+            {
+                omiseProvider.Status = Maliev.PaymentService.Domain.Enums.ProviderStatus.Active;
+                omiseProvider.DeletedAt = null;
+                omiseProvider.Priority = 1;
+                omiseProvider.SupportedCurrencies = new List<string> { "THB" };
+                omiseProvider.UpdatedAt = now;
+                omiseProvider.Credentials["PublicKey"] = encryptionService.Encrypt(publicKey);
+                omiseProvider.Credentials["SecretKey"] = encryptionService.Encrypt(secretKey);
+                omiseProvider.Credentials["WebhookSecret"] = encryptionService.Encrypt(webhookSecret);
+
+                var configuration = omiseProvider.Configurations.FirstOrDefault();
+                if (configuration is null)
+                {
+                    omiseProvider.Configurations.Add(new Maliev.PaymentService.Domain.Entities.ProviderConfiguration
+                    {
+                        Id = Guid.NewGuid(),
+                        PaymentProviderId = omiseProvider.Id,
+                        Region = "thailand",
+                        ApiBaseUrl = apiBaseUrl,
+                        IsActive = true,
+                        MaxRetries = 3,
+                        TimeoutSeconds = 30,
+                        CreatedAt = now,
+                        UpdatedAt = now
+                    });
+                }
+                else
+                {
+                    configuration.Region = "thailand";
+                    configuration.ApiBaseUrl = apiBaseUrl;
+                    configuration.IsActive = true;
+                    configuration.UpdatedAt = now;
+                }
+            }
+
+            var stripeProvider = await dbContext.PaymentProviders
+                .IgnoreQueryFilters()
+                .Include(provider => provider.Configurations)
+                .FirstOrDefaultAsync(provider => provider.Name.ToLower() == "stripe");
+
+            var configuredStripeApiKey = stripeSection["ApiKey"];
+            var configuredStripeWebhookSecret = stripeSection["WebhookSecret"];
+            var configuredStripeApiBaseUrl = stripeSection["ApiBaseUrl"];
+            var stripeApiKey = string.IsNullOrWhiteSpace(configuredStripeApiKey) ? "local-placeholder-stripe-api-key" : configuredStripeApiKey;
+            var stripeWebhookSecret = string.IsNullOrWhiteSpace(configuredStripeWebhookSecret) ? "local-placeholder-stripe-webhook-secret" : configuredStripeWebhookSecret;
+            var stripeApiBaseUrl = string.IsNullOrWhiteSpace(configuredStripeApiBaseUrl) ? "https://api.stripe.com" : configuredStripeApiBaseUrl;
+
+            if (stripeProvider is null)
+            {
+                var providerId = Guid.NewGuid();
+                stripeProvider = new Maliev.PaymentService.Domain.Entities.PaymentProvider
+                {
+                    Id = providerId,
+                    Name = "stripe",
+                    DisplayName = "Stripe",
+                    Status = Maliev.PaymentService.Domain.Enums.ProviderStatus.Active,
+                    SupportedCurrencies = new List<string> { "THB", "USD" },
+                    Priority = 2,
+                    Credentials = new Dictionary<string, string>
+                    {
+                        { "ApiKey", encryptionService.Encrypt(stripeApiKey) },
+                        { "WebhookSecret", encryptionService.Encrypt(stripeWebhookSecret) }
+                    },
+                    Configurations = new List<Maliev.PaymentService.Domain.Entities.ProviderConfiguration>
+                    {
+                        new()
+                        {
+                            Id = Guid.NewGuid(),
+                            PaymentProviderId = providerId,
+                            Region = "global",
+                            ApiBaseUrl = stripeApiBaseUrl,
+                            IsActive = true,
+                            MaxRetries = 3,
+                            TimeoutSeconds = 30,
+                            CreatedAt = now,
+                            UpdatedAt = now
+                        }
+                    },
+                    CreatedAt = now,
+                    UpdatedAt = now
+                };
+
+                dbContext.PaymentProviders.Add(stripeProvider);
+                logger.LogInformation("Seeded local payment provider: {ProviderName}", stripeProvider.Name);
+            }
+            else
+            {
+                stripeProvider.Status = Maliev.PaymentService.Domain.Enums.ProviderStatus.Active;
+                stripeProvider.DeletedAt = null;
+                stripeProvider.Priority = 2;
+                stripeProvider.SupportedCurrencies = new List<string> { "THB", "USD" };
+                stripeProvider.UpdatedAt = now;
+                stripeProvider.Credentials["ApiKey"] = encryptionService.Encrypt(stripeApiKey);
+                stripeProvider.Credentials["WebhookSecret"] = encryptionService.Encrypt(stripeWebhookSecret);
+
+                var configuration = stripeProvider.Configurations.FirstOrDefault();
+                if (configuration is null)
+                {
+                    stripeProvider.Configurations.Add(new Maliev.PaymentService.Domain.Entities.ProviderConfiguration
+                    {
+                        Id = Guid.NewGuid(),
+                        PaymentProviderId = stripeProvider.Id,
+                        Region = "global",
+                        ApiBaseUrl = stripeApiBaseUrl,
+                        IsActive = true,
+                        MaxRetries = 3,
+                        TimeoutSeconds = 30,
+                        CreatedAt = now,
+                        UpdatedAt = now
+                    });
+                }
+                else
+                {
+                    configuration.Region = "global";
+                    configuration.ApiBaseUrl = stripeApiBaseUrl;
+                    configuration.IsActive = true;
+                    configuration.UpdatedAt = now;
+                }
+            }
+
+            await dbContext.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Skipped local payment provider seed because provider records changed during startup.");
+        }
     }
 
-    // Configure middleware pipeline order: Correlation -> Exception -> Logging -> Auth
-    app.UseCorrelationIdMiddleware();
-    app.UseExceptionHandlingMiddleware();
-    app.UseRequestLoggingMiddleware();
+    // Middleware Pipeline
+    if (!app.Environment.IsDevelopment())
+    {
+        app.UseHttpsRedirection();
+    }
 
-    app.UseHttpsRedirection();
+    app.UseStandardMiddleware();
+    app.UseRouting();
+    app.UseCors();
+
+    // Custom rate limiting for webhooks
+    app.UseMiddleware<Maliev.PaymentService.Api.Middleware.WebhookRateLimitingMiddleware>();
+
+    app.UseRateLimiter();
 
     app.UseAuthentication();
-    app.UseJwtAuthenticationMiddleware();
     app.UseAuthorization();
 
-    // Apply rate limiting to webhook endpoints
-    app.UseMiddleware<WebhookRateLimitingMiddleware>();
-
-    // Configure Prometheus metrics endpoint at /payments/metrics
-    app.MapMetrics("/payments/metrics");
-
-    // Configure health check endpoints
-    app.MapHealthChecks("/payments/liveness", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
-    {
-        Predicate = _ => false // Liveness - always returns healthy if service is running
-    });
-
-    app.MapHealthChecks("/payments/readiness", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
-    {
-        Predicate = check => check.Tags.Contains("ready") // Readiness - checks PostgreSQL, Redis, RabbitMQ
-    });
-
+    // Map endpoints after middleware
     app.MapControllers();
 
-    app.Run();
+    // Map Aspire default endpoints (/health, /alive, /metrics)
+    app.MapDefaultEndpoints(servicePrefix: "payment");
+
+    // Map OpenAPI and Scalar documentation (dev/staging only)
+    app.MapApiDocumentation(servicePrefix: "payment");
+
+    Program.Log.ServiceStarted(logger, "Payment Service");
+    await app.RunAsync();
 }
 catch (Exception ex)
 {
-    Log.Fatal(ex, "Application terminated unexpectedly");
+    Program.Log.HostTerminated(bootstrapLogger, ex, "Payment Service");
+    throw;
 }
 finally
 {
-    Log.CloseAndFlush();
+    loggerFactory.Dispose();
 }
 
-// Make Program class accessible for integration testing
-public partial class Program { }
+/// <summary>
+/// Main program class for the Payment Service API.
+/// </summary>
+public partial class Program
+{
+    internal static partial class Log
+    {
+        [LoggerMessage(Level = LogLevel.Information, Message = "Starting {ServiceName} host")]
+        public static partial void StartingHost(ILogger logger, string serviceName);
+
+        [LoggerMessage(Level = LogLevel.Critical, Message = "{ServiceName} host terminated unexpectedly during startup")]
+        public static partial void HostTerminated(ILogger logger, Exception ex, string serviceName);
+
+        [LoggerMessage(Level = LogLevel.Information, Message = "{ServiceName} started successfully")]
+        public static partial void ServiceStarted(ILogger logger, string serviceName);
+
+        [LoggerMessage(Level = LogLevel.Error, Message = "Database migration failed - application may not function correctly")]
+        public static partial void MigrationFailed(ILogger logger, Exception exception);
+    }
+}

@@ -1,4 +1,5 @@
 using Testcontainers.PostgreSql;
+using Testcontainers.RabbitMq;
 using Testcontainers.Redis;
 
 namespace Maliev.PaymentService.Tests.Integration;
@@ -10,24 +11,32 @@ namespace Maliev.PaymentService.Tests.Integration;
 public class TestContainersFixture : IAsyncLifetime
 {
     private readonly PostgreSqlContainer _postgresContainer;
+    private readonly RabbitMqContainer _rabbitMqContainer;
     private readonly RedisContainer _redisContainer;
 
     public TestContainersFixture()
     {
         // PostgreSQL 18 container for database tests
-        _postgresContainer = new PostgreSqlBuilder()
-            .WithImage("postgres:18-alpine")
+#pragma warning disable CS0618
+        _postgresContainer = new PostgreSqlBuilder().WithImage("postgres:18-alpine")
             .WithDatabase("payment_gateway_test")
             .WithUsername("test_user")
             .WithPassword("test_password")
             .WithCleanUp(true)
             .Build();
 
-        // Redis 7.2 container for caching and idempotency tests
-        _redisContainer = new RedisBuilder()
-            .WithImage("redis:7-alpine")
+        // RabbitMQ 7.0 container for message queue tests
+        _rabbitMqContainer = new RabbitMqBuilder().WithImage("rabbitmq:4.2-alpine")
+            .WithUsername("guest")
+            .WithPassword("guest")
             .WithCleanUp(true)
             .Build();
+
+        // Redis 7.2 container for caching and idempotency tests
+        _redisContainer = new RedisBuilder().WithImage("redis:8.4-alpine")
+            .WithCleanUp(true)
+            .Build();
+#pragma warning restore CS0618
     }
 
     /// <summary>
@@ -36,15 +45,14 @@ public class TestContainersFixture : IAsyncLifetime
     public string PostgresConnectionString => _postgresContainer.GetConnectionString();
 
     /// <summary>
+    /// RabbitMQ connection string for message queue integration tests.
+    /// </summary>
+    public string RabbitMqConnectionString => _rabbitMqContainer.GetConnectionString();
+
+    /// <summary>
     /// Redis connection string for caching and idempotency integration tests.
     /// </summary>
     public string RedisConnectionString => _redisContainer.GetConnectionString();
-
-    /// <summary>
-    /// Redis endpoint in the format expected by StackExchange.Redis.
-    /// </summary>
-    public string RedisConfiguration =>
-        $"{_redisContainer.Hostname}:{_redisContainer.GetMappedPublicPort(6379)}";
 
     /// <summary>
     /// Initializes all containers asynchronously before tests run.
@@ -54,6 +62,7 @@ public class TestContainersFixture : IAsyncLifetime
         // Start all containers in parallel for faster test setup
         await Task.WhenAll(
             _postgresContainer.StartAsync(),
+            _rabbitMqContainer.StartAsync(),
             _redisContainer.StartAsync()
         );
     }
@@ -66,7 +75,12 @@ public class TestContainersFixture : IAsyncLifetime
         // Stop and dispose all containers in parallel
         await Task.WhenAll(
             _postgresContainer.DisposeAsync().AsTask(),
+            _rabbitMqContainer.DisposeAsync().AsTask(),
             _redisContainer.DisposeAsync().AsTask()
         );
     }
 }
+
+
+
+
