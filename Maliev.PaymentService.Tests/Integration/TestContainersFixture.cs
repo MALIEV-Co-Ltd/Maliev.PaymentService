@@ -17,8 +17,7 @@ public class TestContainersFixture : IAsyncLifetime
     public TestContainersFixture()
     {
         // PostgreSQL 18 container for database tests
-#pragma warning disable CS0618
-        _postgresContainer = new PostgreSqlBuilder().WithImage("postgres:18-alpine")
+        _postgresContainer = new PostgreSqlBuilder("postgres:18-alpine")
             .WithDatabase("payment_gateway_test")
             .WithUsername("test_user")
             .WithPassword("test_password")
@@ -26,17 +25,16 @@ public class TestContainersFixture : IAsyncLifetime
             .Build();
 
         // RabbitMQ 7.0 container for message queue tests
-        _rabbitMqContainer = new RabbitMqBuilder().WithImage("rabbitmq:4.2-alpine")
+        _rabbitMqContainer = new RabbitMqBuilder("rabbitmq:4.2-alpine")
             .WithUsername("guest")
             .WithPassword("guest")
             .WithCleanUp(true)
             .Build();
 
         // Redis 7.2 container for caching and idempotency tests
-        _redisContainer = new RedisBuilder().WithImage("redis:8.4-alpine")
+        _redisContainer = new RedisBuilder("redis:8.4-alpine")
             .WithCleanUp(true)
             .Build();
-#pragma warning restore CS0618
     }
 
     /// <summary>
