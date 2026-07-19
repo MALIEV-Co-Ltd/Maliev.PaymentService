@@ -25,7 +25,9 @@
     
     <!-- Test packages -->
     <PackageReference Update="Moq" Version="4.20.72" />
-    <PackageReference Update="Testcontainers.PostgreSql" Version="4.1.0" />
+    <PackageReference Update="Testcontainers.PostgreSql" Version="4.13.0" />
+    <PackageReference Update="Testcontainers.RabbitMq" Version="4.13.0" />
+    <PackageReference Update="Testcontainers.Redis" Version="4.13.0" />
     <PackageReference Update="Microsoft.NET.Test.Sdk" Version="17.13.0" />
     <PackageReference Update="xunit" Version="2.9.3" />
     <PackageReference Update="xunit.runner.visualstudio" Version="3.0.2" />
