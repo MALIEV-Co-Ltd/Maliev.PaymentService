@@ -246,3 +246,8 @@ jobs:
           scanners: vuln
           severity: HIGH,CRITICAL
           exit-code: "1"
+
+  protected-branch-gate:
+    name: validate
+    needs: [dependency-packages, build-and-test, container]
+    uses: ./.github/workflows/_protected-branch-gate.yml

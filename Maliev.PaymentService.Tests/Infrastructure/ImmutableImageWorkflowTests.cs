@@ -108,6 +108,21 @@ public sealed class ImmutableImageWorkflowTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void PullRequestWorkflow_ExposesProtectedBranchAggregateGate()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var pullRequestWorkflow = ReadWorkflow(repositoryRoot, "pr-validation.yml");
+        var aggregateGate = ReadWorkflow(repositoryRoot, "_protected-branch-gate.yml");
+
+        Assert.Contains("protected-branch-gate:", pullRequestWorkflow, StringComparison.Ordinal);
+        Assert.Contains("needs: [dependency-packages, build-and-test, container]", pullRequestWorkflow, StringComparison.Ordinal);
+        Assert.Contains("uses: ./.github/workflows/_protected-branch-gate.yml", pullRequestWorkflow, StringComparison.Ordinal);
+        Assert.Contains("workflow_call:", aggregateGate, StringComparison.Ordinal);
+        Assert.Contains("validate:", aggregateGate, StringComparison.Ordinal);
+        Assert.Contains("name: validate", aggregateGate, StringComparison.Ordinal);
+    }
+
     private static string ReadWorkflow(string repositoryRoot, string workflowName) =>
         File.ReadAllText(Path.Combine(repositoryRoot, ".github", "workflows", workflowName));
 
