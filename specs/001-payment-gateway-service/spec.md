@@ -3,7 +3,7 @@
 **Feature Branch**: `001-payment-gateway-service`
 **Created**: 2025-11-18
 **Status**: Draft
-**Input**: User description: "The Payment Service is a core microservice in the MALIEV system that acts as a centralized API gateway for all payment-related operations. Its primary role is to manage, standardize, and route payment requests from internal microservices to external payment providers such as Stripe, SCB API, PayPal, Omise, and other supported gateways. This service ensures that all microservices in the ecosystem can process payments without directly handling provider-specific logic or credentials."
+**Input**: User description: "The Payment Service is a core microservice in the MALIEV system that acts as a centralized API gateway for all payment-related operations. Its primary role is to manage, standardize, and route payment requests from internal microservices to external payment providers. Omise is the primary provider for Thailand, with SCB API and Stripe available only as configured fallback providers. This service ensures that all microservices in the ecosystem can process payments without directly handling provider-specific logic or credentials."
 
 ## Clarifications
 
@@ -189,7 +189,7 @@ Operations teams need visibility into payment gateway performance, transaction v
 - Expected peak transaction volume is 10,000 transactions per hour with capacity for growth
 - Database infrastructure exists for persistent storage of transaction records
 - Monitoring and alerting infrastructure exists for metrics integration
-- Initial supported providers will include Stripe, SCB API, PayPal, and Omise
+- Initial supported providers will include Omise as the primary Thailand provider, with SCB API and Stripe as configured fallbacks
 - Provider credentials will be managed through secure configuration management systems
 - Network connectivity to external payment providers is reliable with acceptable latency
 - Transaction reconciliation will be implemented as an automated daily batch process with alerting on discrepancies

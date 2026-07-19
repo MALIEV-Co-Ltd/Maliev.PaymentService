@@ -1,5 +1,5 @@
-using Maliev.PaymentService.Core.Entities;
-using Maliev.PaymentService.Core.Enums;
+using Maliev.PaymentService.Domain.Entities;
+using Maliev.PaymentService.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -114,11 +114,6 @@ public class RefundTransactionConfiguration : IEntityTypeConfiguration<RefundTra
             .HasColumnName("updated_by")
             .HasMaxLength(100);
 
-        builder.Property(e => e.RowVersion)
-            .HasColumnName("row_version")
-            .IsRowVersion()
-            .IsRequired();
-
         // Indexes
         builder.HasIndex(e => e.IdempotencyKey)
             .IsUnique()
@@ -151,6 +146,9 @@ public class RefundTransactionConfiguration : IEntityTypeConfiguration<RefundTra
             .HasConstraintName("fk_refund_transactions_payment_providers")
             .OnDelete(DeleteBehavior.Restrict);
 
+        // Ensures that refunds for soft-deleted providers are not retrieved
+        builder.HasQueryFilter(r => r.Provider != null && r.Provider.DeletedAt == null);
+
         // Check constraints
         builder.ToTable(t =>
         {
@@ -161,5 +159,11 @@ public class RefundTransactionConfiguration : IEntityTypeConfiguration<RefundTra
             t.HasCheckConstraint("chk_refund_transactions_type",
                 "refund_type IN ('full', 'partial')");
         });
+
+        // PostgreSQL xmin for optimistic concurrency
+        builder.Property<uint>("xmin")
+            .HasColumnType("xid")
+            .IsRowVersion()
+            .HasColumnName("xmin");
     }
 }

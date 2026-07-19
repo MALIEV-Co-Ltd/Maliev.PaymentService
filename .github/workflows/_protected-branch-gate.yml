@@ -1,0 +1,15 @@
+name: Protected branch aggregate gate
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm upstream validation succeeded
+        run: echo "Exact-source build, tests, audit, container smoke test, SBOM, and vulnerability scan passed."

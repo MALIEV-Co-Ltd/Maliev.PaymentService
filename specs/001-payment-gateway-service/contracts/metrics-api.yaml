@@ -110,12 +110,12 @@ paths:
                 example: |
                   # HELP payment_transactions_total Total number of payment transactions
                   # TYPE payment_transactions_total counter
-                  payment_transactions_total{service_name="payment-gateway-service",provider="Stripe",status="completed",environment="production",version="1.0.0"} 1250
-                  payment_transactions_total{service_name="payment-gateway-service",provider="PayPal",status="completed",environment="production",version="1.0.0"} 850
+                  payment_transactions_total{service_name="payment-gateway-service",provider="Omise",status="completed",environment="production",version="1.0.0"} 1250
+                  payment_transactions_total{service_name="payment-gateway-service",provider="Stripe",status="completed",environment="production",version="1.0.0"} 850
 
                   # HELP payment_success_rate Payment success rate by provider
                   # TYPE payment_success_rate gauge
-                  payment_success_rate{service_name="payment-gateway-service",provider="Stripe",environment="production",version="1.0.0"} 0.998
+                  payment_success_rate{service_name="payment-gateway-service",provider="Omise",environment="production",version="1.0.0"} 0.998
 
                   # HELP payment_duration_seconds Payment processing latency
                   # TYPE payment_duration_seconds histogram

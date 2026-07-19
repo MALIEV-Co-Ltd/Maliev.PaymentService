@@ -161,17 +161,14 @@ Create `appsettings.Development.json` in `Maliev.PaymentService.Api/`:
   },
   "PaymentProviders": {
     "Stripe": {
-      "ApiKey": "sk_test_YOUR_STRIPE_TEST_KEY",
-      "WebhookSecret": "whsec_YOUR_WEBHOOK_SECRET",
-      "Sandbox": true
-    },
-    "PayPal": {
-      "ClientId": "YOUR_PAYPAL_CLIENT_ID",
-      "ClientSecret": "YOUR_PAYPAL_CLIENT_SECRET",
+      "ApiKey": "<configured-stripe-api-key>",
+      "WebhookSecret": "<configured-stripe-webhook-secret>",
       "Sandbox": true
     },
     "Omise": {
-      "SecretKey": "skey_test_YOUR_OMISE_KEY",
+      "PublicKey": "<configured-omise-public-key>",
+      "SecretKey": "<configured-omise-secret-key>",
+      "WebhookSecret": "<configured-omise-webhook-secret>",
       "Sandbox": true
     },
     "SCB": {
@@ -247,7 +244,7 @@ psql -h localhost -U postgres -d payment_gateway -c "\dt"
 
 ### 5. Seed Initial Data
 
-The migration should automatically seed initial payment providers (Stripe, PayPal, Omise, SCB).
+The migration should automatically seed Omise as the priority-1 THB provider, with SCB and Stripe available as configured fallbacks.
 
 Verify seed data:
 
@@ -496,13 +493,13 @@ curl -X GET http://localhost:5000/metrics
    - URL: `https://your-ngrok-url/v1/webhooks/stripe`
    - Events: `payment_intent.succeeded`, `payment_intent.failed`, `charge.refunded`
 
-### PayPal Configuration
+### Omise Configuration
 
-1. Create PayPal sandbox account: https://developer.paypal.com/
-2. Get credentials from: https://developer.paypal.com/dashboard/applications/sandbox
-3. Configure webhook: https://developer.paypal.com/dashboard/webhooks/sandbox
-   - URL: `https://your-ngrok-url/v1/webhooks/paypal`
-   - Events: `PAYMENT.CAPTURE.COMPLETED`, `PAYMENT.CAPTURE.DENIED`, `PAYMENT.CAPTURE.REFUNDED`
+1. Create Omise test account in the Omise dashboard.
+2. Get public and secret keys from the dashboard.
+3. Configure webhook URL and webhook secret.
+   - URL: `https://your-ngrok-url/v1/webhooks/omise`
+   - Events: payment, charge, refund, and dispute events required by the active payment journeys.
 
 ### Local Webhook Testing with ngrok
 

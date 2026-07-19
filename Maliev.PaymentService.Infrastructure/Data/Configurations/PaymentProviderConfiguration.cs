@@ -1,6 +1,6 @@
-using Maliev.PaymentService.Core.Entities;
-using Maliev.PaymentService.Core.Enums;
+using Maliev.PaymentService.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace Maliev.PaymentService.Infrastructure.Data.Configurations;
@@ -42,7 +42,11 @@ public class PaymentProviderConfiguration : IEntityTypeConfiguration<PaymentProv
             .HasConversion(
                 v => string.Join(',', v),
                 v => v.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList())
-            .IsRequired();
+            .IsRequired()
+            .Metadata.SetValueComparer(new ValueComparer<List<string>>(
+                (c1, c2) => (c1 == null && c2 == null) || (c1 != null && c2 != null && c1.SequenceEqual(c2)),
+                c => c.Aggregate(0, (a, v) => HashCode.Combine(a, v.GetHashCode())),
+                c => c.ToList()));
 
         builder.Property(p => p.Priority)
             .HasColumnName("priority")
@@ -86,5 +90,11 @@ public class PaymentProviderConfiguration : IEntityTypeConfiguration<PaymentProv
 
         // Query filter for soft delete
         builder.HasQueryFilter(p => p.DeletedAt == null);
+
+        // PostgreSQL xmin for optimistic concurrency
+        builder.Property<uint>("xmin")
+            .HasColumnType("xid")
+            .IsRowVersion()
+            .HasColumnName("xmin");
     }
 }

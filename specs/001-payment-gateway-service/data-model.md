@@ -124,7 +124,7 @@ Represents an external payment gateway configuration.
 | Column | Type | Nullable | Description |
 |--------|------|----------|-------------|
 | id | uuid | NO | Primary key |
-| name | varchar(100) | NO | Provider name (Stripe, PayPal, Omise, SCB) |
+| name | varchar(100) | NO | Provider name (Omise, SCB, Stripe) |
 | display_name | varchar(255) | NO | Human-readable display name |
 | status | varchar(50) | NO | Operational status enum value |
 | provider_type | varchar(50) | NO | Type identifier for factory pattern |
@@ -604,22 +604,17 @@ refund_transactions (1) ──< (N) transaction_logs
 -- Stripe
 INSERT INTO payment_providers (id, name, display_name, status, provider_type, api_endpoint, supported_currencies, priority, timeout_seconds, max_retry_attempts, enable_circuit_breaker, is_sandbox, created_at, updated_at, row_version)
 VALUES
-  (gen_random_uuid(), 'Stripe', 'Stripe', 'active', 'stripe', 'https://api.stripe.com', '["USD","EUR","GBP","THB","JPY","AUD","CAD","SGD"]', 1, 30, 3, true, true, NOW(), NOW(), E'\\x00000001');
-
--- PayPal
-INSERT INTO payment_providers (id, name, display_name, status, provider_type, api_endpoint, supported_currencies, priority, timeout_seconds, max_retry_attempts, enable_circuit_breaker, is_sandbox, created_at, updated_at, row_version)
-VALUES
-  (gen_random_uuid(), 'PayPal', 'PayPal', 'active', 'paypal', 'https://api-m.sandbox.paypal.com', '["USD","EUR","GBP","CAD","AUD"]', 2, 30, 3, true, true, NOW(), NOW(), E'\\x00000001');
+  (gen_random_uuid(), 'Stripe', 'Stripe', 'active', 'stripe', 'https://api.stripe.com', '["USD","EUR","GBP","THB","JPY","AUD","CAD","SGD"]', 3, 30, 3, true, true, NOW(), NOW(), E'\\x00000001');
 
 -- Omise
 INSERT INTO payment_providers (id, name, display_name, status, provider_type, api_endpoint, supported_currencies, priority, timeout_seconds, max_retry_attempts, enable_circuit_breaker, is_sandbox, created_at, updated_at, row_version)
 VALUES
-  (gen_random_uuid(), 'Omise', 'Omise', 'active', 'omise', 'https://api.omise.co', '["THB","JPY","SGD","USD","EUR"]', 3, 30, 3, true, true, NOW(), NOW(), E'\\x00000001');
+  (gen_random_uuid(), 'Omise', 'Omise', 'active', 'omise', 'https://api.omise.co', '["THB"]', 1, 30, 3, true, true, NOW(), NOW(), E'\\x00000001');
 
 -- SCB API
 INSERT INTO payment_providers (id, name, display_name, status, provider_type, api_endpoint, supported_currencies, priority, timeout_seconds, max_retry_attempts, enable_circuit_breaker, is_sandbox, created_at, updated_at, row_version)
 VALUES
-  (gen_random_uuid(), 'SCB', 'SCB Easy App', 'active', 'scb', 'https://api-sandbox.partners.scb', '["THB","USD"]', 4, 30, 3, true, true, NOW(), NOW(), E'\\x00000001');
+  (gen_random_uuid(), 'SCB', 'SCB Easy App', 'active', 'scb', 'https://api-sandbox.partners.scb', '["THB"]', 2, 30, 3, true, true, NOW(), NOW(), E'\\x00000001');
 ```
 
 ---

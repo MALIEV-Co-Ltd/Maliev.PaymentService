@@ -1,5 +1,6 @@
-using Maliev.PaymentService.Core.Entities;
-using Maliev.PaymentService.Core.Interfaces;
+using Maliev.PaymentService.Domain.Entities;
+using Maliev.PaymentService.Domain.Enums;
+using Maliev.PaymentService.Application.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
 namespace Maliev.PaymentService.Infrastructure.Data.Repositories;
@@ -34,9 +35,23 @@ public class PaymentRepository : IPaymentRepository
     public async Task<PaymentTransaction?> GetByIdempotencyKeyAsync(string idempotencyKey, CancellationToken cancellationToken = default)
     {
         return await _context.PaymentTransactions
+            .AsNoTracking()
             .Include(p => p.PaymentProvider)
             .Include(p => p.TransactionLogs)
             .FirstOrDefaultAsync(p => p.IdempotencyKey == idempotencyKey, cancellationToken);
+    }
+
+    /// <summary>
+    /// Gets the latest completed payment transaction for an order.
+    /// </summary>
+    public async Task<PaymentTransaction?> GetLatestCompletedByOrderIdAsync(string orderId, CancellationToken cancellationToken = default)
+    {
+        return await _context.PaymentTransactions
+            .AsNoTracking()
+            .Include(p => p.PaymentProvider)
+            .Where(p => p.OrderId == orderId && p.Status == PaymentStatus.Completed)
+            .OrderByDescending(p => p.CompletedAt ?? p.UpdatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     /// <summary>
@@ -45,10 +60,40 @@ public class PaymentRepository : IPaymentRepository
     public async Task<IEnumerable<PaymentTransaction>> GetByDateRangeAsync(DateTime startDate, DateTime endDate, CancellationToken cancellationToken = default)
     {
         return await _context.PaymentTransactions
+            .AsNoTracking()
             .Include(p => p.PaymentProvider)
             .Where(p => p.CreatedAt >= startDate && p.CreatedAt <= endDate)
             .OrderByDescending(p => p.CreatedAt)
             .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Gets a paged list of payment transactions and total matching count.
+    /// </summary>
+    public async Task<(IReadOnlyList<PaymentTransaction> Items, int TotalCount)> GetPaymentsAsync(
+        int page = 1,
+        int pageSize = 20,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedPage = page < 1 ? 1 : page;
+        var normalizedPageSize = pageSize < 1 ? 20 : pageSize;
+        if (normalizedPageSize > 100)
+        {
+            normalizedPageSize = 100;
+        }
+
+        var query = _context.PaymentTransactions
+            .AsNoTracking()
+            .Include(p => p.PaymentProvider)
+            .OrderByDescending(p => p.CreatedAt);
+
+        var totalCount = await query.CountAsync(cancellationToken);
+        var items = await query
+            .Skip((normalizedPage - 1) * normalizedPageSize)
+            .Take(normalizedPageSize)
+            .ToListAsync(cancellationToken);
+
+        return (items, totalCount);
     }
 
     /// <summary>

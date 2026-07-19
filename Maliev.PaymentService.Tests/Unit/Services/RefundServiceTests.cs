@@ -1,6 +1,7 @@
-using Maliev.PaymentService.Core.Entities;
-using Maliev.PaymentService.Core.Enums;
-using Maliev.PaymentService.Core.Interfaces;
+using Maliev.PaymentService.Domain.Entities;
+using Maliev.PaymentService.Domain.Enums;
+using Maliev.PaymentService.Application.Interfaces;
+using Maliev.PaymentService.Infrastructure.Providers;
 using Maliev.PaymentService.Infrastructure.Services;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -18,6 +19,7 @@ public class RefundServiceTests
     private readonly Mock<IProviderRepository> _providerRepositoryMock;
     private readonly Mock<IEventPublisher> _eventPublisherMock;
     private readonly Mock<IMetricsService> _metricsServiceMock;
+    private readonly Mock<ProviderFactory> _providerFactoryMock;
     private readonly Mock<ILogger<RefundService>> _loggerMock;
     private readonly RefundService _service;
 
@@ -28,7 +30,26 @@ public class RefundServiceTests
         _providerRepositoryMock = new Mock<IProviderRepository>();
         _eventPublisherMock = new Mock<IEventPublisher>();
         _metricsServiceMock = new Mock<IMetricsService>();
+        _providerFactoryMock = new Mock<ProviderFactory>(
+            Mock.Of<IHttpClientFactory>(),
+            Mock.Of<IEncryptionService>());
         _loggerMock = new Mock<ILogger<RefundService>>();
+        var defaultProviderAdapter = new Mock<IPaymentProviderAdapter>();
+        defaultProviderAdapter
+            .Setup(a => a.ProcessRefundAsync(It.IsAny<ProviderRefundRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderRefundResult
+            {
+                Success = true,
+                ProviderRefundId = "re_default",
+                Status = "succeeded"
+            });
+
+        _providerRepositoryMock
+            .Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid providerId, CancellationToken _) => CreateTestProvider(providerId, "stripe"));
+        _providerFactoryMock
+            .Setup(f => f.CreateProvider(It.IsAny<PaymentProvider>(), null))
+            .Returns(defaultProviderAdapter.Object);
 
         _service = new RefundService(
             _paymentRepositoryMock.Object,
@@ -36,6 +57,7 @@ public class RefundServiceTests
             _providerRepositoryMock.Object,
             _eventPublisherMock.Object,
             _metricsServiceMock.Object,
+            _providerFactoryMock.Object,
             _loggerMock.Object);
     }
 
@@ -53,7 +75,7 @@ public class RefundServiceTests
 
         // Act & Assert
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => _service.ProcessRefundAsync(transactionId, amount, reason, "full"));
+            () => _service.ProcessRefundAsync(transactionId, amount, reason, "full", "refund-missing-payment"));
     }
 
     [Fact]
@@ -69,7 +91,7 @@ public class RefundServiceTests
 
         // Act & Assert
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => _service.ProcessRefundAsync(transactionId, 50.00m, "test", "partial"));
+            () => _service.ProcessRefundAsync(transactionId, 50.00m, "test", "partial", "refund-not-completed"));
 
         Assert.Contains("not completed", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
@@ -94,7 +116,7 @@ public class RefundServiceTests
 
         // Act & Assert - try to refund 50 when only 40 remaining
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => _service.ProcessRefundAsync(transactionId, 50.00m, "test", "partial"));
+            () => _service.ProcessRefundAsync(transactionId, 50.00m, "test", "partial", "refund-exceeds"));
 
         Assert.Contains("exceeds", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
@@ -119,7 +141,7 @@ public class RefundServiceTests
             .ReturnsAsync((RefundTransaction r, CancellationToken ct) => r);
 
         // Act
-        var result = await _service.ProcessRefundAsync(transactionId, 100.00m, "Full refund", "full");
+        var result = await _service.ProcessRefundAsync(transactionId, 100.00m, "Full refund", "full", "refund-full");
 
         // Assert
         Assert.NotNull(result);
@@ -129,6 +151,93 @@ public class RefundServiceTests
         _refundRepositoryMock.Verify(
             r => r.AddAsync(It.Is<RefundTransaction>(rf => rf.Amount == 100.00m), It.IsAny<CancellationToken>()),
             Times.Once);
+    }
+
+    [Fact]
+    public async Task ProcessRefundAsync_ProviderAcceptsRefund_ShouldCompleteRefundWithProviderId()
+    {
+        var transactionId = Guid.NewGuid();
+        var payment = CreateTestPayment(transactionId, PaymentStatus.Completed, 100.00m);
+        var provider = CreateTestProvider(payment.PaymentProviderId, "stripe");
+        var providerAdapter = new Mock<IPaymentProviderAdapter>();
+
+        _paymentRepositoryMock
+            .Setup(r => r.GetByIdAsync(transactionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(payment);
+
+        _refundRepositoryMock
+            .Setup(r => r.GetByPaymentTransactionIdAsync(transactionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<RefundTransaction>());
+
+        _refundRepositoryMock
+            .Setup(r => r.AddAsync(It.IsAny<RefundTransaction>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((RefundTransaction r, CancellationToken _) => r);
+
+        _refundRepositoryMock
+            .Setup(r => r.UpdateAsync(It.IsAny<RefundTransaction>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((RefundTransaction r, CancellationToken _) => r);
+
+        _providerRepositoryMock
+            .Setup(r => r.GetByIdAsync(payment.PaymentProviderId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(provider);
+
+        _providerFactoryMock
+            .Setup(f => f.CreateProvider(provider, null))
+            .Returns(providerAdapter.Object);
+
+        providerAdapter
+            .Setup(a => a.ProcessRefundAsync(
+                It.Is<ProviderRefundRequest>(request =>
+                    request.ProviderTransactionId == payment.ProviderTransactionId &&
+                    request.IdempotencyKey == "refund-key-123" &&
+                    request.Amount == 25.00m &&
+                    request.Currency == payment.Currency &&
+                    request.Metadata != null &&
+                    request.Metadata["paymentTransactionId"] == payment.Id.ToString()),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderRefundResult
+            {
+                Success = true,
+                ProviderRefundId = "re_test_123",
+                Status = "succeeded"
+            });
+
+        var result = await _service.ProcessRefundAsync(transactionId, 25.00m, "Customer request", "partial", "refund-key-123");
+
+        Assert.Equal(RefundStatus.Completed, result.Status);
+        Assert.Equal("re_test_123", result.ProviderRefundId);
+        Assert.Equal("refund-key-123", result.IdempotencyKey);
+        Assert.NotNull(result.CompletedAt);
+        _refundRepositoryMock.Verify(
+            r => r.UpdateAsync(
+                It.Is<RefundTransaction>(refund =>
+                    refund.Status == RefundStatus.Completed &&
+                    refund.ProviderRefundId == "re_test_123"),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task ProcessRefundAsync_DuplicateIdempotencyKey_ShouldReturnExistingRefundWithoutProviderCall()
+    {
+        var transactionId = Guid.NewGuid();
+        var existingRefund = CreateTestRefund(transactionId, 20m, RefundStatus.Completed);
+        existingRefund.IdempotencyKey = "refund-key-dup";
+        existingRefund.ProviderRefundId = "re_existing";
+
+        _refundRepositoryMock
+            .Setup(r => r.GetByIdempotencyKeyAsync("refund-key-dup", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(existingRefund);
+
+        var result = await _service.ProcessRefundAsync(transactionId, 20m, "Customer request", "partial", "refund-key-dup");
+
+        Assert.Same(existingRefund, result);
+        _paymentRepositoryMock.Verify(
+            r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _providerFactoryMock.Verify(
+            f => f.CreateProvider(It.IsAny<PaymentProvider>(), null),
+            Times.Never);
     }
 
     [Fact]
@@ -151,7 +260,7 @@ public class RefundServiceTests
             .ReturnsAsync((RefundTransaction r, CancellationToken ct) => r);
 
         // Act
-        var result = await _service.ProcessRefundAsync(transactionId, 50.00m, "Partial refund", "partial");
+        var result = await _service.ProcessRefundAsync(transactionId, 50.00m, "Partial refund", "partial", "refund-partial");
 
         // Assert
         Assert.NotNull(result);
@@ -188,7 +297,7 @@ public class RefundServiceTests
             .ReturnsAsync((RefundTransaction r, CancellationToken ct) => r);
 
         // Act - request 50 refund (should succeed, exactly remaining amount)
-        var result = await _service.ProcessRefundAsync(transactionId, 50.00m, "Final refund", "partial");
+        var result = await _service.ProcessRefundAsync(transactionId, 50.00m, "Final refund", "partial", "refund-final-partial");
 
         // Assert
         Assert.NotNull(result);
@@ -208,7 +317,7 @@ public class RefundServiceTests
 
         // Act & Assert
         await Assert.ThrowsAsync<ArgumentException>(
-            () => _service.ProcessRefundAsync(transactionId, 0m, "test", "full"));
+            () => _service.ProcessRefundAsync(transactionId, 0m, "test", "full", "refund-zero"));
     }
 
     [Fact]
@@ -224,7 +333,7 @@ public class RefundServiceTests
 
         // Act & Assert
         await Assert.ThrowsAsync<ArgumentException>(
-            () => _service.ProcessRefundAsync(transactionId, -10m, "test", "full"));
+            () => _service.ProcessRefundAsync(transactionId, -10m, "test", "full", "refund-negative"));
     }
 
     private static PaymentTransaction CreateTestPayment(Guid id, PaymentStatus status, decimal amount)
@@ -247,8 +356,24 @@ public class RefundServiceTests
             CorrelationId = Guid.NewGuid().ToString(),
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
-            CompletedAt = status == PaymentStatus.Completed ? DateTime.UtcNow : null,
-            RowVersion = Array.Empty<byte>()
+            CompletedAt = status == PaymentStatus.Completed ? DateTime.UtcNow : null
+        };
+    }
+
+    private static PaymentProvider CreateTestProvider(Guid id, string name)
+    {
+        return new PaymentProvider
+        {
+            Id = id,
+            Name = name,
+            DisplayName = name,
+            Status = ProviderStatus.Active,
+            SupportedCurrencies = new List<string> { "THB" },
+            Priority = 1,
+            Credentials = new Dictionary<string, string>(),
+            Configurations = new List<ProviderConfiguration>(),
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
         };
     }
 
@@ -266,8 +391,7 @@ public class RefundServiceTests
             IdempotencyKey = Guid.NewGuid().ToString(),
             CorrelationId = Guid.NewGuid(),
             CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
-            RowVersion = Array.Empty<byte>()
+            UpdatedAt = DateTime.UtcNow
         };
     }
 }

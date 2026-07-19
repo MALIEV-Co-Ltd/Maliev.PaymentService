@@ -8,7 +8,7 @@ namespace Maliev.PaymentService.Api.Models.Requests;
 public class RefundRequest
 {
     /// <summary>
-    /// Refund amount (must be > 0 and <= remaining refundable amount).
+    /// Refund amount (must be greater than 0 and less than or equal to remaining refundable amount).
     /// </summary>
     [JsonPropertyName("amount")]
     public required decimal Amount { get; init; }

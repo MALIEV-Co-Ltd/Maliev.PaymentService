@@ -1,4 +1,4 @@
-using Maliev.PaymentService.Core.Entities;
+using Maliev.PaymentService.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -23,6 +23,15 @@ public class TransactionLogConfiguration : IEntityTypeConfiguration<TransactionL
         builder.Property(l => l.PaymentTransactionId)
             .HasColumnName("payment_transaction_id")
             .IsRequired();
+
+        // Relationships
+        // The relationship is marked as required to ensure data integrity.
+        // We use Restrict delete behavior to preserve immutable audit logs.
+        builder.HasOne(l => l.PaymentTransaction)
+            .WithMany(t => t.TransactionLogs)
+            .HasForeignKey(l => l.PaymentTransactionId)
+            .IsRequired()
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.Property(l => l.PreviousStatus)
             .HasColumnName("previous_status")
@@ -76,5 +85,8 @@ public class TransactionLogConfiguration : IEntityTypeConfiguration<TransactionL
             .HasDatabaseName("ix_transaction_logs_correlation_id");
 
         // No row version - immutable logs
+
+        // Apply matching query filter to resolve strict relationship requirement
+        builder.HasQueryFilter(l => l.PaymentTransaction!.PaymentProvider!.DeletedAt == null);
     }
 }

@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="Maliev.PaymentService.Api/Maliev.PaymentService.Api.csproj" />
+  <Project Path="Maliev.PaymentService.Domain/Maliev.PaymentService.Domain.csproj" />
+  <Project Path="Maliev.PaymentService.Application/Maliev.PaymentService.Application.csproj" />
+  <Project Path="Maliev.PaymentService.Infrastructure/Maliev.PaymentService.Infrastructure.csproj" />
+  <Project Path="Maliev.PaymentService.Tests/Maliev.PaymentService.Tests.csproj" />
+</Solution>

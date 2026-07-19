@@ -1,0 +1,82 @@
+using Maliev.PaymentService.Domain.Entities;
+
+namespace Maliev.PaymentService.Application.Interfaces;
+
+/// <summary>
+/// Repository interface for PaymentTransaction entity operations.
+/// Provides data access methods for payment processing with optimistic concurrency support.
+/// </summary>
+public interface IPaymentRepository
+{
+    /// <summary>
+    /// Gets a payment transaction by its unique identifier.
+    /// </summary>
+    /// <param name="id">Transaction ID</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Payment transaction if found, null otherwise</returns>
+    Task<PaymentTransaction?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets a payment transaction by its idempotency key.
+    /// Used for duplicate detection and idempotent request handling.
+    /// </summary>
+    /// <param name="idempotencyKey">Idempotency key</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Payment transaction if found, null otherwise</returns>
+    Task<PaymentTransaction?> GetByIdempotencyKeyAsync(string idempotencyKey, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets the latest completed payment transaction for an order.
+    /// Used to prevent duplicate captures when a caller starts a new checkout attempt after payment is already complete.
+    /// </summary>
+    /// <param name="orderId">Caller-domain order identifier</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Latest completed payment transaction if found, null otherwise</returns>
+    Task<PaymentTransaction?> GetLatestCompletedByOrderIdAsync(string orderId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets payment transactions within a date range.
+    /// Used for reporting and reconciliation.
+    /// </summary>
+    /// <param name="startDate">Start date (inclusive)</param>
+    /// <param name="endDate">End date (inclusive)</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>List of payment transactions in the date range</returns>
+    Task<IEnumerable<PaymentTransaction>> GetByDateRangeAsync(DateTime startDate, DateTime endDate, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adds a new payment transaction.
+    /// </summary>
+    /// <param name="transaction">Payment transaction to add</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Added payment transaction</returns>
+    Task<PaymentTransaction> AddAsync(PaymentTransaction transaction, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Updates an existing payment transaction with optimistic concurrency check.
+    /// </summary>
+    /// <param name="transaction">Payment transaction with updated data</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Updated payment transaction</returns>
+    /// <exception>Thrown when row version mismatch occurs (concurrency exception)</exception>
+    Task<PaymentTransaction> UpdateAsync(PaymentTransaction transaction, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adds a transaction log entry for audit trail.
+    /// </summary>
+    /// <param name="log">Transaction log to add</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    Task AddLogAsync(TransactionLog log, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets a paged set of payment transactions along with total count.
+    /// </summary>
+    /// <param name="page">Page number (1-based)</param>
+    /// <param name="pageSize">Number of items per page</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Tuple containing requested payment transactions and full result total count.</returns>
+    Task<(IReadOnlyList<PaymentTransaction> Items, int TotalCount)> GetPaymentsAsync(
+        int page = 1,
+        int pageSize = 20,
+        CancellationToken cancellationToken = default);
+}

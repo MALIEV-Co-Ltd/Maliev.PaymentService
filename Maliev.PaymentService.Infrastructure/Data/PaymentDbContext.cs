@@ -1,4 +1,6 @@
-using Maliev.PaymentService.Core.Entities;
+using Maliev.Aspire.ServiceDefaults.Database;
+using Maliev.PaymentService.Domain.Entities;
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 
 namespace Maliev.PaymentService.Infrastructure.Data;
@@ -15,7 +17,7 @@ public class PaymentDbContext : DbContext
     }
 
     /// <summary>
-    /// Payment providers (Stripe, PayPal, Square, etc.).
+    /// Payment providers (Omise, SCB, Stripe, etc.).
     /// </summary>
     public DbSet<PaymentProvider> PaymentProviders => Set<PaymentProvider>();
 
@@ -53,5 +55,12 @@ public class PaymentDbContext : DbContext
 
         // Apply all entity configurations from the assembly
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(PaymentDbContext).Assembly);
+
+        modelBuilder.AddInboxStateEntity();
+        modelBuilder.AddOutboxMessageEntity();
+        modelBuilder.AddOutboxStateEntity();
+
+        // Apply PostgreSQL snake_case naming convention globally
+        SnakeCaseNamingHelper.ApplySnakeCaseNaming(modelBuilder);
     }
 }

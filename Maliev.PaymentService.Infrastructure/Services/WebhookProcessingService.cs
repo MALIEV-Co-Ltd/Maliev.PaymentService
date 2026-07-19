@@ -1,8 +1,11 @@
-using System.Text.Json;
-using Maliev.PaymentService.Core.Entities;
-using Maliev.PaymentService.Core.Enums;
-using Maliev.PaymentService.Core.Interfaces;
+using Maliev.MessagingContracts;
+using Maliev.MessagingContracts.Contracts.Accounting;
+using Maliev.MessagingContracts.Contracts.Payments;
+using Maliev.PaymentService.Domain.Entities;
+using Maliev.PaymentService.Domain.Enums;
+using Maliev.PaymentService.Application.Interfaces;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
 
 namespace Maliev.PaymentService.Infrastructure.Services;
 
@@ -12,6 +15,12 @@ namespace Maliev.PaymentService.Infrastructure.Services;
 /// </summary>
 public class WebhookProcessingService : IWebhookProcessingService
 {
+    private static readonly string[] PaymentCompletedConsumers =
+        ["InvoiceService", "OrderService", "NotificationService", "QuoteEngine", "ProjectService", "JobService"];
+
+    private static readonly string[] PaymentOutcomeConsumers =
+        ["OrderService", "NotificationService", "QuoteEngine"];
+
     private readonly IWebhookRepository _webhookRepository;
     private readonly IPaymentRepository _paymentRepository;
     private readonly IEventPublisher _eventPublisher;
@@ -42,13 +51,27 @@ public class WebhookProcessingService : IWebhookProcessingService
 
         try
         {
+            if (webhookEvent.ProcessingStatus == WebhookProcessingStatus.Completed)
+            {
+                _logger.LogInformation(
+                    "Webhook {WebhookId} has already completed processing; skipping retry",
+                    webhookEvent.Id);
+
+                return new WebhookProcessingResult
+                {
+                    Success = true,
+                    IsDuplicate = false,
+                    TransactionId = webhookEvent.PaymentTransactionId
+                };
+            }
+
             // Check for duplicate
             var existing = await _webhookRepository.GetByProviderEventIdAsync(
                 webhookEvent.ProviderId,
                 webhookEvent.ProviderEventId,
                 cancellationToken);
 
-            if (existing != null)
+            if (existing != null && existing.Id != webhookEvent.Id)
             {
                 _logger.LogInformation(
                     "Duplicate webhook detected: {ProviderEventId} from provider {ProviderId}",
@@ -80,18 +103,34 @@ public class WebhookProcessingService : IWebhookProcessingService
 
             // Extract transaction ID from webhook
             var transactionId = ExtractTransactionId(webhookEvent.EventType, parsedData, webhookEvent.PaymentProvider?.Name);
+            var webhookStatus = MapEventTypeToStatus(webhookEvent.EventType, parsedData);
 
             if (transactionId.HasValue)
             {
-                webhookEvent.PaymentTransactionId = transactionId.Value;
-
-                // Update transaction status based on webhook event
-                await UpdateTransactionStatusAsync(
+                // Update transaction status based on webhook event. The webhook row is linked
+                // only when the transaction exists so unmatched provider callbacks remain
+                // persistable for retry/inspection without violating the FK constraint.
+                var linked = await UpdateTransactionStatusAsync(
                     transactionId.Value,
                     webhookEvent.EventType,
                     parsedData,
                     webhookEvent.CorrelationId,
+                    webhookEvent.ProcessingAttempts,
                     cancellationToken);
+                if (linked)
+                {
+                    webhookEvent.PaymentTransactionId = transactionId.Value;
+                }
+                else
+                {
+                    throw new InvalidOperationException(
+                        $"Payment transaction {transactionId.Value} was not found for webhook event {webhookEvent.ProviderEventId}.");
+                }
+            }
+            else if (RequiresTransactionCorrelation(webhookEvent.EventType, webhookStatus))
+            {
+                throw new InvalidOperationException(
+                    $"Webhook event {webhookEvent.ProviderEventId} with type {webhookEvent.EventType} could not be correlated to a payment transaction.");
             }
 
             // Mark as completed
@@ -147,7 +186,7 @@ public class WebhookProcessingService : IWebhookProcessingService
         Guid webhookEventId,
         CancellationToken cancellationToken = default)
     {
-        var webhookEvent = await _webhookRepository.GetByProviderEventIdAsync(Guid.Empty, webhookEventId.ToString(), cancellationToken);
+        var webhookEvent = await _webhookRepository.GetByIdAsync(webhookEventId, cancellationToken);
 
         if (webhookEvent == null)
         {
@@ -180,6 +219,11 @@ public class WebhookProcessingService : IWebhookProcessingService
         if (parsedData == null)
         {
             return null;
+        }
+
+        if (TryExtractGuidFromMetadata(parsedData, out var metadataTransactionId))
+        {
+            return metadataTransactionId;
         }
 
         // Try common field names for transaction ID
@@ -218,11 +262,66 @@ public class WebhookProcessingService : IWebhookProcessingService
         return null;
     }
 
-    private async Task UpdateTransactionStatusAsync(
+    private static bool TryExtractGuidFromMetadata(Dictionary<string, object> parsedData, out Guid transactionId)
+    {
+        transactionId = default;
+
+        if (parsedData.TryGetValue("metadata", out var metadata) &&
+            TryExtractGuidFromJsonObject(metadata, out transactionId))
+        {
+            return true;
+        }
+
+        if (parsedData.TryGetValue("data", out var data) &&
+            data is JsonElement dataElement &&
+            dataElement.ValueKind == JsonValueKind.Object &&
+            dataElement.TryGetProperty("metadata", out var dataMetadata) &&
+            TryExtractGuidFromJsonObject(dataMetadata, out transactionId))
+        {
+            return true;
+        }
+
+        if (parsedData.TryGetValue("data", out data) &&
+            data is JsonElement nestedDataElement &&
+            nestedDataElement.ValueKind == JsonValueKind.Object &&
+            nestedDataElement.TryGetProperty("object", out var objectElement) &&
+            objectElement.ValueKind == JsonValueKind.Object &&
+            objectElement.TryGetProperty("metadata", out var nestedMetadata))
+        {
+            return TryExtractGuidFromJsonObject(nestedMetadata, out transactionId);
+        }
+
+        return false;
+    }
+
+    private static bool TryExtractGuidFromJsonObject(object value, out Guid transactionId)
+    {
+        transactionId = default;
+
+        if (value is not JsonElement element || element.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        if ((element.TryGetProperty("transactionId", out var transactionIdProperty) ||
+             element.TryGetProperty("transaction_id", out transactionIdProperty) ||
+             element.TryGetProperty("paymentId", out transactionIdProperty) ||
+             element.TryGetProperty("payment_id", out transactionIdProperty)) &&
+            transactionIdProperty.ValueKind == JsonValueKind.String &&
+            Guid.TryParse(transactionIdProperty.GetString(), out transactionId))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private async Task<bool> UpdateTransactionStatusAsync(
         Guid transactionId,
         string eventType,
         Dictionary<string, object>? parsedData,
         Guid? correlationId,
+        int processingAttempts,
         CancellationToken cancellationToken)
     {
         var transaction = await _paymentRepository.GetByIdAsync(transactionId, cancellationToken);
@@ -230,26 +329,48 @@ public class WebhookProcessingService : IWebhookProcessingService
         if (transaction == null)
         {
             _logger.LogWarning("Transaction {TransactionId} not found for webhook event", transactionId);
-            return;
+            return false;
         }
 
         var previousStatus = transaction.Status;
 
-        // Map event type to payment status
-        var newStatus = MapEventTypeToStatus(eventType);
+        var newStatus = MapEventTypeToStatus(eventType, parsedData);
 
         if (newStatus == transaction.Status)
         {
             _logger.LogInformation(
                 "Transaction {TransactionId} already in status {Status}, skipping update",
                 transactionId, newStatus);
-            return;
+
+            if (ShouldRepublishSameStatusWebhook(newStatus, eventType, processingAttempts))
+            {
+                await PublishPaymentStatusEventAsync(transaction, newStatus, eventType, cancellationToken);
+                await AddPaymentStatusEventPublicationLogAsync(
+                    transaction,
+                    newStatus,
+                    eventType,
+                    correlationId,
+                    cancellationToken);
+            }
+
+            return true;
+        }
+
+        if (ShouldIgnoreTerminalTransition(transaction.Status, newStatus))
+        {
+            _logger.LogWarning(
+                "Ignoring late webhook {EventType} for transaction {TransactionId}; current status {CurrentStatus} cannot transition to {NewStatus}",
+                eventType,
+                transactionId,
+                transaction.Status,
+                newStatus);
+            return true;
         }
 
         transaction.Status = newStatus;
         transaction.UpdatedAt = DateTime.UtcNow;
 
-        if (newStatus == PaymentStatus.Completed)
+        if (IsTerminalPaymentStatus(newStatus))
         {
             transaction.CompletedAt = DateTime.UtcNow;
         }
@@ -269,42 +390,406 @@ public class WebhookProcessingService : IWebhookProcessingService
             CreatedAt = DateTime.UtcNow
         }, cancellationToken);
 
-        // Publish event if payment completed
-        if (newStatus == PaymentStatus.Completed)
-        {
-            await _eventPublisher.PublishAsync(new Core.Events.PaymentCompletedEvent
-            {
-                TransactionId = transaction.Id,
-                IdempotencyKey = transaction.IdempotencyKey,
-                Amount = transaction.Amount,
-                Currency = transaction.Currency,
-                CustomerId = transaction.CustomerId,
-                OrderId = transaction.OrderId,
-                ProviderName = transaction.ProviderName,
-                ProviderTransactionId = transaction.ProviderTransactionId,
-                CompletedAt = transaction.CompletedAt ?? DateTime.UtcNow,
-                CorrelationId = transaction.CorrelationId
-            }, cancellationToken);
-        }
+        await PublishPaymentStatusEventAsync(transaction, newStatus, eventType, cancellationToken);
+        await AddPaymentStatusEventPublicationLogAsync(
+            transaction,
+            newStatus,
+            eventType,
+            correlationId,
+            cancellationToken);
 
         _logger.LogInformation(
             "Transaction {TransactionId} status updated from {PreviousStatus} to {NewStatus} via webhook",
             transactionId, previousStatus, newStatus);
+        return true;
     }
 
-    private PaymentStatus MapEventTypeToStatus(string eventType)
+    private static bool ShouldIgnoreTerminalTransition(PaymentStatus currentStatus, PaymentStatus newStatus)
+    {
+        return currentStatus == PaymentStatus.Completed &&
+               newStatus is PaymentStatus.Failed
+                   or PaymentStatus.Cancelled
+                   or PaymentStatus.Expired
+                   or PaymentStatus.Processing;
+    }
+
+    private static bool IsTerminalPaymentStatus(PaymentStatus status)
+    {
+        return status is PaymentStatus.Completed
+            or PaymentStatus.Failed
+            or PaymentStatus.Cancelled
+            or PaymentStatus.Expired
+            or PaymentStatus.Refunded;
+    }
+
+    private static bool ShouldRepublishSameStatusWebhook(
+        PaymentStatus status,
+        string eventType,
+        int processingAttempts)
+    {
+        if (status == PaymentStatus.Processing && IsPendingLikeEventType(eventType))
+        {
+            return true;
+        }
+
+        var retryableTerminalStatus = status is PaymentStatus.Failed
+            or PaymentStatus.Cancelled
+            or PaymentStatus.Expired;
+
+        return status is PaymentStatus.Completed ||
+               processingAttempts > 1 && retryableTerminalStatus;
+    }
+
+    private static string ResolveOrderNumber(PaymentTransaction transaction)
+    {
+        if (transaction.Metadata != null &&
+            (transaction.Metadata.TryGetValue("orderNumber", out var orderNumber) ||
+             transaction.Metadata.TryGetValue("OrderNumber", out orderNumber)) &&
+            !string.IsNullOrWhiteSpace(orderNumber))
+        {
+            return orderNumber;
+        }
+
+        return string.IsNullOrWhiteSpace(transaction.OrderId) ? "Unknown" : transaction.OrderId;
+    }
+
+    private Task AddPaymentStatusEventPublicationLogAsync(
+        PaymentTransaction transaction,
+        PaymentStatus status,
+        string eventType,
+        Guid? correlationId,
+        CancellationToken cancellationToken)
+    {
+        return _paymentRepository.AddLogAsync(new TransactionLog
+        {
+            Id = Guid.NewGuid(),
+            PaymentTransactionId = transaction.Id,
+            PreviousStatus = status,
+            NewStatus = status,
+            EventType = $"WebhookEventPublished:{eventType}",
+            Message = $"Published {status} payment status event for webhook {eventType}",
+            CorrelationId = correlationId?.ToString() ?? transaction.CorrelationId,
+            CreatedAt = DateTime.UtcNow
+        }, cancellationToken);
+    }
+
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Security", "CA5351:Do Not Use Broken Cryptographic Algorithms", Justification = "MD5 is used for deterministic non-cryptographic ID mapping to match OrderService events.")]
+    private static Guid ResolveOrderId(PaymentTransaction transaction)
+    {
+        var orderNumber = ResolveOrderNumber(transaction);
+        if (!string.IsNullOrWhiteSpace(orderNumber) &&
+            !string.Equals(orderNumber, "Unknown", StringComparison.Ordinal))
+        {
+            byte[] hash = System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(orderNumber));
+            return new Guid(hash);
+        }
+
+        if (string.IsNullOrWhiteSpace(transaction.OrderId))
+        {
+            return Guid.Empty;
+        }
+
+        return Guid.TryParse(transaction.OrderId, out var orderId) ? orderId : Guid.Empty;
+    }
+
+    private async Task PublishPaymentStatusEventAsync(
+        PaymentTransaction transaction,
+        PaymentStatus newStatus,
+        string eventType,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = Guid.TryParse(transaction.CorrelationId, out var correlId)
+            ? correlId
+            : Guid.NewGuid();
+        var occurredAt = DateTimeOffset.UtcNow;
+
+        switch (newStatus)
+        {
+            case PaymentStatus.Completed:
+                await _eventPublisher.PublishAsync(new PaymentCompletedEvent(
+                    MessageId: Guid.NewGuid(),
+                    MessageName: nameof(PaymentCompletedEvent),
+                    MessageType: MessageType.Event,
+                    MessageVersion: "1.0.0",
+                    PublishedBy: "PaymentService",
+                    ConsumedBy: PaymentCompletedConsumers,
+                    CorrelationId: correlationId,
+                    CausationId: null,
+                    OccurredAtUtc: occurredAt,
+                    IsPublic: true,
+                    Payload: new PaymentCompletedEventPayload(
+                        OrderId: ResolveOrderId(transaction),
+                        OrderNumber: ResolveOrderNumber(transaction),
+                        CustomerId: transaction.CustomerId,
+                        PaymentId: transaction.Id,
+                        Amount: (double)transaction.Amount,
+                        Currency: transaction.Currency,
+                        ProviderName: transaction.ProviderName
+                    )
+                ), cancellationToken);
+
+                await _eventPublisher.PublishAsync(new PaymentRecordedEvent(
+                    MessageId: Guid.NewGuid(),
+                    MessageName: nameof(PaymentRecordedEvent),
+                    MessageType: MessageType.Event,
+                    MessageVersion: "1.0.0",
+                    PublishedBy: "PaymentService",
+                    ConsumedBy: ["AccountingService"],
+                    CorrelationId: correlationId,
+                    CausationId: null,
+                    OccurredAtUtc: occurredAt,
+                    IsPublic: false,
+                    Payload: new PaymentRecordedEventPayload(
+                        PaymentRecordId: transaction.Id,
+                        PaymentId: transaction.Id,
+                        PaymentNumber: ResolvePaymentNumber(transaction),
+                        PaymentDate: transaction.CompletedAt.HasValue
+                            ? new DateTimeOffset(DateTime.SpecifyKind(transaction.CompletedAt.Value, DateTimeKind.Utc))
+                            : occurredAt,
+                        Amount: (double)transaction.Amount,
+                        Currency: transaction.Currency,
+                        PaymentMethod: transaction.ProviderName,
+                        CustomerId: Guid.TryParse(transaction.CustomerId, out var customerId) ? customerId : null,
+                        InvoiceId: null,
+                        RecordedAt: occurredAt)
+                ), cancellationToken);
+                break;
+
+            case PaymentStatus.Failed:
+                await _eventPublisher.PublishAsync(new PaymentFailedEvent(
+                    MessageId: Guid.NewGuid(),
+                    MessageName: nameof(PaymentFailedEvent),
+                    MessageType: MessageType.Event,
+                    MessageVersion: "1.0.0",
+                    PublishedBy: "PaymentService",
+                    ConsumedBy: PaymentOutcomeConsumers,
+                    CorrelationId: correlationId,
+                    CausationId: null,
+                    OccurredAtUtc: occurredAt,
+                    IsPublic: true,
+                    Payload: new PaymentFailedEventPayload(
+                        TransactionId: transaction.Id,
+                        IdempotencyKey: transaction.IdempotencyKey,
+                        Amount: (double)transaction.Amount,
+                        Currency: transaction.Currency,
+                        CustomerId: transaction.CustomerId,
+                        OrderId: ResolveOrderNumber(transaction),
+                        ProviderName: transaction.ProviderName,
+                        ErrorMessage: $"Payment failed via webhook: {eventType}",
+                        ProviderErrorCode: eventType,
+                        FailedAt: occurredAt
+                    )
+                ), cancellationToken);
+                break;
+
+            case PaymentStatus.Cancelled:
+                await _eventPublisher.PublishAsync(new PaymentCancelledEvent(
+                    MessageId: Guid.NewGuid(),
+                    MessageName: nameof(PaymentCancelledEvent),
+                    MessageType: MessageType.Event,
+                    MessageVersion: "1.0.0",
+                    PublishedBy: "PaymentService",
+                    ConsumedBy: PaymentOutcomeConsumers,
+                    CorrelationId: correlationId,
+                    CausationId: null,
+                    OccurredAtUtc: occurredAt,
+                    IsPublic: true,
+                    Payload: new PaymentCancelledEventPayload(
+                        TransactionId: transaction.Id,
+                        IdempotencyKey: transaction.IdempotencyKey,
+                        Amount: (double)transaction.Amount,
+                        Currency: transaction.Currency,
+                        CustomerId: transaction.CustomerId,
+                        OrderId: ResolveOrderNumber(transaction),
+                        ProviderName: transaction.ProviderName,
+                        Reason: $"Payment cancelled via webhook: {eventType}",
+                        ProviderEventCode: eventType,
+                        CancelledAt: occurredAt
+                    )
+                ), cancellationToken);
+                break;
+
+            case PaymentStatus.Expired:
+                await _eventPublisher.PublishAsync(new PaymentExpiredEvent(
+                    MessageId: Guid.NewGuid(),
+                    MessageName: nameof(PaymentExpiredEvent),
+                    MessageType: MessageType.Event,
+                    MessageVersion: "1.0.0",
+                    PublishedBy: "PaymentService",
+                    ConsumedBy: PaymentOutcomeConsumers,
+                    CorrelationId: correlationId,
+                    CausationId: null,
+                    OccurredAtUtc: occurredAt,
+                    IsPublic: true,
+                    Payload: new PaymentExpiredEventPayload(
+                        TransactionId: transaction.Id,
+                        IdempotencyKey: transaction.IdempotencyKey,
+                        Amount: (double)transaction.Amount,
+                        Currency: transaction.Currency,
+                        CustomerId: transaction.CustomerId,
+                        OrderId: ResolveOrderNumber(transaction),
+                        ProviderName: transaction.ProviderName,
+                        Reason: $"Payment expired via webhook: {eventType}",
+                        ProviderEventCode: eventType,
+                        ExpiredAt: occurredAt
+                    )
+                ), cancellationToken);
+                break;
+
+            case PaymentStatus.Processing when IsPendingLikeEventType(eventType):
+                await _eventPublisher.PublishAsync(new PaymentPendingEvent(
+                    MessageId: Guid.NewGuid(),
+                    MessageName: nameof(PaymentPendingEvent),
+                    MessageType: MessageType.Event,
+                    MessageVersion: "1.0.0",
+                    PublishedBy: "PaymentService",
+                    ConsumedBy: PaymentOutcomeConsumers,
+                    CorrelationId: correlationId,
+                    CausationId: null,
+                    OccurredAtUtc: occurredAt,
+                    IsPublic: true,
+                    Payload: new PaymentPendingEventPayload(
+                        TransactionId: transaction.Id,
+                        IdempotencyKey: transaction.IdempotencyKey,
+                        Amount: (double)transaction.Amount,
+                        Currency: transaction.Currency,
+                        CustomerId: transaction.CustomerId,
+                        OrderId: ResolveOrderNumber(transaction),
+                        ProviderName: transaction.ProviderName,
+                        ProviderEventCode: eventType,
+                        PendingAt: occurredAt
+                    )
+                ), cancellationToken);
+                break;
+        }
+    }
+
+    private PaymentStatus MapEventTypeToStatus(string eventType, Dictionary<string, object>? parsedData)
     {
         // Normalize event type
         var normalized = eventType.ToLowerInvariant().Replace(".", "_").Replace("-", "_");
 
-        return normalized switch
+        var statusFromEventType = normalized switch
         {
-            var e when e.Contains("completed") || e.Contains("succeeded") || e.Contains("success") => PaymentStatus.Completed,
-            var e when e.Contains("failed") || e.Contains("failure") || e.Contains("declined") || e.Contains("cancelled") || e.Contains("canceled") => PaymentStatus.Failed,
+            var e when e.Contains("completed") || e.Contains("complete") || e.Contains("succeeded") || e.Contains("success") => PaymentStatus.Completed,
+            var e when e.Contains("cancelled") || e.Contains("canceled") || e.Contains("reverse") => PaymentStatus.Cancelled,
+            var e when e.Contains("expired") || e.Contains("expire") => PaymentStatus.Expired,
+            var e when e.Contains("failed") || e.Contains("failure") || e.Contains("declined") => PaymentStatus.Failed,
             var e when e.Contains("pending") || e.Contains("processing") => PaymentStatus.Processing,
             var e when e.Contains("refunded") => PaymentStatus.Refunded,
             _ => PaymentStatus.Processing // Default to processing for unknown events
         };
+
+        if (statusFromEventType != PaymentStatus.Processing)
+        {
+            return statusFromEventType;
+        }
+
+        return TryExtractProviderPaymentStatus(parsedData, out var providerStatus)
+            ? providerStatus
+            : statusFromEventType;
+    }
+
+    private static string ResolvePaymentNumber(PaymentTransaction transaction)
+    {
+        return !string.IsNullOrWhiteSpace(transaction.ProviderTransactionId)
+            ? transaction.ProviderTransactionId
+            : transaction.Id.ToString("D");
+    }
+
+    private static bool TryExtractProviderPaymentStatus(Dictionary<string, object>? parsedData, out PaymentStatus status)
+    {
+        status = default;
+
+        if (parsedData == null)
+        {
+            return false;
+        }
+
+        if (TryReadJsonStatus(parsedData.GetValueOrDefault("status"), out status))
+        {
+            return true;
+        }
+
+        if (TryReadNestedJsonStatus(parsedData.GetValueOrDefault("object"), out status))
+        {
+            return true;
+        }
+
+        if (parsedData.TryGetValue("data", out var data) &&
+            data is JsonElement dataElement &&
+            dataElement.ValueKind == JsonValueKind.Object &&
+            dataElement.TryGetProperty("status", out var dataStatusElement) &&
+            TryMapProviderStatus(dataStatusElement.GetString(), out status))
+        {
+            return true;
+        }
+
+        if (parsedData.TryGetValue("data", out data) &&
+            data is JsonElement nestedDataElement &&
+            nestedDataElement.ValueKind == JsonValueKind.Object &&
+            nestedDataElement.TryGetProperty("object", out var objectElement))
+        {
+            return TryReadNestedJsonStatus(objectElement, out status);
+        }
+
+        return false;
+    }
+
+    private static bool TryReadNestedJsonStatus(object? value, out PaymentStatus status)
+    {
+        status = default;
+
+        return value is JsonElement element &&
+               element.ValueKind == JsonValueKind.Object &&
+               element.TryGetProperty("status", out var statusElement) &&
+               TryMapProviderStatus(statusElement.GetString(), out status);
+    }
+
+    private static bool TryReadJsonStatus(object? value, out PaymentStatus status)
+    {
+        status = default;
+
+        if (value is JsonElement { ValueKind: JsonValueKind.String } element)
+        {
+            return TryMapProviderStatus(element.GetString(), out status);
+        }
+
+        return value is string statusValue && TryMapProviderStatus(statusValue, out status);
+    }
+
+    private static bool TryMapProviderStatus(string? providerStatus, out PaymentStatus status)
+    {
+        status = default;
+
+        if (string.IsNullOrWhiteSpace(providerStatus))
+        {
+            return false;
+        }
+
+        status = providerStatus.Trim().ToLowerInvariant() switch
+        {
+            "successful" or "succeeded" or "success" or "paid" or "captured" => PaymentStatus.Completed,
+            "failed" or "failure" or "unsuccessful" or "declined" => PaymentStatus.Failed,
+            "cancelled" or "canceled" or "reversed" or "voided" => PaymentStatus.Cancelled,
+            "expired" => PaymentStatus.Expired,
+            "refunded" => PaymentStatus.Refunded,
+            "pending" or "processing" => PaymentStatus.Processing,
+            _ => default
+        };
+
+        return status != default || string.Equals(providerStatus, "pending", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsPendingLikeEventType(string eventType)
+    {
+        var normalized = eventType.ToLowerInvariant().Replace(".", "_").Replace("-", "_");
+        return normalized.Contains("pending") || normalized.Contains("processing");
+    }
+
+    private static bool RequiresTransactionCorrelation(string eventType, PaymentStatus mappedStatus)
+    {
+        return mappedStatus != PaymentStatus.Processing || IsPendingLikeEventType(eventType);
     }
 
     private DateTime CalculateNextRetryTime(int attemptNumber)

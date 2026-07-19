@@ -1,5 +1,5 @@
-using Maliev.PaymentService.Core.Entities;
-using Maliev.PaymentService.Core.Interfaces;
+using Maliev.PaymentService.Domain.Entities;
+using Maliev.PaymentService.Application.Interfaces;
 using Maliev.PaymentService.Infrastructure.Providers;
 using Microsoft.Extensions.Logging;
 
@@ -12,17 +12,17 @@ namespace Maliev.PaymentService.Infrastructure.Services;
 public class WebhookValidationService : IWebhookValidationService
 {
     private readonly StripeWebhookValidator _stripeValidator;
-    private readonly PayPalWebhookValidator _payPalValidator;
     private readonly OmiseWebhookValidator _omiseValidator;
     private readonly ScbWebhookValidator _scbValidator;
+    private readonly IEncryptionService? _encryptionService;
     private readonly ILogger<WebhookValidationService> _logger;
 
-    public WebhookValidationService(ILogger<WebhookValidationService> logger)
+    public WebhookValidationService(ILogger<WebhookValidationService> logger, IEncryptionService? encryptionService = null)
     {
         _stripeValidator = new StripeWebhookValidator();
-        _payPalValidator = new PayPalWebhookValidator();
         _omiseValidator = new OmiseWebhookValidator();
         _scbValidator = new ScbWebhookValidator();
+        _encryptionService = encryptionService;
         _logger = logger;
     }
 
@@ -41,8 +41,7 @@ public class WebhookValidationService : IWebhookValidationService
         bool isValid = provider.Name.ToLowerInvariant() switch
         {
             "stripe" => ValidateStripeWebhook(payload, headers, provider),
-            "paypal" => ValidatePayPalWebhook(payload, headers, provider),
-            "omise" => ValidateOmiseWebhook(payload, headers, sourceIp, provider),
+            "omise" or "opn" => ValidateOmiseWebhook(payload, headers, provider),
             "scb" => ValidateScbWebhook(payload, headers, provider),
             _ => false
         };
@@ -63,7 +62,7 @@ public class WebhookValidationService : IWebhookValidationService
             return false;
         }
 
-        if (!provider.Credentials.TryGetValue("WebhookSecret", out var secret))
+        if (!TryGetCredential(provider, "WebhookSecret", out var secret))
         {
             _logger.LogWarning("Stripe provider missing WebhookSecret credential");
             return false;
@@ -72,53 +71,21 @@ public class WebhookValidationService : IWebhookValidationService
         return _stripeValidator.ValidateSignature(payload, signature, secret);
     }
 
-    private bool ValidatePayPalWebhook(string payload, Dictionary<string, string> headers, PaymentProvider provider)
+    private bool ValidateOmiseWebhook(string payload, Dictionary<string, string> headers, PaymentProvider provider)
     {
-        if (!headers.TryGetValue("PAYPAL-TRANSMISSION-ID", out var transmissionId) ||
-            !headers.TryGetValue("PAYPAL-TRANSMISSION-TIME", out var transmissionTime) ||
-            !headers.TryGetValue("PAYPAL-TRANSMISSION-SIG", out var transmissionSig))
+        if (!headers.TryGetValue("Omise-Signature", out var signature))
         {
-            _logger.LogWarning("PayPal webhook missing required headers");
+            _logger.LogWarning("Omise webhook missing Omise-Signature header");
             return false;
         }
 
-        headers.TryGetValue("PAYPAL-CERT-URL", out var certUrl);
-        headers.TryGetValue("PAYPAL-AUTH-ALGO", out var authAlgo);
-
-        if (!provider.Credentials.TryGetValue("WebhookId", out var webhookId))
+        if (!TryGetCredential(provider, "WebhookSecret", out var secret))
         {
-            _logger.LogWarning("PayPal provider missing WebhookId credential");
+            _logger.LogWarning("Omise provider missing WebhookSecret credential");
             return false;
         }
 
-        return _payPalValidator.ValidateSignature(
-            payload,
-            transmissionId,
-            transmissionTime,
-            transmissionSig,
-            certUrl ?? string.Empty,
-            authAlgo ?? string.Empty,
-            webhookId);
-    }
-
-    private bool ValidateOmiseWebhook(string payload, Dictionary<string, string> headers, string? sourceIp, PaymentProvider provider)
-    {
-        // Omise primarily uses IP whitelist validation
-        if (!_omiseValidator.ValidateIpAddress(sourceIp))
-        {
-            _logger.LogWarning("Omise webhook from non-whitelisted IP: {SourceIp}", sourceIp);
-            return false;
-        }
-
-        // Optional signature validation if configured
-        if (headers.TryGetValue("X-Omise-Signature", out var signature) &&
-            provider.Credentials.TryGetValue("WebhookSecret", out var secret))
-        {
-            return _omiseValidator.ValidateSignature(payload, signature, secret);
-        }
-
-        // If no signature, IP validation is sufficient
-        return true;
+        return _omiseValidator.ValidateSignature(payload, signature, secret);
     }
 
     private bool ValidateScbWebhook(string payload, Dictionary<string, string> headers, PaymentProvider provider)
@@ -129,7 +96,7 @@ public class WebhookValidationService : IWebhookValidationService
             return false;
         }
 
-        if (!provider.Credentials.TryGetValue("WebhookSecret", out var secret))
+        if (!TryGetCredential(provider, "WebhookSecret", out var secret))
         {
             _logger.LogWarning("SCB provider missing WebhookSecret credential");
             return false;
@@ -139,5 +106,33 @@ public class WebhookValidationService : IWebhookValidationService
         headers.TryGetValue("X-SCB-Request-ID", out var requestId);
 
         return _scbValidator.ValidateSignature(payload, signature, secret, timestamp, requestId);
+    }
+
+    private bool TryGetCredential(PaymentProvider provider, string key, out string value)
+    {
+        if (!provider.Credentials.TryGetValue(key, out var storedValue) ||
+            string.IsNullOrWhiteSpace(storedValue))
+        {
+            value = string.Empty;
+            return false;
+        }
+
+        if (_encryptionService is null)
+        {
+            value = storedValue;
+            return true;
+        }
+
+        try
+        {
+            value = _encryptionService.Decrypt(storedValue);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not decrypt webhook credential {CredentialKey} for provider {ProviderName}", key, provider.Name);
+            value = string.Empty;
+            return false;
+        }
     }
 }

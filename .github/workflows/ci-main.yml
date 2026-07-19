@@ -1,9 +1,84 @@
-name: Validate - Main
+name: CI - Production image promotion
+run-name: Promote PaymentService ${{ inputs.release_version }} to production
+
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: SemVer already verified in the staging registry (without release/v prefix)
+        required: true
+        type: string
+      expected_digest:
+        description: Exact sha256 digest approved for production
+        required: true
+        type: string
+
 permissions:
   contents: read
+  id-token: write
+
+concurrency:
+  group: payment-image-production
+  cancel-in-progress: false
+
+env:
+  REGISTRY_HOST: asia-southeast1-docker.pkg.dev
+  SOURCE_REPOSITORY: maliev-payment-artifact-staging
+  TARGET_REPOSITORY: maliev-payment-artifact-prod
+  IMAGE_NAME: maliev-payment-service
+
 jobs:
-  validate:
-    uses: ./.github/workflows/_validate.yml
+  promote:
+    name: Promote approved staging digest to production
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - name: Require reviewed main revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+
+      - name: Checkout source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Authenticate to Google Cloud with Workload Identity Federation
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          create_credentials_file: true
+
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+
+      - name: Configure Artifact Registry authentication
+        run: gcloud auth configure-docker "$REGISTRY_HOST" --quiet
+
+      - name: Promote exact approved digest
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          EXPECTED_DIGEST: ${{ inputs.expected_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$EXPECTED_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+
+          SOURCE_IMAGE="$REGISTRY_HOST/$GCP_PROJECT_ID/$SOURCE_REPOSITORY/$IMAGE_NAME"
+          TARGET_IMAGE="$REGISTRY_HOST/$GCP_PROJECT_ID/$TARGET_REPOSITORY/$IMAGE_NAME"
+          TARGET_DIGEST="$(bash scripts/promote-artifact-image.sh \
+            "$SOURCE_IMAGE" "$RELEASE_VERSION" \
+            "$TARGET_IMAGE" "$RELEASE_VERSION" "$EXPECTED_DIGEST")"
+          printf 'Promoted approved `%s@%s` to `%s@%s` as production release `%s`.\n' \
+            "$SOURCE_IMAGE" "$TARGET_DIGEST" "$TARGET_IMAGE" "$TARGET_DIGEST" "$RELEASE_VERSION" >> "$GITHUB_STEP_SUMMARY"

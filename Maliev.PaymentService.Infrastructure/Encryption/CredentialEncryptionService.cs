@@ -1,3 +1,4 @@
+using Maliev.PaymentService.Application.Interfaces;
 using Microsoft.AspNetCore.DataProtection;
 
 namespace Maliev.PaymentService.Infrastructure.Encryption;

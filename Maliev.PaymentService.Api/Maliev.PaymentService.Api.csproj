@@ -2,32 +2,30 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <UserSecretsId>maliev-paymentservice-api</UserSecretsId>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
-  <ItemGroup>
-    <PackageReference Include="AspNetCore.HealthChecks.NpgSql" Version="9.0.0" />
-    <PackageReference Include="AspNetCore.HealthChecks.Rabbitmq" Version="9.0.0" />
-    <PackageReference Include="AspNetCore.HealthChecks.Redis" Version="9.0.0" />
-    <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.1" />
-    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
-    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.10" />
-    <PackageReference Include="Microsoft.OpenApi" Version="2.7.5" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.18">
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-      <PrivateAssets>all</PrivateAssets>
-    </PackageReference>
-    <PackageReference Include="Microsoft.Extensions.Http.Polly" Version="10.0.10" />
-    <PackageReference Include="Polly.Extensions" Version="8.7.0" />
-    <PackageReference Include="prometheus-net.AspNetCore" Version="8.2.1" />
-    <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
+  <ItemGroup Condition="'$(GITHUB_ACTIONS)' != 'true'">
+    <ProjectReference Include="..\..\Maliev.Aspire\Maliev.Aspire.ServiceDefaults\Maliev.Aspire.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\..\Maliev.MessagingContracts\generated\csharp\Maliev.MessagingContracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <PackageReference Include="Maliev.Aspire.ServiceDefaults" Version="$(ServiceDefaultsVersion)" />
+    <PackageReference Include="Maliev.MessagingContracts" Version="$(MessagingContractsVersion)" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Maliev.PaymentService.Core\Maliev.PaymentService.Core.csproj" />
+    <ProjectReference Include="..\Maliev.PaymentService.Application\Maliev.PaymentService.Application.csproj" />
     <ProjectReference Include="..\Maliev.PaymentService.Infrastructure\Maliev.PaymentService.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MassTransit.EntityFrameworkCore" Version="[8.5.8, 9.0.0)" />
   </ItemGroup>
 
 </Project>

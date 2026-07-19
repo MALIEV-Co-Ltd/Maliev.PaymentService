@@ -425,8 +425,8 @@ components:
         providerType:
           type: string
           description: Provider type identifier for factory pattern
-          enum: [stripe, paypal, omise, scb]
-          example: "stripe"
+          enum: [omise, scb, stripe]
+          example: "omise"
         apiEndpoint:
           type: string
           format: uri
@@ -442,8 +442,8 @@ components:
           description: Provider API credentials (will be encrypted)
           additionalProperties: true
           example:
-            apiKey: "sk_test_1234567890"
-            secretKey: "whsec_1234567890"
+            apiKey: "<configured-provider-api-key>"
+            secretKey: "<configured-provider-webhook-secret>"
         supportedCurrencies:
           type: array
           description: List of supported ISO 4217 currency codes

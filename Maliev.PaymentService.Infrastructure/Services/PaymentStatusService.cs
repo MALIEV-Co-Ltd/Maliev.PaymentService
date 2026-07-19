@@ -1,6 +1,6 @@
-using Maliev.PaymentService.Core.Entities;
-using Maliev.PaymentService.Core.Enums;
-using Maliev.PaymentService.Core.Interfaces;
+using Maliev.PaymentService.Domain.Entities;
+using Maliev.PaymentService.Domain.Enums;
+using Maliev.PaymentService.Application.Interfaces;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
@@ -100,12 +100,16 @@ public class PaymentStatusService : IPaymentStatusService
 
     private int GetCacheTtl(PaymentStatus status)
     {
-        // Terminal states (completed/failed) cache for 1 hour
+        // Terminal states cache for 1 hour
         // Active states (pending/processing) cache for 60 seconds
         return status switch
         {
             PaymentStatus.Completed => TerminalTransactionCacheTtlSeconds,
             PaymentStatus.Failed => TerminalTransactionCacheTtlSeconds,
+            PaymentStatus.Cancelled => TerminalTransactionCacheTtlSeconds,
+            PaymentStatus.Expired => TerminalTransactionCacheTtlSeconds,
+            PaymentStatus.Refunded => TerminalTransactionCacheTtlSeconds,
+            PaymentStatus.PartiallyRefunded => TerminalTransactionCacheTtlSeconds,
             PaymentStatus.Pending => ActiveTransactionCacheTtlSeconds,
             PaymentStatus.Processing => ActiveTransactionCacheTtlSeconds,
             _ => ActiveTransactionCacheTtlSeconds

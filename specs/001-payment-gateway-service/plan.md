@@ -7,7 +7,7 @@
 
 ## Summary
 
-The Payment Gateway Service is a core microservice that acts as a centralized API gateway for all payment operations in the MALIEV system. It manages, standardizes, and routes payment requests from internal microservices to external payment providers (Stripe, PayPal, Omise, SCB API) ensuring microservices can process payments without directly handling provider-specific logic or credentials.
+The Payment Gateway Service is a core microservice that acts as a centralized API gateway for all payment operations in the MALIEV system. It manages, standardizes, and routes payment requests from internal microservices to external payment providers. Omise is the primary provider for the Thai market, with SCB API and Stripe available only as configured fallbacks, ensuring microservices can process payments without directly handling provider-specific logic or credentials.
 
 **Technical Approach**: Build a .NET 10 WebAPI microservice using Clean Architecture with Entity Framework Core 9.0.10 and PostgreSQL 18 for data persistence. Implement resilience patterns with Polly 8.5.0 for provider communication, MassTransit 8.3.4 with RabbitMQ for asynchronous event publishing, Redis for distributed caching and idempotency, and JWT authentication for service-to-service security. Expose Prometheus metrics for operational observability.
 
@@ -44,7 +44,7 @@ The Payment Gateway Service is a core microservice that acts as a centralized AP
 - 1 year active data retention + 3 years archived (4 years total)
 
 **Scale/Scope**:
-- 4 initial payment providers (Stripe, PayPal, Omise, SCB API)
+- 3 initial payment providers (Omise, SCB API, Stripe), with Omise priority 1 for THB
 - Support for 20+ currencies
 - Extensible to additional providers without code changes
 - Multi-region deployment capability
@@ -223,7 +223,6 @@ Maliev.PaymentService/
 │   ├── Providers/                       # Payment provider implementations
 │   │   ├── IPaymentProviderAdapter.cs   # Common interface
 │   │   ├── StripeProvider.cs
-│   │   ├── PayPalProvider.cs
 │   │   ├── OmiseProvider.cs
 │   │   ├── ScbApiProvider.cs
 │   │   └── ProviderFactory.cs
@@ -262,7 +261,6 @@ Maliev.PaymentService/
 │   │   │   └── ProviderRepositoryTests.cs
 │   │   ├── Providers/
 │   │   │   ├── StripeProviderTests.cs
-│   │   │   ├── PayPalProviderTests.cs
 │   │   │   └── ProviderFailoverTests.cs
 │   │   └── TestContainersFixture.cs     # PostgreSQL, RabbitMQ, Redis container setup
 │   ├── Contract/
